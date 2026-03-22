@@ -3628,7 +3628,8 @@ function Get-EntraFalconHostOs {
         if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)) { return "Linux" }
         if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)) { return "macOS" }
     } catch {
-        # Continue with string-based fallback.
+        # Continue with string-based fallback
+        Write-Verbose "RuntimeInformation not available, using string-based OS detection"
     }
 
     $osString = [string]$PSVersionTable.OS

@@ -68,6 +68,8 @@ function Get-ApiErrorDetails {
                     $statusCode = [int]$response.StatusCode
                 }
             } catch {
+                # Status code extraction is best-effort; format varies by exception type
+                Write-Verbose "Could not extract HTTP status code: $($_.Exception.Message)"
             }
         }
 
@@ -93,6 +95,8 @@ function Get-ApiErrorDetails {
                 }
             }
         } catch {
+            # Response body extraction is best-effort; stream may be closed or unavailable
+            Write-Verbose "Could not read response body: $($_.Exception.Message)"
         }
     }
 
@@ -113,6 +117,8 @@ function Get-ApiErrorDetails {
                 if ($parsedError.message) { $errorMessage = [string]$parsedError.message }
             }
         } catch {
+            # JSON parsing is best-effort; body may not be valid JSON
+            Write-Verbose "Could not parse error response as JSON: $($_.Exception.Message)"
         }
     }
 

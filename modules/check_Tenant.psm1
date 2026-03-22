@@ -3908,7 +3908,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                             if ($startText -match "^\d{4}-\d{2}-\d{2}") {
                                 $start = $startText.Substring(0, 10)
                             } else {
-                                try { $start = ([datetime]$startText).ToString("yyyy-MM-dd") } catch {}
+                                try { $start = ([datetime]$startText).ToString("yyyy-MM-dd") } catch { Write-Verbose "Could not parse start date: $startText" }
                             }
                         }
                     }
@@ -3920,7 +3920,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                             if ($endText -match "^\d{4}-\d{2}-\d{2}") {
                                 $end = $endText.Substring(0, 10)
                             } else {
-                                try { $end = ([datetime]$endText).ToString("yyyy-MM-dd") } catch {}
+                                try { $end = ([datetime]$endText).ToString("yyyy-MM-dd") } catch { Write-Verbose "Could not parse end date: $endText" }
                             }
                         }
                     }
@@ -5019,7 +5019,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                         if ($startText -match "^\d{4}-\d{2}-\d{2}") {
                             $start = $startText.Substring(0, 10)
                         } else {
-                            try { $start = ([datetime]$startText).ToString("yyyy-MM-dd") } catch {}
+                            try { $start = ([datetime]$startText).ToString("yyyy-MM-dd") } catch { Write-Verbose "Could not parse start date: $startText" }
                         }
                     }
                 }
@@ -5031,7 +5031,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                         if ($endText -match "^\d{4}-\d{2}-\d{2}") {
                             $end = $endText.Substring(0, 10)
                         } else {
-                            try { $end = ([datetime]$endText).ToString("yyyy-MM-dd") } catch {}
+                            try { $end = ([datetime]$endText).ToString("yyyy-MM-dd") } catch { Write-Verbose "Could not parse end date: $endText" }
                         }
                     }
                 }
