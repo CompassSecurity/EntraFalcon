@@ -4225,8 +4225,8 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                                 $consentInfo = " (All users)"
                             } elseif ($perm.ConsentType -eq "Principal") {
                                 $consentCount = $perm.ConsentCount
-                                if ($consentCount -eq $null) { $consentCount = $perm.PrincipalCount }
-                                if ($consentCount -eq $null) {
+                                if ($null -eq $consentCount) { $consentCount = $perm.PrincipalCount }
+                                if ($null -eq $consentCount) {
                                     $consentInfo = " (some users)"
                                 } elseif ($consentCount -is [string] -and $consentCount -match "\busers?\b") {
                                     $consentInfo = " ($consentCount)"
@@ -4669,8 +4669,8 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                                 $consentInfo = " (All users)"
                             } elseif ($perm.ConsentType -eq "Principal") {
                                 $consentCount = $perm.ConsentCount
-                                if ($consentCount -eq $null) { $consentCount = $perm.PrincipalCount }
-                                if ($consentCount -eq $null) {
+                                if ($null -eq $consentCount) { $consentCount = $perm.PrincipalCount }
+                                if ($null -eq $consentCount) {
                                     $consentInfo = " (some users)"
                                 } elseif ($consentCount -is [string] -and $consentCount -match "\busers?\b") {
                                     $consentInfo = " ($consentCount)"
