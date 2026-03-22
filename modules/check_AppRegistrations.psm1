@@ -657,11 +657,11 @@ function Invoke-CheckAppRegistrations {
             $Warnings += "Guest as scoped AppAdmin!"
             $LikelihoodScore += $AppLikelihoodScore["GuestAsOwner"]
         }
-        if (($CloudAppAdminCurrentAppDetails | Where-Object { $_.Foreign -eq "True" } | Measure-Object).Count -ge 1) {
+        if (($CloudAppAdminCurrentAppDetails | Where-Object { $_.Foreign -eq $true } | Measure-Object).Count -ge 1) {
             $Warnings += "Foreign SP as scoped CloudAppAdmin!"
             $LikelihoodScore += $AppLikelihoodScore["ExternalSPOwner"]
         }
-        if (($AppAdminCurrentAppDetails | Where-Object { $_.Foreign -eq "True" } | Measure-Object).Count -ge 1) {
+        if (($AppAdminCurrentAppDetails | Where-Object { $_.Foreign -eq $true } | Measure-Object).Count -ge 1) {
             $Warnings += "Foreign SP scoped AppAdmin!"
             $LikelihoodScore += $AppLikelihoodScore["ExternalSPOwner"]
         }
