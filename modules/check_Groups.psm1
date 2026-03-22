@@ -465,6 +465,7 @@ function Invoke-CheckGroups {
     }
 
 
+    $TotalGroupMembers = 0
     foreach ($group in $GroupMembers.Values) {
         $TotalGroupMembers += $group.Count
     }
