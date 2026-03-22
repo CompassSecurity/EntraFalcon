@@ -880,7 +880,7 @@ function Invoke-CheckAppRegistrations {
                 [void]$DetailTxtBuilder.AppendLine("================================================================================================")
                 [void]$DetailTxtBuilder.AppendLine("Owners (Service Principals)")
                 [void]$DetailTxtBuilder.AppendLine("================================================================================================")
-                [void]$DetailTxtBuilder.AppendLine(($ReportingAppOwnersSP | format-table -Property DisplayName,Enabled,Foreign,PublisherName,OwnersCount | Out-String))
+                [void]$DetailTxtBuilder.AppendLine(($ReportingAppOwnersSP | format-table -Property DisplayName,Foreign,PublisherName,OwnersCount | Out-String))
                 $ReportingAppOwnersSP = foreach ($obj in $ReportingAppOwnersSP) {
                     [pscustomobject]@{
                         DisplayName     = $obj.DisplayNameLink
@@ -1120,6 +1120,7 @@ $headerHtml = @"
         $tableOutput | select-object DisplayName,SignInAudience,Enabled,CreationInDays,AppLock,AppRoles,Owners,FederatedCreds,CloudAppAdmins,AppAdmins,SecretsCount,CertsCount,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).csv" -NoTypeInformation
     }
     $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
+    $AppendixSecretsHTML = ""
     $AppsWithSecrets = $AppsWithSecrets | sort-object DisplayName | select-object AppName,Displayname,StartDateTime,EndDateTime,Expired
     if (($AppsWithSecrets | Measure-Object).count -ge 1) {
         $AppendixClientSecrets  | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
