@@ -379,7 +379,6 @@ function Invoke-CheckEnterpriseApps {
         $WarningsHighPermission = $null
         $WarningsDangerousPermission = $null
         $WarningsMediumPermission = $null
-        $Owners = $null
         $AppCredentials = @()
         $OwnerUserDetails = @()
         $OwnerSPDetails = @()
@@ -752,10 +751,7 @@ function Invoke-CheckEnterpriseApps {
 
         # Check if it the Entra Connect Sync App
         if ($item.DisplayName -match "ConnectSyncProvisioning_") {
-            $EntraConnectApp = $true
             $Warnings += "Entra Connect Sync Application!"
-        } else {
-            $EntraConnectApp = $false
         }
 
         # Check if the SP has credentials defined

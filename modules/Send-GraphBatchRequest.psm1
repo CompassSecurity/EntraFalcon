@@ -343,9 +343,6 @@ function Invoke-GraphNextLinkBatch {
         [string]$ApiVersion
     )
 
-    $ResultsList = New-Object 'System.Collections.Generic.List[object]'
-    $MoreNextLinks = New-Object 'System.Collections.Generic.List[string]'
-
     $Headers = @{
         "Authorization" = "Bearer $AccessToken"
         "User-Agent"    = $UserAgent

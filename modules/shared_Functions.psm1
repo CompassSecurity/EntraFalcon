@@ -5075,7 +5075,7 @@ function Get-PimforGroupsAssignments {
     }
 
     try {
-        $AuthCheck = Send-GraphRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Method GET -Uri '/me?$select=id' -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name) -erroraction Stop
+        $null = Send-GraphRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Method GET -Uri '/me?$select=id' -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name) -erroraction Stop
     } catch {
         write-host "[!] Auth error: $($_.Exception.Message -split '\n')"
         $ResultAuthCheck = $false

@@ -207,8 +207,6 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][string]$LoginHint
     )
 
-    $AuthError = $false
-
     #Check whether the manual code flow, local HTTP server or embeded browser needs to be started.
     if ($ManualCode) {
         $AuthMode = "ManualCode"
@@ -1642,9 +1640,6 @@ function Get-Token {
             $tokens | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
             if ($null -ne $JWT.xms_cc) {
                 $tokens | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
-                $xms_cc = $true
-            } else {
-                $xms_cc = $false
             }
             Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
         } else {

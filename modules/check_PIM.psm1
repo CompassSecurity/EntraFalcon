@@ -483,7 +483,6 @@ function Invoke-CheckPIM {
                     }
 
                     if ($Issues.Count -gt 0) {
-                        $CapIssues = $true
                         $AuthContextIssueSummary.Add("CAP '$($policy.DisplayName)' (AuthContext:$($policy.AuthContextId -join ', ')): $($Issues -join ' / ')")
                     }
 
