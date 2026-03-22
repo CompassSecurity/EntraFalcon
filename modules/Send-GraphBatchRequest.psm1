@@ -327,7 +327,10 @@ function Send-GraphBatchRequest {
 }
 
 
+# JsonDepthResponse and VerboseMode are accepted from callers for interface consistency
 function Invoke-GraphNextLinkBatch {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'JsonDepthResponse')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'VerboseMode')]
     param (
         [string[]]$NextLinks,
         [string[]]$Ids,

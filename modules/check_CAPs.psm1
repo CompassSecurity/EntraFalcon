@@ -5,6 +5,9 @@
 #>
 function Invoke-CheckCaps {
     ############################## Parameter section ########################
+    # AllGroupsDetails and Users are used by nested helper functions via parent scope
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'AllGroupsDetails')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Users')]
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory=$false)][string]$OutputFolder = ".",

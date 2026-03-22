@@ -9,6 +9,8 @@
 function Invoke-CheckAppRegistrations {
 
     ############################## Parameter section ########################
+    # AllGroupsDetails is used by the nested GetObjectInfo function via parent scope
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'AllGroupsDetails')]
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory=$false)][string]$OutputFolder = ".",

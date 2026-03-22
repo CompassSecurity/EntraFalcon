@@ -7,6 +7,14 @@ function Invoke-CheckRoles {
 
     ############################## Parameter section ########################
     [CmdletBinding()]
+    # PSScriptAnalyzer flags these as unused, but they are accessed by the nested
+    # Get-ObjectDetails function via parent scope for cross-referencing object types.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'AdminUnitWithMembers')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'AllGroupsDetails')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'EnterpriseApps')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ManagedIdentities')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'AppRegistrations')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Users')]
     Param (
         [Parameter(Mandatory=$false)][string]$OutputFolder = ".",
         [Parameter(Mandatory=$false)][Object[]]$AdminUnitWithMembers,

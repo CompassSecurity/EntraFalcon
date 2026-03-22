@@ -141,6 +141,7 @@ function Invoke-CheckGroups {
 
     $NestedGroupCache = @{}
     function Expand-NestedGroups-Cached {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'CallerPSCmdlet')]
         param (
             [Parameter(Mandatory = $true)]
             [object]$StartGroup,
@@ -148,7 +149,8 @@ function Invoke-CheckGroups {
             [Parameter(Mandatory = $true)]
             [hashtable]$GroupLookup,
 
-            [Parameter(Mandatory = $true)]
+            # CallerPSCmdlet reserved for future ShouldProcess support
+            [Parameter(Mandatory = $false)]
             [System.Management.Automation.PSCmdlet]$CallerPSCmdlet
         )
 

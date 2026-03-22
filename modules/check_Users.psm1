@@ -5,6 +5,8 @@
 #>
 function Invoke-CheckUsers {
     ############################## Parameter section ########################
+    # ConditionalAccessPolicies is passed by the shared calling interface but not consumed by this module
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ConditionalAccessPolicies')]
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory=$false)][string]$OutputFolder = ".",

@@ -6,6 +6,8 @@
 function Invoke-CheckPIM {
 
     ############################## Parameter section ########################
+    # Users is passed by the shared calling interface but not consumed by this module
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Users')]
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory=$false)][string]$OutputFolder = ".",
