@@ -1,4 +1,4 @@
-﻿<#
+<#
     .SYNOPSIS
        Generates the security findings HTML report.
 

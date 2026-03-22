@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
    Generate a summary about the enumerated objects in the tenant.
 

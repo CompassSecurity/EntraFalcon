@@ -1,4 +1,4 @@
-﻿<#
+<#
 	.SYNOPSIS
 	   Enumerates and analyzes all users in the current tenant, including access, ownerships, roles, and risk posture.
 

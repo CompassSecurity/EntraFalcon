@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
    Enumerate Enterprise Applications (including: API Permission, Source Tenant, Groups, Roles).
 

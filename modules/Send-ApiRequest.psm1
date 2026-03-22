@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Sends a single API request with retry, pagination, and robust error parsing.
 

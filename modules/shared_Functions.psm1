@@ -1,4 +1,4 @@
-﻿<#
+<#
     .SYNOPSIS
     Helper functions used by the main flow or by the different sub-modules
 #>
@@ -1278,7 +1278,7 @@ $global:GLOBALJavaScript_Table = @'
                 return !rawStr.includes(negatedFilter);
             }
 
-            // Default: contains → search raw HTML (so href/id is searchable)
+            // Default: contains -> search raw HTML (so href/id is searchable)
             return rawStr.includes(lowerInput);
         }
 
@@ -1690,7 +1690,7 @@ $global:GLOBALJavaScript_Table = @'
             const pre = document.createElement('pre');
             pre.className = 'yaml-block';
 
-            // Join lines with newlines — keep them raw so links render
+            // Join lines with newlines -- keep them raw so links render
             pre.innerHTML = lines.join('\n');
 
             section.appendChild(pre);

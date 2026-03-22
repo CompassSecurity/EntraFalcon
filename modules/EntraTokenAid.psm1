@@ -1,11 +1,11 @@
-﻿<#
+<#
     .Synopsis
     Pure PowerShell Entra OAuth authentication to get access and refresh tokens.
 
     .Description
     EntraTokenAid is a PowerShell module to simplify OAuth workflows with Microsoft Entra ID, to get the access and refresh token for different APIs using different clients.
     Accessing cleartext access and refresh tokens for various MS APIs (e.g., MS Graph) is often a requirement during engagements and research, especially using pre-consented clients (e.g., AzureCLI) to avoid additional consent prompts. Tokens are needed not only for manual enumeration via APIs but also for tools like AzureHound or GraphRunner, which require a valid refresh token.
-    With more customers starting to block the Device Code Flow, alternative authentication methods for obtaining cleartext refresh tokens are becoming increasingly important. While using AzureCLI modules is a common solution, its installation may not always be feasible—especially on customer systems. Other alternatives like roadtx require Python, which might not be ideal in customer environments.
+    With more customers starting to block the Device Code Flow, alternative authentication methods for obtaining cleartext refresh tokens are becoming increasingly important. While using AzureCLI modules is a common solution, its installation may not always be feasible--especially on customer systems. Other alternatives like roadtx require Python, which might not be ideal in customer environments.
     This tool should bridges this gap with a lightweight, standalone PowerShell solution that works even on the customers Windows systems.
 
     Features:

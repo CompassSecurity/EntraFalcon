@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
    Collects and enriches Entra ID and Azure IAM role assignments, producing output in HTML, TXT, and CSV formats.
 #>

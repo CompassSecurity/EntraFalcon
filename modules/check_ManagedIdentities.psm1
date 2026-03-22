@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
    Enumerate Managed Identities (including: API Permission, Source Tenant, Groups, Roles).
 #>

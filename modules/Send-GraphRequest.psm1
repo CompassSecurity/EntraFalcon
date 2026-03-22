@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Sends requests to the Microsoft Graph API.
 

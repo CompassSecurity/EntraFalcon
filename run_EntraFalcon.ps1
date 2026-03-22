@@ -1,4 +1,4 @@
-﻿<#
+<#
     .Synopsis
     PowerShell-based security assessment tool for Microsoft Entra ID environments.
 
@@ -9,7 +9,7 @@
 
     .PARAMETER Tenant
     Specifies the Entra ID tenant to authenticate against.
-    Use this to target a specific tenant ID or domain, especially when enumerating tenants other than the account’s home tenant.
+    Use this to target a specific tenant ID or domain, especially when enumerating tenants other than the account's home tenant.
     - `organizations` (for multi-tenant apps)
     - A specific tenant ID
     Default: `organizations`
@@ -20,7 +20,7 @@
 
     .PARAMETER ApiTop
     Specifies the Graph API page size (number of objects per response). Use a lower value if you encounter HTTP 504 errors (this will result in more API requests).
-    The default value used by Microsoft Graph API is 100. Valid range: 5–999.
+    The default value used by Microsoft Graph API is 100. Valid range: 5-999.
     Default: `999`
 
     .PARAMETER DisableCAE

@@ -1,4 +1,4 @@
-﻿<#
+<#
 	.SYNOPSIS
 	   Enumerates groups and evaluates their configurations, ownership, roles, and risk posture.
 #>
@@ -123,7 +123,7 @@ function Invoke-CheckGroups {
                                 $ResultHT[$parentId] = $AllGroupsHT[$parentId]
                             }
 
-                            # Continue walking up only if we haven’t seen this parent
+                            # Continue walking up only if we haven't seen this parent
                             if (-not $Visited.ContainsKey($parentId)) {
                                 $Stack.Push($parentId)
                             }
@@ -1344,7 +1344,7 @@ function Invoke-CheckGroups {
     # Reprocessing nested groups in groups which give access to potential critical ressources -> Nested group is adjusted
     # Note: Nested groups do not inherit AppRoles
     Write-Log -Level Debug -Message "Processing $($NestedGroupsHighvalue.Count) high value groups with nestings"
-    # Tracks already processed groupID→targetID combinations
+    # Tracks already processed groupID->targetID combinations
     $processedGroupHighValuePairs = New-Object System.Collections.Generic.HashSet[string]
 
     foreach ($highValueGroup in $NestedGroupsHighvalue) {
@@ -1357,7 +1357,7 @@ function Invoke-CheckGroups {
             # Skip self-nesting
             if ($highValueGroup.GroupID -eq $targetId) { continue }
 
-            # Deduplicate highValueGroup → targetId
+            # Deduplicate highValueGroup -> targetId
             $pairKey = "$($highValueGroup.GroupID)|$targetId"
             if ($processedGroupHighValuePairs.Contains($pairKey)) { continue }
             $null = $processedGroupHighValuePairs.Add($pairKey)

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Sends a batch request to Microsoft Graph API.
 

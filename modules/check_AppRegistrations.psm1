@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
    Enumerate App Registrations (including: API Permission (Application), Owner, Secrets, Certificates, 	Access through App Roles etc.).
 
