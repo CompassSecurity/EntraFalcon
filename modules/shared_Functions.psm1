@@ -4346,7 +4346,7 @@ function Invoke-AzureRoleProcessing {
         if ($Tier2Count -ge 1) { $roleParts += "$Tier2Count (Tier2)" }
         if ($Tier3Count -ge 1) { $roleParts += "$Tier3Count (Tier3)" }
         if ($UnknownTierCount -ge 1) { $roleParts += "$UnknownTierCount (Tier?)" }
-        if (($Tier0Count + $Tier1Count + $Tier2Count + $UnknownTierCount) -ge 2) {
+        if (($Tier0Count + $Tier1Count + $Tier2Count + $Tier3Count + $UnknownTierCount) -ge 2) {
             $word = "roles"
         } else {
             $word = "role"
