@@ -4572,7 +4572,12 @@ function Get-AllAzureIAMAssignmentsNative {
         $AssignmentsEligible = @()
         if ($AzurePIM) {
             $AssignmentsEligible = $response | ForEach-Object {
-                $RoleDetails = $roleHashTable[(($_.properties.roleDefinitionId -split '/')[-1])]
+                $roleId = ($_.properties.roleDefinitionId -split '/')[-1]
+                if (-not $roleHashTable.ContainsKey($roleId)) {
+                    Write-Log -Level Debug -Message "Skipping unknown eligible RoleId: $roleId"
+                    return
+                }
+                $RoleDetails = $roleHashTable[$roleId]
                 $resolvedScope = Resolve-AzureIamScopePath -Scope $_.properties.scope
                 $hasCondition = ($null -ne $_.properties.condition -and $_.properties.condition.Trim() -ne "")
                 if ($GLOBALAzureRoleRating.ContainsKey($RoleDetails.RoleId)) {
