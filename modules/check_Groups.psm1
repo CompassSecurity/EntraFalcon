@@ -762,7 +762,7 @@ function Invoke-CheckGroups {
                 $PfGOwnedGroupsRaw = @($PimForGroupsEligibleOwnerParentGroupHT[$group.Id])
                 $PfGOwnedGroups = foreach ($OwnedGroup in $PfGOwnedGroupsRaw) {
                     #Get additonal proprties for the group
-                    if ($AllGroupsHT.ContainsKey($group.Id)) {
+                    if ($AllGroupsHT.ContainsKey($OwnedGroup.Id)) {
                         $info = $AllGroupsHT[$OwnedGroup.Id]
                         [PSCustomObject]@{
                             Id                  = $OwnedGroup.Id
@@ -793,7 +793,7 @@ function Invoke-CheckGroups {
                 $PfGnestedGroupsRaw = @($PimForGroupsEligibleMemberParentGroupHT[$group.Id])
                 $PfGnestedGroups = foreach ($ParentGroup in $PfGnestedGroupsRaw) {
                     #Get additonal proprties for the group
-                    if ($AllGroupsHT.ContainsKey($group.Id)) {
+                    if ($AllGroupsHT.ContainsKey($ParentGroup.Id)) {
                         $info = $AllGroupsHT[$ParentGroup.Id]
                         [PSCustomObject]@{
                             Id                  = $ParentGroup.Id
