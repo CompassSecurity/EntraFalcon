@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
    Enumerate CAPs
 
@@ -32,7 +32,7 @@ function Invoke-CheckCaps {
             return $false
         }
     }
-        
+
     # Function to check if an object is empty, considering nested properties
     function Is-Empty {
         param ([Object]$Obj)
@@ -121,7 +121,7 @@ function Invoke-CheckCaps {
             } elseif ($Report -eq "TXT") {
                 return $ResolvedGUID
             }
-            
+
         }
         if ($AllGroupsDetails.ContainsKey($Guid)) {
             $ResolvedGUID = $($AllGroupsDetails[$Guid].DisplayName)
@@ -134,12 +134,12 @@ function Invoke-CheckCaps {
             }
         }
 
-        if ($EnterpriseAppsHT.ContainsKey($Guid)) { 
+        if ($EnterpriseAppsHT.ContainsKey($Guid)) {
             $ResolvedGUID = $($EnterpriseAppsHT[$Guid])
             return $ResolvedGUID
         }
-        
-        if ($NamedLocationsHT.ContainsKey($Guid)) { 
+
+        if ($NamedLocationsHT.ContainsKey($Guid)) {
             $ResolvedGUID = $($NamedLocationsHT[$Guid].Name)
 
             if ($Report -eq "HTML") {
@@ -149,7 +149,7 @@ function Invoke-CheckCaps {
                 return $ResolvedGUID
             }
         }
-        if ($RoleTemplatesHT.ContainsKey($Guid)) { 
+        if ($RoleTemplatesHT.ContainsKey($Guid)) {
             $ResolvedGUID = $($RoleTemplatesHT[$Guid])
             return $ResolvedGUID
         }
@@ -279,7 +279,7 @@ function Invoke-CheckCaps {
                     $TargetedLocations = $TargetedLocations -join ", "
                 }
             }
-        
+
             "#microsoft.graph.ipNamedLocation" {
                 $NamedLocationType = "IP ranges"
                 $TargetedLocations = $location.ipRanges.cidrAddress
@@ -300,11 +300,11 @@ function Invoke-CheckCaps {
         $MatchingCAPsIncluded = $AllPolicies | Where-Object {
             ($_.Conditions.Locations.IncludeLocations -contains $location.Id) -or ( ($_.Conditions.Locations.IncludeLocations -contains "AllTrusted") -and $location.isTrusted )
         }
-        
+
         $MatchingCAPsExcluded = $AllPolicies | Where-Object {
             ($_.Conditions.Locations.ExcludeLocations -contains $location.Id) -or ( ($_.Conditions.Locations.ExcludeLocations -contains "AllTrusted") -and $location.isTrusted )
         }
-        
+
         # Create text values: a comma-separated list of policy display names (if any).
         $IncludedCAPsText = if ($MatchingCAPsIncluded) {
             ($MatchingCAPsIncluded | ForEach-Object { $_.DisplayName }) -join ", "
@@ -322,13 +322,13 @@ function Invoke-CheckCaps {
         } else {
             ""
         }
-        
+
         $ExcludedCAPsTextLinks = if ($MatchingCAPsExcluded) {
             ( $MatchingCAPsExcluded | ForEach-Object { "<a href=#$($_.ID)>$($_.DisplayName)</a>" } ) -join ", "
         } else {
             ""
         }
-        
+
         [pscustomobject]@{
             "Id"                = $location.Id
             "Name"              = $location.DisplayName
@@ -401,13 +401,13 @@ function Invoke-CheckCaps {
         }
 
         Write-Log -Level Debug -Message "Prepared HT EnterpriseApps $($EnterpriseAppsHT.Count)"
-        
+
         #Get all role templates to resolve GUIDs
         $QueryParameters = @{
             '$select' = "Id,Displayname"
         }
         $RoleTemplates = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/directoryRoleTemplates" -QueryParameters $QueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
-        
+
         $RoleTemplatesHT = @{}
         foreach ($role in $RoleTemplates ) {
             $RoleTemplatesHT[$role.Id] = $role.DisplayName
@@ -477,7 +477,7 @@ function Invoke-CheckCaps {
         if ($policy.Conditions.Applications.IncludeApplications -contains "None") {
             $IncludedResourcesCount = 0
         }
-        
+
         if ($policy.Conditions.Locations.IncludeLocations -contains "AllTrusted") {
             $IncludedNwLocations = "AllTrusted"
             $IncludedNwLocationsCount = 1
@@ -536,7 +536,7 @@ function Invoke-CheckCaps {
             $ExcludedExternalUsersCount = ($ExcludedExternalUsers -split ',').Count
         }
 
-        
+
         if ($policy.Conditions.ClientAppTypes -contains "all") {
             $ClientAppTypesCount = 0
         } else {
@@ -566,11 +566,11 @@ function Invoke-CheckCaps {
                 }
             }
         }
-        
+
 
         #Get Authcontext
         $AuthContextId = $policy.Conditions.Applications.IncludeAuthenticationContextClassReferences
-        
+
         # Check if there are used Entra role assignments (Tier 0 & 1) which are no in the IncludeRoles
         $includedRoleIds = $policy.Conditions.Users.IncludeRoles
         $unmatchedRoleCounts = @{}
@@ -581,7 +581,7 @@ function Invoke-CheckCaps {
                 $roleId   = $assignment.RoleDefinitionId
                 $roleName = $assignment.DisplayName
                 $roleTier = $assignment.RoleTier
-            
+
                 # Unmatched high-tier roles
                 if ($includedRoleIds -notcontains $roleId) {
                     if (-not $unmatchedRoleCounts.ContainsKey($roleName)) {
@@ -597,11 +597,11 @@ function Invoke-CheckCaps {
 
         #Check if there are roles targetd which have a scoped assignment
         $ScopedRoles = @()
-        $seenScopedRoleIds = @()        
+        $seenScopedRoleIds = @()
         foreach ($roleId in $includedRoleIds) {
             if ($ScopedAssignments.ContainsKey($roleId) -and $seenScopedRoleIds -notcontains $roleId) {
                 $seenScopedRoleIds += $roleId
-        
+
                 $info = $ScopedAssignments[$roleId]
                 $ScopedRoles += [PSCustomObject]@{
                     RoleName              = $info.RoleName
@@ -626,11 +626,11 @@ function Invoke-CheckCaps {
 
             $tier0Count = @($unmatchedRoleCounts.Values | Where-Object { $_.Tier -eq 0 }).Count
             $tier1Count = @($unmatchedRoleCounts.Values | Where-Object { $_.Tier -eq 1 }).Count
-            
+
             $parts = @()
             if ($tier0Count -gt 0) { $parts += "Tier-0: $tier0Count" }
             if ($tier1Count -gt 0) { $parts += "Tier-1: $tier1Count" }
-            
+
             if ($parts.Count -gt 0) {
                 $MissingRolesWarning = "missing used roles (" + ($parts -join " / ") + ")"
             }
@@ -654,7 +654,7 @@ function Invoke-CheckCaps {
         $ExcludedUsersEffective = $policy.Conditions.Users.ExcludeUsers.count + $ExcUsersViaGroups
         $ExcludedRolesCount = @($policy.Conditions.Users.ExcludeRoles).Count
         $ExcludedNonUserTargets = $ExcludedRolesCount + $ExcludedExternalUsersCount
-        
+
         #Count condition types for policy complexity checks
         $SignInRiskCount = $policy.Conditions.SignInRiskLevels.count
         $UserRiskCount = $policy.Conditions.UserRiskLevels.count
@@ -690,7 +690,7 @@ function Invoke-CheckCaps {
             $PolicyDeviceCodeFlow = $true
             $DeviceCodeFlowWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $DeviceCodeFlowWarnings++
@@ -709,7 +709,7 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $DeviceCodeFlowWarnings++            
+                $DeviceCodeFlowWarnings++
             }
             if ($ExcludedUsersEffective -ge 3) {
                 $ErrorMessages += "has $ExcludedUsersEffective excluded users (direct or through groups)"
@@ -739,7 +739,7 @@ function Invoke-CheckCaps {
             $PolicyLegacyAuth = $true
             $LegacyAuthWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $LegacyAuthWarnings++
@@ -758,7 +758,7 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $LegacyAuthWarnings++           
+                $LegacyAuthWarnings++
             }
             if ($ExcludedUsersEffective -ge 3) {
                 $ErrorMessages += "has $ExcludedUsersEffective excluded users (direct or through groups)"
@@ -773,7 +773,7 @@ function Invoke-CheckCaps {
                 $ErrorMessages += "has ($additionalConditionTypes) additional condition types"
                 $LegacyAuthWarnings++
             }
-        
+
             if ($LegacyAuthWarnings -ge 1) {
                 $warningMessage = "Targeting Legacy Auth but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -789,7 +789,7 @@ function Invoke-CheckCaps {
             $PolicyRiskySignIn = $true
             $SignInRiskWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $SignInRiskWarnings++
@@ -804,7 +804,7 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $SignInRiskWarnings++            
+                $SignInRiskWarnings++
             }
             if ($ExcludedUsersEffective -ge 3) {
                 $ErrorMessages += "has $ExcludedUsersEffective excluded users (direct or through groups)"
@@ -819,7 +819,7 @@ function Invoke-CheckCaps {
                 $ErrorMessages += "has additional ($additionalConditionTypes) condition types"
                 $SignInRiskWarnings++
             }
-        
+
             if ($SignInRiskWarnings -ge 1) {
                 $warningMessage = "Targeting risky sign-ins but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -835,7 +835,7 @@ function Invoke-CheckCaps {
             $PolicyUserRisk = $true
             $UserRiskWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $UserRiskWarnings++
@@ -850,7 +850,7 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $UserRiskWarnings++          
+                $UserRiskWarnings++
             }
             if ($ExcludedUsersEffective -ge 3) {
                 $ErrorMessages += "has $ExcludedUsersEffective excluded users (direct or through groups)"
@@ -865,7 +865,7 @@ function Invoke-CheckCaps {
                 $ErrorMessages += "has additional ($additionalConditionTypes) condition types"
                 $UserRiskWarnings++
             }
-        
+
             if ($UserRiskWarnings -ge 1) {
                 $warningMessage = "Targeting user risk but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -898,7 +898,7 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $CombinedRiskWarnings++         
+                $CombinedRiskWarnings++
             }
             if ($ExcludedUsersEffective -ge 3) {
                 $ErrorMessages += "has $ExcludedUsersEffective excluded users (direct or through groups)"
@@ -929,7 +929,7 @@ function Invoke-CheckCaps {
             $PolicyRegSecInfo = $true
             $RegisterSecInfosWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $RegisterSecInfosWarnings++
@@ -948,13 +948,13 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $RegisterSecInfosWarnings++          
+                $RegisterSecInfosWarnings++
             }
             if ($ConditionTypeCount -gt 2) {
                 $ErrorMessages += "has multiple ($ConditionTypeCount) condition types"
                 $RegisterSecInfosWarnings++
             }
-        
+
             if ($RegisterSecInfosWarnings -ge 1) {
                 $warningMessage = "Targeting registration of security infos but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -964,13 +964,13 @@ function Invoke-CheckCaps {
                 }
             }
         }
-  
+
         #Check policy for joining or registering devices
         if ($policy.Conditions.Applications.IncludeUserActions -contains "urn:user:registerdevice") {
             $PolicyRegDevices = $true
             $RegisterDevicesInfosWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $RegisterDevicesInfosWarnings++
@@ -989,13 +989,13 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $RegisterDevicesInfosWarnings++              
+                $RegisterDevicesInfosWarnings++
             }
             if ($ConditionTypeCount -gt 1) {
                 $ErrorMessages += "has multiple ($ConditionTypeCount) condition types"
                 $RegisterDevicesInfosWarnings++
             }
-        
+
             if ($RegisterDevicesInfosWarnings -ge 1) {
                 $warningMessage = "Targeting joining or registering devices but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -1011,7 +1011,7 @@ function Invoke-CheckCaps {
             $PolicyMfaUser = $true
             $UserMfaWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $UserMfaWarnings++
@@ -1040,7 +1040,7 @@ function Invoke-CheckCaps {
                 $ErrorMessages += "has ($ConditionTypeCount) condition types"
                 $UserMfaWarnings++
             }
-        
+
             if ($UserMfaWarnings -ge 1) {
                 $warningMessage = "Requires MFA but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -1059,7 +1059,7 @@ function Invoke-CheckCaps {
             $PolicyAuthStrength = $true
             $AuthStrengthWarnings = 0
             $ErrorMessages = @()
-        
+
             if ($policy.State -ne "enabled") {
                 $ErrorMessages += "is not enabled"
                 $AuthStrengthWarnings++
@@ -1078,13 +1078,13 @@ function Invoke-CheckCaps {
             }
             if ($unmatchedRoleCounts.Count -ne 0) {
                 $ErrorMessages += $MissingRolesWarning
-                $AuthStrengthWarnings++              
+                $AuthStrengthWarnings++
             }
             if ($ConditionTypeCount -gt 1) {
                 $ErrorMessages += "has multiple ($ConditionTypeCount) condition types"
                 $AuthStrengthWarnings++
             }
-        
+
             if ($AuthStrengthWarnings -ge 1) {
                 $warningMessage = "Requires Authentication Strength (no Auth Context) but " + ($ErrorMessages -join ", ")
                 if ([string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -1096,7 +1096,7 @@ function Invoke-CheckCaps {
         }
 
         #General Policy checks
-        
+
         #Check if the role includes roles but scope assignment exist for the role
         if ($ScopedRolesCount -gt 0) {
             if (-not [string]::IsNullOrWhiteSpace($WarningPolicy)) {
@@ -1118,7 +1118,7 @@ function Invoke-CheckCaps {
                 $AuthStrengthId = [string]$policy.GrantControls.AuthenticationStrength.Id
             }
         }
-        
+
 
         $ConditionalAccessPolicies.Add([PSCustomObject]@{
             Id = $policy.Id
@@ -1205,7 +1205,7 @@ function Invoke-CheckCaps {
     if (!$PolicyAuthStrength) {
         $Warnings += "No policy enforcing Authentication Strength (e.g., phishing-resistant MFA) for admins was found!"
     }
-    
+
     if ($Warnings.count -ge 1) {
         # Correct way to format warnings into HTML list items
         $MissingPolicies = ($Warnings | ForEach-Object { "<li>$_</li>" }) -join "`n"
@@ -1236,7 +1236,7 @@ $MissingPolicies
         $HtmlGrantControls = @()
         $MissingRoles = @()
         $ScopedRoles = @()
- 
+
         [void]$DetailTxtBuilder.AppendLine("############################################################################################################################################")
 
         $ReportingCapInfo = [pscustomobject]@{
@@ -1244,7 +1244,7 @@ $MissingPolicies
             "ID" = $($item.Id)
             "State" = $($item.State)
         }
-        
+
         #Sometimes even $item.CreatedDateTime is $null
         if ($null -ne $item.CreatedDateTime) {
             $ReportingCapInfo | Add-Member -NotePropertyName Created -NotePropertyValue $item.CreatedDateTime.ToString()
@@ -1261,7 +1261,7 @@ $MissingPolicies
         if ($matchingWarnings -ne "") {
             $ReportingCapInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $matchingWarnings
         }
-       
+
         [void]$DetailTxtBuilder.AppendLine(($ReportingCapInfo | Format-List | Out-String))
 
 
@@ -1270,7 +1270,7 @@ $MissingPolicies
         if ($policy.MissingRoles.count -ge 1) {
 
             $MissingRoles = foreach ($object in $($policy.MissingRoles)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                   "RoleName" = $($object.RoleName)
                   "RoleTier" = $($object.RoleTier)
                   "AssignmentsLink" = "<a href=Role_Assignments_Entra_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html?Role=$([System.Uri]::EscapeDataString("=$($object.RoleName)"))>$($object.Assignments)</a>"
@@ -1289,14 +1289,14 @@ $MissingPolicies
                     "Assignments" = $($object.AssignmentsLink)
                 }
             }
-            
-        } 
-        
+
+        }
+
         ############### Missing Roles
         if ($policy.ScopedRoles.count -ge 1) {
 
             $ScopedRoles = foreach ($object in $($policy.ScopedRoles)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                   "RoleName" = $($object.RoleName)
                   "RoleTier" = $($object.RoleTier)
                   "AssignmentsScopedLink" = "<a href=Role_Assignments_Entra_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html?Role=$([System.Uri]::EscapeDataString("=$($object.RoleName)"))&Scope=$([System.Uri]::EscapeDataString("!(Tenant)"))>$($object.Assignments)</a>"
@@ -1315,8 +1315,8 @@ $MissingPolicies
                     "AssignmentsScoped" = $($object.AssignmentsScopedLink)
                 }
             }
-        } 
-        
+        }
+
 
         # Convert the raw CAP JSON to YAML, enriching it with HTTP links.
         if ($null -ne $item.Conditions) {
@@ -1368,9 +1368,9 @@ $MissingPolicies
             "Targeted Roles With Scoped Assignments"    = $ScopedRoles
             "Conditions"                                = $HtmlConditions
             "Session Controls"                          = $HtmlSessionControls
-            "Grant Controls"                            = $HtmlGrantControls 
+            "Grant Controls"                            = $HtmlGrantControls
         }
-    
+
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
     }
 
@@ -1380,7 +1380,7 @@ $MissingPolicies
 
     if ($AllPoliciesCount -gt 0) {
         $mainTable = $tableOutput | select-object -Property @{Label="DisplayName"; Expression={$_.DisplayNameLink}},State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,ExcRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
-        $mainTableJson  = $mainTable | ConvertTo-Json -Depth 10 -Compress       
+        $mainTableJson  = $mainTable | ConvertTo-Json -Depth 10 -Compress
     } else {
         #Define an empty JSON object to make the HTML report loading
         $mainTableJson = "[{}]"
@@ -1437,14 +1437,14 @@ $headerHtml = @"
 </div>
 <h2>$Title Overview</h2>
 "@
-  
+
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt"
-    if ($AllPoliciesCount -gt 0 -and $Csv) { 
+    if ($AllPoliciesCount -gt 0 -and $Csv) {
         $tableOutput | select-object DisplayName,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,ExcGroups,IncRoles,ExcRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).csv" -NoTypeInformation
     }
     $tableOutput | format-table -Property DisplayName,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,ExcGroups,IncRoles,ExcRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
-    if ($Warnings.count -ge 1) {$Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append} 
+    if ($Warnings.count -ge 1) {$Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append}
     $DetailOutputTxt | Out-File -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
 
 
@@ -1464,7 +1464,7 @@ $headerHtml = @"
 
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
     write-host "[+] Details of $AllPoliciesCount policies stored in output files ($OutputFormats): $outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName)"
-    
+
     #Add information to the enumeration summary
     $GlobalAuditSummary.ConditionalAccess.Count = $AllPoliciesCount
     $EnabledCount = 0
@@ -1473,7 +1473,7 @@ $headerHtml = @"
             $EnabledCount ++
         }
     }
-    $GlobalAuditSummary.ConditionalAccess.Enabled = $EnabledCount 
+    $GlobalAuditSummary.ConditionalAccess.Enabled = $EnabledCount
 
     #Convert to Hashtable for faster searches
     $AllCapsHT = @{}
@@ -1481,6 +1481,6 @@ $headerHtml = @"
         $AllCapsHT[$item.Id] = $item
     }
     Return $AllCapsHT
-    
+
 }
 

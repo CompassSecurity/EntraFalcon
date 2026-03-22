@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Sends requests to the Microsoft Graph API.
 
@@ -59,10 +59,10 @@
 .EXAMPLE
     Send-GraphRequest -AccessToken $token -Method GET -Uri '/users' -AdditionalHeaders @{ 'ConsistencyLevel' = 'eventual' }
 
-.EXAMPLE 
+.EXAMPLE
     Send-GraphRequest -AccessToken $token -Method GET -Uri '/users' -QueryParameters @{ '$filter' = "startswith(displayName,'Alex')" }"
 
-.EXAMPLE 
+.EXAMPLE
     $Body = @{
         displayName     = "Test Security Group2"
         mailEnabled     = $false
@@ -71,7 +71,7 @@
         groupTypes      = @()
     }
     $result = Send-GraphRequest -AccessToken $token -Method POST -Uri "/groups" -Body $Body -VerboseMode
-    
+
 
 .NOTES
     Author: ZH54321
@@ -110,13 +110,13 @@ function Send-GraphRequest {
 
     #Add query parameters
     if ($QueryParameters) {
-        $QueryString = ($QueryParameters.GetEnumerator() | 
-            ForEach-Object { 
-                "$($_.Key)=$([uri]::EscapeDataString($_.Value))" 
+        $QueryString = ($QueryParameters.GetEnumerator() |
+            ForEach-Object {
+                "$($_.Key)=$([uri]::EscapeDataString($_.Value))"
             }) -join '&'
         $FullUri = "$FullUri`?$QueryString"
     }
-    
+
 
     #Define basic headers
     $Headers = @{
@@ -223,7 +223,7 @@ function Send-GraphRequest {
             } else {
                 if (-not ($StatusCode -eq 404 -and $Suppress404)) {
                     $msg = "[!] Graph API request failed after $RetryCount retries. Status: $StatusCode. Message: $StatusDesc"
-                    $exception = New-Object System.Exception($msg)   
+                    $exception = New-Object System.Exception($msg)
 
                     $errorRecord = New-Object System.Management.Automation.ErrorRecord (
                         $exception,
@@ -231,7 +231,7 @@ function Send-GraphRequest {
                         $errorCategory,
                         $FullUri
                     )
-                    
+
                     Write-Error $errorRecord
                 }
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
    Enumerate Managed Identities (including: API Permission, Source Tenant, Groups, Roles).
 #>
@@ -57,7 +57,7 @@ function Invoke-CheckManagedIdentities {
     }
     $ManagedIdentities = @(Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri '/servicePrincipals' -QueryParameters $QueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name))
 
-    
+
     $ManagedIdentitiesCount = $($ManagedIdentities.count)
     write-host "[+] Got $ManagedIdentitiesCount Managed Identities"
 
@@ -84,7 +84,7 @@ function Invoke-CheckManagedIdentities {
             if ($null -ne $item.AppRoles) {
                 $role = $item.AppRoles | Where-Object {$_.AllowedMemberTypes -contains "Application"} | select-object id,DisplayName,Value,Description
                 foreach ($permission in $role) {
-                    [PSCustomObject]@{ 
+                    [PSCustomObject]@{
                         AppID = $item.Id
                         AppName = $item.DisplayName
                         ApiPermissionId = $permission.id
@@ -92,7 +92,7 @@ function Invoke-CheckManagedIdentities {
                         ApiPermissionDisplayName = $permission.DisplayName
                         ApiPermissionDescription = $permission.Description
                         ApiPermissionCategorization = Get-APIPermissionCategory -InputPermission $permission.id -PermissionType "application"
-                    } 
+                    }
                 }
             }
         }
@@ -167,19 +167,19 @@ function Invoke-CheckManagedIdentities {
     if ($ManagedIdentitiesCount -gt 0 -and $StatusUpdateInterval -gt 1) {
         Write-Host "[*] Status: Processing managed identity 1 of $ManagedIdentitiesCount (updates every $StatusUpdateInterval managed identities)..."
     }
-    
+
     #region Processing Loop
     #Loop through each Managed Identity and get additional info and store it in a custom object
     foreach ($item in $ManagedIdentities) {
         $ProgressCounter++
         $ImpactScore = $SPImpactScore["Base"]
-        $LikelihoodScore = $SPLikelihoodScore["Base"] 
+        $LikelihoodScore = $SPLikelihoodScore["Base"]
         $warnings = @()
         $WarningsHighPermission = $null
         $WarningsDangerousPermission = $null
         $AppCredentials = @()
         $OwnerSPDetails = @()
-        
+
 
         # Display status based on the objects numbers (slightly improves performance)
         if ($ProgressCounter % $StatusUpdateInterval -eq 0 -or $ProgressCounter -eq $ManagedIdentitiesCount) {
@@ -221,7 +221,7 @@ function Invoke-CheckManagedIdentities {
                 )
             }
         }
-        
+
         #Get the applications API permission
         $AppApiPermission = [System.Collections.ArrayList]::new()
         foreach ($AppSinglePermission in $AppAssignments) {
@@ -283,13 +283,13 @@ function Invoke-CheckManagedIdentities {
         } else {
             $AzureRoleCount = "?"
         }
-   
+
         # Enumerate all roles including scope the app is assigned to (note: Get-MgBetaServicePrincipalMemberOf do not return custom roles or scoped roles)
         $MatchingRoles = $TenantRoleAssignments[$item.Id]
 
         $AppEntraRoles = @()
-        $AppEntraRoles = foreach ($Role in $MatchingRoles) { 
-            [PSCustomObject]@{ 
+        $AppEntraRoles = foreach ($Role in $MatchingRoles) {
+            [PSCustomObject]@{
                 Type = "Roles"
                 DisplayName = $Role.DisplayName
                 Enabled = $Role.IsEnabled
@@ -380,7 +380,7 @@ function Invoke-CheckManagedIdentities {
         }
 
         #Process owned groups
-        $OwnedGroups = foreach ($Group in $OwnedGroups) { 
+        $OwnedGroups = foreach ($Group in $OwnedGroups) {
             Get-GroupDetails -Group $Group -AllGroupsDetails $AllGroupsDetails
         }
 
@@ -424,7 +424,7 @@ function Invoke-CheckManagedIdentities {
 
         $OwnedApplicationsCount = $OwnedApplications.count
         $OwnedSPCount = $OwnedSP.count
-    
+
 
         #Check if sp has configured credentials
         $AppCredentialsSecrets = foreach ($creds in $item.PasswordCredentials) {
@@ -447,7 +447,7 @@ function Invoke-CheckManagedIdentities {
         $AppCredentials += $AppCredentialsCertificates
 
 
-    ########################################## SECTION: RISK RATING AND WARNINGS ##########################################        
+    ########################################## SECTION: RISK RATING AND WARNINGS ##########################################
         $AppCredentialsCount = ($AppCredentials | Measure-Object).count
 
         if ($AzureRoleCount -ge 1) {
@@ -459,12 +459,12 @@ function Invoke-CheckManagedIdentities {
 
         #If SP owns App Registration
         if ($OwnedApplicationsCount -ge 1) {
-            $Warnings += "SP owns $OwnedApplicationsCount App Registrations!" 
+            $Warnings += "SP owns $OwnedApplicationsCount App Registrations!"
         }
 
         #If SP owns App Registration
         if ($OwnedSPCount -ge 1) {
-            $Warnings += "SP owns $OwnedSPCount Enterprise Applications!" 
+            $Warnings += "SP owns $OwnedSPCount Enterprise Applications!"
         }
 
         #Process group memberships
@@ -512,7 +512,7 @@ function Invoke-CheckManagedIdentities {
                     } else {
                         $privileged = ""
                     }
-                    
+
                     $Warnings += "$($privileged)Entra role(s) through group membership"
                 }
 
@@ -641,7 +641,7 @@ function Invoke-CheckManagedIdentities {
         if ($severities.Count -gt 0) {
             $lastIndex = $severities.Count - 1
             $last = $severities[$lastIndex]
-            
+
             if ($severities.Count -gt 1) {
                 $first = $severities[0..($lastIndex - 1)] -join ", "
                 $joined = "$first and $last"
@@ -661,7 +661,7 @@ function Invoke-CheckManagedIdentities {
             ''
         }
         #Write custom object
-        $SPInfo = [PSCustomObject]@{ 
+        $SPInfo = [PSCustomObject]@{
             Id = $item.Id
             DisplayName = $item.DisplayName
             DisplayNameLink = "<a href=#$($item.Id)>$($item.DisplayName)</a>"
@@ -713,7 +713,7 @@ function Invoke-CheckManagedIdentities {
 
     #Define output of the main table
     $tableOutput = $AllServicePrincipal | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
-    
+
     #Define the apps to be displayed in detail and sort them by risk score
     $details = $AllServicePrincipal | Sort-Object Risk -Descending
 
@@ -753,11 +753,11 @@ function Invoke-CheckManagedIdentities {
         }
 
         [void]$DetailTxtBuilder.AppendLine(($ReportingMIInfo | Select-Object $TxtReportProps | Out-String))
-        
+
         ############### Entra Roles
         if ($($item.EntraRoleDetails | Measure-Object).count -ge 1) {
             $ReportingRoles = foreach ($object in $($item.EntraRoleDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Role name" = $($object.DisplayName)
                     "Tier Level" = $($object.RoleTier)
                     "Privileged" = $($object.isPrivileged)
@@ -771,12 +771,12 @@ function Invoke-CheckManagedIdentities {
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine(($ReportingRoles | Out-String))
         }
-    
+
 
         ############### Azure Roles
         if ($($item.AzureRoleDetails | Measure-Object).count -ge 1) {
             $ReportingAzureRoles = foreach ($object in $($item.AzureRoleDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Role name" = $($object.RoleName)
                     "RoleType" = $($object.RoleType)
                     "Tier Level" = $($object.RoleTier)
@@ -795,7 +795,7 @@ function Invoke-CheckManagedIdentities {
         ############### Group Owner
         if ($($item.GroupOwner | Measure-Object).count -ge 1) {
             $ReportingGroupOwner = foreach ($object in $($item.GroupOwner)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=Groups_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                     "SecurityEnabled" = $($object.SecurityEnabled)
@@ -812,7 +812,7 @@ function Invoke-CheckManagedIdentities {
             [void]$DetailTxtBuilder.AppendLine("Owner of Groups`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine(($ReportingGroupOwner | Format-Table DisplayName,SecurityEnabled,RoleAssignable,EntraRoles,AzureRoles,CAPs,ImpactOrg,Warnings | Out-String))
-            
+
             $ReportingGroupOwner = foreach ($obj in $ReportingGroupOwner) {
                 [pscustomobject]@{
                     DisplayName             = $obj.DisplayNameLink
@@ -825,12 +825,12 @@ function Invoke-CheckManagedIdentities {
                     Warnings                = $obj.Warnings
                 }
             }
-        } 
+        }
 
         ############### App owner
         if ($($item.OwnedApplicationsDetails | Measure-Object).count -ge 1) {
             $ReportingAppOwner = foreach ($object in $($item.OwnedApplicationsDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=AppRegistration_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                 }
@@ -852,7 +852,7 @@ function Invoke-CheckManagedIdentities {
         ############### Group Member
         if ($($item.GroupMember | Measure-Object).count -ge 1) {
             $ReportingGroupMember = foreach ($object in $($item.GroupMember)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=Groups_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                     "SecurityEnabled" = $($object.SecurityEnabled)
@@ -881,12 +881,12 @@ function Invoke-CheckManagedIdentities {
                     Warnings                = $obj.Warnings
                 }
             }
-        } 
+        }
 
         ############### Managed Identity Credentials
         if ($($item.AppCredentialsDetails | Measure-Object).count -ge 1) {
             $ReportingCredentials = foreach ($object in $($item.AppCredentialsDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Type" = $($object.Type)
                     "DisplayName" = $($object.DisplayName)
                     "StartDateTime" = $(if ($null -ne $object.StartDateTime) { $object.StartDateTime.ToString() } else { "-" })
@@ -898,12 +898,12 @@ function Invoke-CheckManagedIdentities {
             [void]$DetailTxtBuilder.AppendLine("Managed Identity Credentials`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine(($ReportingCredentials | Out-String -Width 512))
-        } 
+        }
 
         ############### API permission
         if ($($item.AppApiPermission | Measure-Object).count -ge 1) {
             $ReportingAPIPermission = foreach ($object in $($item.AppApiPermission)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "API" = $($object.ApiName)
                     "Category" = $($object.ApiPermissionCategorization)
                     "Permission" = $($object.ApiPermission)
@@ -930,7 +930,7 @@ function Invoke-CheckManagedIdentities {
             "Owner of Groups" = $ReportingGroupOwner
             "Credentials" = $ReportingCredentials
         }
-    
+
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
 
 
@@ -1024,7 +1024,7 @@ $headerHtml = @"
         $Report = ConvertTo-HTML -Body "$headerHTML $mainTableHTML" -Title "$Title Enumeration" -Head ($global:GLOBALReportManifestScript + $global:GLOBALCss) -PostContent $PostContentCombined -PreContent $AllObjectDetailsHTML
         $Report | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).html"
         $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
-        write-host "[+] Details of $ManagedIdentitiesCount Managed Identities stored in output files ($OutputFormats): $outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName)"    
+        write-host "[+] Details of $ManagedIdentitiesCount Managed Identities stored in output files ($OutputFormats): $outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName)"
     } else {
         write-host "[-] No managed Identities exist."
         write-host "[-] No logs have been written."
@@ -1052,7 +1052,7 @@ $headerHtml = @"
 
     # Store in global var
     $GlobalAuditSummary.ManagedIdentities.Count = $ManagedIdentitiesCount
-    $GlobalAuditSummary.ManagedIdentities.IsExplicit = $IsExplicit  
+    $GlobalAuditSummary.ManagedIdentities.IsExplicit = $IsExplicit
     $GlobalAuditSummary.ManagedIdentities.ApiCategorization.Dangerous = $AppApiDangerous
     $GlobalAuditSummary.ManagedIdentities.ApiCategorization.High = $AppApiHigh
     $GlobalAuditSummary.ManagedIdentities.ApiCategorization.Medium = $AppApiMedium

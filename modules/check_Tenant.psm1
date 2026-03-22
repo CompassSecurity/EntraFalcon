@@ -1,4 +1,4 @@
-<#
+﻿<#
     .SYNOPSIS
        Generates the security findings HTML report.
 
@@ -1522,7 +1522,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Severity = 0
             Threat = "<p>If attackers gain control over an application with consented permissions, they may leverage even limited access to facilitate further attacks.</p>"
             Remediation = '<p>Consider restricting application consent to administrators only. Configure the following setting in the Entra admin portal:</p><ol><li>Select <strong>Enterprise Applications</strong></li><li>Select <strong>Consent and permissions</strong></li><li>Select <code>Do not allow user consent</code></li></ol><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies</a></li></ul>'
-            
+
             Confidence = "Requires Verification"
         }
     }
@@ -6397,7 +6397,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         if ($policyIds -contains "ManagePermissionGrantsForSelf.microsoft-user-default-recommended") {
             Write-Log -Level Trace -Message "[USR-004] User consent policy: Microsoft managed."
             Set-FindingOverride -FindingId "USR-004" -Props $USR004VariantProps.MicrosoftManaged
-            
+
         # Low policy: evaluate classified permissions to identify extensive scopes.
         } elseif ($policyIds -contains "ManagePermissionGrantsForSelf.microsoft-user-default-low") {
             Write-Log -Level Trace -Message "[USR-004] User consent policy: low with classified permissions."

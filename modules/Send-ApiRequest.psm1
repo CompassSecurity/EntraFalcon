@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Sends a single API request with retry, pagination, and robust error parsing.
 
@@ -6,7 +6,7 @@
     Send-ApiRequest is a generic wrapper around Invoke-RestMethod.
     It supports automatic pagination, retry logic for transient failures,
     custom headers/query parameters, proxy usage, and improved response error parsing.
-	
+
     .LINK
     https://github.com/zh54321/Send-ApiRequest
 #>

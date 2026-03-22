@@ -204,8 +204,8 @@ $global:GLOBALJavaScript_Table = @'
             "Enterprise Apps": [
                 {
                     label: "Foreign Apps: Privileged",
-                    filters: { 
-                        Foreign: "=True", 
+                    filters: {
+                        Foreign: "=True",
                         ApiDangerous: "or_>0",
                         ApiHigh: "or_>0",
                         ApiMedium: "or_>0",
@@ -222,8 +222,8 @@ $global:GLOBALJavaScript_Table = @'
                 },
                 {
                     label: "Foreign Apps: Extensive API Privs (Application)",
-                    filters: { 
-                        Foreign: "=True", 
+                    filters: {
+                        Foreign: "=True",
                         ApiDangerous: "or_>0",
                         ApiHigh: "or_>0",
                         ApiMedium: "or_>0"
@@ -232,8 +232,8 @@ $global:GLOBALJavaScript_Table = @'
                 },
                 {
                     label: "Foreign Apps: Extensive API Privs (Delegated)",
-                    filters: { 
-                        Foreign: "=True", 
+                    filters: {
+                        Foreign: "=True",
                         ApiDelegatedDangerous: "or_>0",
                         ApiDelegatedHigh: "or_>0",
                         ApiDelegatedMedium: "or_>0"
@@ -242,8 +242,8 @@ $global:GLOBALJavaScript_Table = @'
                 },
                 {
                     label: "Foreign Apps: With Roles",
-                    filters: { 
-                        Foreign: "=True", 
+                    filters: {
+                        Foreign: "=True",
                         EntraRoles: "or_>0",
                         AzureRoles: "or_>0"
                     },
@@ -251,8 +251,8 @@ $global:GLOBALJavaScript_Table = @'
                 },
                 {
                     label: "Internal Apps: Privileged",
-                    filters: { 
-                        Foreign: "=False", 
+                    filters: {
+                        Foreign: "=False",
                         ApiDangerous: "or_>0",
                         ApiHigh: "or_>0",
                         ApiDelegatedDangerous: "or_>0",
@@ -291,7 +291,7 @@ $global:GLOBALJavaScript_Table = @'
                 },
                 {
                     label: "Entra Connect Application",
-                    filters: { 
+                    filters: {
                         DisplayName: "^ConnectSyncProvisioning_"
                     },
                     columns: ["DisplayName", "Enabled", "Inactive", "Owners", "Credentials", "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
@@ -368,7 +368,7 @@ $global:GLOBALJavaScript_Table = @'
                 },
                 {
                     label: "Entra Connect Application",
-                    filters: { 
+                    filters: {
                         DisplayName: "^ConnectSyncProvisioning_"
                     }
                 }
@@ -416,20 +416,20 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         AppTypes: "exchangeActiveSync||other"
                     }
-                },                
+                },
                 {
                     label: "Device Code Flow Policies",
                     filters: {
                         AuthFlow: "deviceCodeFlow"
                     }
-                },                
+                },
                 {
                     label: "Network Location Policies",
                     filters: {
                         IncNw: "or_!=0",
                         ExcNw: "or_!=0"
                     }
-                },                
+                },
                 {
                     label: "Session Control Policies",
                     filters: {
@@ -624,22 +624,22 @@ $global:GLOBALJavaScript_Table = @'
             "AssignmentType": "Activated eligible assignments also appear as active",
             "Conditions": "Has additional conditions"
         };
-    
-        (function () {    
+
+        (function () {
             const manifestEl = document.getElementById("report-manifest");
             const manifest = manifestEl && manifestEl.textContent ? JSON.parse(manifestEl.textContent) : null;
-            window.__reportManifest = manifest;        
+            window.__reportManifest = manifest;
 
             const mainTableDataEl = document.getElementById("mainTableData");
             if (!mainTableDataEl) {
                 return;
             }
-                
+
             const container = document.getElementById("mainTableContainer");
             if (!container) {
                 return;
             }
-                
+
             let data = JSON.parse(document.getElementById("mainTableData").textContent);
             if (!Array.isArray(data)) {
                 data = [data]; // wrap single object into an array
@@ -1006,7 +1006,7 @@ $global:GLOBALJavaScript_Table = @'
         function getVisibleColumns() {
             return columns.filter(col => !hiddenColumns.has(col));
         }
-        
+
         // Renders main table
         function renderTable() {
             let start = (currentPage - 1) * rowsPerPage;
@@ -1117,10 +1117,10 @@ $global:GLOBALJavaScript_Table = @'
                         newInput.setSelectionRange(caretPos, caretPos);
                     }
                 }
-            }        
+            }
         }
 
-        
+
         //Pagination for the main table
         function renderPagination() {
             const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage));
@@ -1137,7 +1137,7 @@ $global:GLOBALJavaScript_Table = @'
             pagination.innerHTML = html;
         }
 
-        
+
         // Displays how many entries are shown (e.g., "Showing 1-10 of 50 entries")
         function renderInfo(start, end) {
             const shownStart = filteredData.length === 0 ? 0 : start + 1;
@@ -1149,7 +1149,7 @@ $global:GLOBALJavaScript_Table = @'
             currentPage = page;
             renderTable();
         };
-        
+
         //MainTable sort function (special handling of cells containing links)
         function sortData() {
             const { column, asc } = currentSort;
@@ -1282,7 +1282,7 @@ $global:GLOBALJavaScript_Table = @'
             return rawStr.includes(lowerInput);
         }
 
-        
+
         // Applies per-column filters
         function filterData() {
             const groups = {}; // { groupName: [ { col, input } ] }
@@ -1478,7 +1478,7 @@ $global:GLOBALJavaScript_Table = @'
             currentSort.column = "Risk";
             currentSort.asc = false;
         }
- 
+
         // Init
         createColumnSelector();
         createToolbar();
@@ -1679,7 +1679,7 @@ $global:GLOBALJavaScript_Table = @'
                 }, 100);
             }
         }
-        
+
         //YAML rendering CAP
         function renderPreBlock(title, lines) {
             const section = document.createElement('div');
@@ -2317,7 +2317,7 @@ $global:GLOBALJavaScript_Nav = @'
                                 <li>Risk scores are not directly comparable between object types or reports.</li>
                                 <li>It is not intended to replace a full risk assessment.</li>
                             </ul>
-                        </li> 
+                        </li>
                     </ul>
                     \u{1F4D6} More information in the <a href="https://github.com/CompassSecurity/EntraFalcon">GitHub README</a><br>
                         <button id="closeHelpModal" style="margin-top: 16px; padding: 6px 12px; font-size: 14px; border-radius: 4px; border: 1px solid #aaa; cursor: pointer;">\u2716 Close</button>
@@ -2575,7 +2575,7 @@ $global:GLOBALCss = @"
         padding: 6px;
         max-width: 100%;
     }
-        
+
 	.property-table th {
 		font-size: 12px;
 		padding-left: 8px;
@@ -3701,7 +3701,7 @@ function EnsureAuthMsGraph {
     if (AuthCheckMSGraph) {
         write-host "[+] MS Graph session OK"
         $result = $true
-        
+
     } else {
         if (AuthenticationMSGraph) {
             write-host "[+] MS Graph successfully authenticated"
@@ -3710,7 +3710,7 @@ function EnsureAuthMsGraph {
             if (-not $GLOBALAuthParameters['Tenant']) {write-host "[i] Maybe try to specify the tenant: -Tenant"}
             Write-host "[!] Aborting"
             $result = $false
-            
+
         }
     }
     Return $result
@@ -3777,7 +3777,7 @@ function Get-RegisterAuthMethodsUsers {
             write-host "[!] Auth error: $($_.Exception.Message -split '\n'). Can't retrieve users auth methods."
         }
     }
-    
+
     #Convert to HT
     $UserAuthMethodsTable = @{}
     foreach ($method in $RegisteredAuthMethods ) {
@@ -3823,7 +3823,7 @@ function Get-Devices {
     }
 
     $DevicesRaw = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/devices" -QueryParameters $QueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
-    
+
     #Convert to HT
     $Devices = @{}
     foreach ($device in $DevicesRaw) {
@@ -3831,7 +3831,7 @@ function Get-Devices {
     }
 
     Write-Log -Level Verbose -Message "Got $($Devices.Count) devices "
-    
+
     return $Devices
 }
 
@@ -3889,7 +3889,7 @@ function AuthenticationMSGraph {
 
 
 function AuthenticationAzurePSNative {
-   
+
     #Get tokens for Azure ARM API
     invoke-EntraFalconAuth -Action Auth -Purpose Azure @GLOBALAuthMethods
     if (AuthCheckAzPSnative) {
@@ -3964,7 +3964,7 @@ function Invoke-CheckTokenExpiration ($Object) {
 
     } elseif ($validForMinutes -le 30 -and $validForMinutes -ge 0) {
         write-host "[!] Access token will expire in $validForMinutes minutes"
-        $result = $false   
+        $result = $false
     } else {
         write-host "[!] Access token has expired $([Math]::Abs($validForMinutes)) minutes ago"
         $result = $false
@@ -4030,7 +4030,7 @@ $global:GLOBALAzureRoleRating = @{
     "a6333a3e-0164-44c3-b281-7a577aff287f" = 1 #Windows Admin Center Administrator Login
     "3bc748fc-213d-45c1-8d91-9da5725539b9" = 1 #Container Registry Contributor and Data Access Configuration Administrator
     "00482a5a-887f-4fb3-b363-3b7fe8e74483" = 1 #Key Vault Administrator
-    "8b54135c-b56d-4d72-a534-26097cfdc8d8" = 1 #Key Vault Data Access Administrator	
+    "8b54135c-b56d-4d72-a534-26097cfdc8d8" = 1 #Key Vault Data Access Administrator
     "b86a8fe4-44ce-4948-aee5-eccb2c155cd7" = 1 #Key Vault Secrets Officer
     "4633458b-17de-408a-b874-0445c86b69e6" = 1 #Key Vault Secrets User
     "3498e952-d568-435e-9b2c-8d77e338d7f7" = 1 #Azure Kubernetes Service RBAC Admin
@@ -4089,7 +4089,7 @@ $global:GLOBALApiPermissionCategorizationList= @{
     "62a82d76-70ea-41e2-9197-370581804d09" = "High" #Group.ReadWrite.All
     "dbaae8cf-10b5-4b86-a4a1-f871c94c6695" = "High" #GroupMember.ReadWrite.All
     "50483e42-d915-4231-9639-7fdb7fd190e5" = "High" #UserAuthenticationMethod.ReadWrite.All
-    "cc117bb9-00cf-4eb8-b580-ea2a878fe8f7" = "High" #User-PasswordProfile.ReadWrite.All    
+    "cc117bb9-00cf-4eb8-b580-ea2a878fe8f7" = "High" #User-PasswordProfile.ReadWrite.All
     "a82116e5-55eb-4c41-a434-62fe8a61c773" = "High" #Sites.FullControl.All
     "678536fe-1083-478a-9c59-b99265e6b0d3" = "High" #Sites.FullControl.All SharePointAPI
     "9bff6588-13f2-4c48-bbf2-ddab62256b36" = "High" #Sites.Manage.All SharePointAPI
@@ -4115,7 +4115,7 @@ $global:GLOBALApiPermissionCategorizationList= @{
     "810c84a8-4a9e-49e6-bf7d-12d183f40d01" = "Medium" #Mail.Read
     "e2a3a72e-5f79-4c64-b1b1-878b674786c9" = "Medium" #Mail.ReadWrite
     "b633e1c5-b582-4048-a93e-9f11b44c7e96" = "Medium" #Mail.Send
-    "b8bb2037-6e08-44ac-a4ea-4674e010e2a4" = "Medium" #OnlineMeetings.ReadWrite.All  
+    "b8bb2037-6e08-44ac-a4ea-4674e010e2a4" = "Medium" #OnlineMeetings.ReadWrite.All
     "de89b5e4-5b8f-48eb-8925-29c2b33bd8bd" = "Medium" #CustomSecAttributeAssignment.ReadWrite.All
     "89c8469c-83ad-45f7-8ff2-6e3d4285709e" = "Medium" #ServicePrincipalEndpoint.ReadWrite.All (Still an issue?)
     "4c390976-b2b7-42e0-9187-c6be3bead001" = "Low" #AgentIdentity.CreateAsManager
@@ -4225,7 +4225,7 @@ function Invoke-EntraRoleProcessing {
         $Tier2Count = 0
         $UnknownTierCount = 0
         $roleSummary = ""
-        
+
         foreach ($Role in $RoleDetails) {
             $RoleImpact = 0
             switch ($Role.RoleTier) {
@@ -4260,7 +4260,7 @@ function Invoke-EntraRoleProcessing {
                 $EligibleImpactScore += $RoleImpact
             }
         }
-        
+
         # Build role description parts
         $roleParts = @()
         if ($Tier0Count -ge 1) { $roleParts += "$Tier0Count (Tier0)" }
@@ -4276,7 +4276,7 @@ function Invoke-EntraRoleProcessing {
         if ($roleParts.Count -gt 0) {
             $roleSummary = ($roleParts -join ", ") + " Entra "+$word+" assigned"
         }
-        
+
         return [PSCustomObject]@{
             ImpactScore         = $ImpactScore
             EligibleImpactScore = $EligibleImpactScore
@@ -4301,7 +4301,7 @@ function Invoke-AzureRoleProcessing {
         $Tier3Count = 0
         $UnknownTierCount = 0
         $roleSummary = ""
-        
+
         foreach ($Role in $RoleDetails) {
             $RoleImpact = 0
             switch ($Role.RoleTier) {
@@ -4337,7 +4337,7 @@ function Invoke-AzureRoleProcessing {
                 $EligibleImpactScore += $RoleImpact
             }
         }
-        
+
         # Build role description parts
         $roleParts = @()
         if ($Tier0Count -ge 1) { $roleParts += "$Tier0Count (Tier0)" }
@@ -4354,7 +4354,7 @@ function Invoke-AzureRoleProcessing {
         if ($roleParts.Count -gt 0) {
             $roleSummary = ($roleParts -join ", ") + " Azure "+$word+" assigned"
         }
-        
+
         return [PSCustomObject]@{
             ImpactScore         = $ImpactScore
             EligibleImpactScore = $EligibleImpactScore
@@ -4489,7 +4489,7 @@ function Get-AllAzureIAMAssignmentsNative {
         $roleName = $_.properties.RoleName
         $RoleType = $_.properties.type
         $objectId = ($_.id -split '/')[-1]
-    
+
         # Store the values in the hashtable (ObjectId as the key, RoleName as the value)
         $roleHashTable[$objectId] = @{
             RoleName = $roleName
@@ -4507,7 +4507,7 @@ function Get-AllAzureIAMAssignmentsNative {
         $roleName = $_.properties.RoleName
         $RoleType = $_.properties.type
         $objectId = ($_.id -split '/')[-1]
-    
+
         # Store the values in the hashtable (ObjectId as the key, RoleName as the value)
         $roleHashTable[$objectId] = @{
             RoleName = $roleName
@@ -4518,7 +4518,7 @@ function Get-AllAzureIAMAssignmentsNative {
     Write-Log -Level Debug -Message "Got $($roleHashTable.count) role definitions"
 
 
-    foreach ($subscription in $subscriptions) {       
+    foreach ($subscription in $subscriptions) {
         #Active Roles
         $url = "https://management.azure.com/subscriptions/$($subscription.Id)/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01"
         $response = @(Send-ApiRequest -Method GET -Uri $url -AccessToken $GLOBALArmAccessToken.access_token -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
@@ -4548,7 +4548,7 @@ function Get-AllAzureIAMAssignmentsNative {
                 RoleType           = $RoleDetails.RoleType
                 RoleTier           = $RoleTier
                 Scope              = $resolvedScope
-                Conditions         = $hasCondition 
+                Conditions         = $hasCondition
                 PrincipalType      = $_.properties.principalType
                 AssignmentType     = "Active"
             }
@@ -4587,14 +4587,14 @@ function Get-AllAzureIAMAssignmentsNative {
                     RoleType           = $RoleDetails.RoleType
                     RoleTier           = $RoleTier
                     Scope              = $resolvedScope
-                    Conditions         = $hasCondition 
+                    Conditions         = $hasCondition
                     PrincipalType      = $_.properties.principalType
                     AssignmentType     = "Eligible"
                 }
             }
             Write-Log -Level Debug -Message "Got $($AssignmentsEligible.count) eligible role assignments"
         }
-   
+
         $AllAssignments = @($AssignmentsActive) + @($AssignmentsEligible)
 
         foreach ($assignment in $AllAssignments) {
@@ -4670,7 +4670,7 @@ function Get-PIMForGroupsAssignmentsDetails {
     foreach ($item in $TenantPimForGroupsAssignments) {
 
         $principalId = $item.principalId
-        
+
         # Lookup displayname and object type for each object
         $ObjectInfo = Get-ObjectInfo $principalId
 
@@ -4711,7 +4711,7 @@ function Get-AdministrativeUnitsWithMembers {
         $MembersUser = $Members | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.user'} | Select-Object id,@{n='Type';e={'User'}},displayName
         $MembersGroup = $Members | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.group'}  | Select-Object id,@{n='Type';e={'Group'}},displayName
         $MembersDevices = $Members | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.device'} | Select-Object id,@{n='Type';e={'Device'}},displayName
-    
+
         # Create a custom object for the administrative unit with its members
         [pscustomobject]@{
             AuId                            = $AdminUnit.Id
@@ -4745,7 +4745,7 @@ function Get-ConditionalAccessPolicies {
             $includedGroups = $cap.Conditions.Users.IncludeGroups
             $ExcludeUsers = $cap.Conditions.Users.ExcludeUsers
             $IncludeUsers = $cap.Conditions.Users.IncludeUsers
-            [PSCustomObject]@{ 
+            [PSCustomObject]@{
                 Id = $cap.Id
                 CAPName = $cap.DisplayName
                 ExcludedGroup = $excludedGroups
@@ -4753,7 +4753,7 @@ function Get-ConditionalAccessPolicies {
                 ExcludedUser = $ExcludeUsers
                 IncludedUser = $IncludeUsers
                 CAPStatus = $cap.State
-            } 
+            }
         }
         $global:GLOBALPermissionForCaps = $true
     } else {
@@ -4768,14 +4768,14 @@ function Get-ConditionalAccessPolicies {
 function Invoke-MsGraphAuthPIM {
 
     Invoke-EntraFalconAuth -Action Auth -Purpose PimforEntra @GLOBALAuthMethods
-    
+
     #Abort if error
     if ($GLOBALPIMsGraphAccessToken) {
         if (AuthCheckMSGraph) {
             write-host "[+] MS Graph session OK"
             $result = $true
             $global:GLOBALGraphExtendedChecks = $true
-            
+
         } else {
             Write-host "[!] Authentication with Managed Meeting Rooms client failed"
             $result = $false
@@ -4793,7 +4793,7 @@ function Invoke-MsGraphAuthPIM {
 function Invoke-MsGraphRefreshPIM {
 
     invoke-EntraFalconAuth -Action Refresh -Purpose PimforEntra @GLOBALAuthMethods
-    
+
 }
 
 
@@ -4824,7 +4824,7 @@ function Get-EntraPIMRoleAssignments {
             '$expand' = "RoleDefinition"
         }
         $PimRoles = Send-GraphRequest -AccessToken $GLOBALPIMsGraphAccessToken.access_token -Method GET -Uri "/roleManagement/directory/roleEligibilitySchedules" -QueryParameters $QueryParameters -BetaAPI  -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
-    
+
     } catch {
         if ($($_.Exception.Message) -match "Status: 400") {
             write-host "[!] HTTP 400 Error: Most likely due to missing Entra ID premium licence. Assuming no PIM for Entra roles is used."
@@ -4945,7 +4945,7 @@ function Get-EntraRoleAssignments {
             ScopeResolved    = ($ScopeResolved | select-object DisplayName,Type)
         }
     }
-    
+
     Write-Host "[+] Retrieved $($TenantRoleAssignments.Count) role assignments"
 
     if ($TenantPimRoleAssignments.count -ge 1) {
@@ -5068,7 +5068,7 @@ function Get-PimforGroupsAssignments {
     [CmdletBinding()]
     Param ()
     $ResultAuthCheck = $true
-    
+
     Write-Host "[*] Trigger interactive authentication for PIM for Groups assessment (skip with -SkipPimForGroups)"
     if (-not (invoke-EntraFalconAuth -Action Auth -Purpose PimforGroup @GLOBALAuthMethods)) {
         throw "[!] Authentication failed for PimforGroup"
@@ -5118,17 +5118,17 @@ function Get-PimforGroupsAssignments {
                     displayName  = $_.displayName
                 }
             }
-    
+
             #Stored groups in global HT var to use in groups module
             $global:GLOBALPimForGroupsHT = @{}
             foreach ($item in $PimEnabledGroups) {
                 $GLOBALPimForGroupsHT[$item.Id] = $item.displayName
             }
-    
+
             $PimEnabledGroupsCount = ($PimEnabledGroups | Measure-Object).count
             if ($PimEnabledGroupsCount -ge 1) {
                 Write-Host "[+] Got $PimEnabledGroupsCount PIM enabled groups"
-                                     
+
                 $Requests = @()
                 $RequestID = 0
                 # Loop through each group and create a request entry
@@ -5144,7 +5144,7 @@ function Get-PimforGroupsAssignments {
                 # Send Batch request
                 $PIMforGroupsAssignments = (Send-GraphBatchRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Requests $Requests -BetaAPI -BatchDelay 0.5 -UserAgent $($GlobalAuditSummary.UserAgent.Name)).response.value
                 Write-Host "[+] Got $($PIMforGroupsAssignments.Count) objects eligible for a PIM-enabled group"
-                
+
             } else {
                 Write-Host "[!] No PIM enabled groups found"
                 $PIMforGroupsAssignments = ""
@@ -5261,7 +5261,7 @@ function Get-ObjectInfo {
         }
         $EnterpriseApp = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/servicePrincipals/$ObjectID" -QueryParameters $QueryParameters -BetaAPI -Suppress404 -UserAgent $($GlobalAuditSummary.UserAgent.Name)
         if ($EnterpriseApp) {
-            $object = [PSCustomObject]@{ 
+            $object = [PSCustomObject]@{
                 DisplayName = $EnterpriseApp.DisplayName
                 Type = "Enterprise Application"
             }
@@ -5277,7 +5277,7 @@ function Get-ObjectInfo {
         }
         $AppRegistration = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/applications/$ObjectID" -QueryParameters $QueryParameters -BetaAPI -Suppress404 -UserAgent $($GlobalAuditSummary.UserAgent.Name)
         if ($AppRegistration) {
-            $object = [PSCustomObject]@{ 
+            $object = [PSCustomObject]@{
                 DisplayName = $AppRegistration.DisplayName
                 Type = "App Registration"
             }
@@ -5293,7 +5293,7 @@ function Get-ObjectInfo {
         }
         $AdministrativeUnit = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/directory/administrativeUnits/$ObjectID" -QueryParameters $QueryParameters -BetaAPI -Suppress404 -UserAgent $($GlobalAuditSummary.UserAgent.Name)
         if ($AdministrativeUnit) {
-            $object = [PSCustomObject]@{ 
+            $object = [PSCustomObject]@{
                 DisplayName = $AdministrativeUnit.DisplayName
                 Type = "Administrative Unit"
             }
@@ -5309,7 +5309,7 @@ function Get-ObjectInfo {
         }
         $user = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/users/$ObjectID" -QueryParameters $QueryParameters -BetaAPI -Suppress404 -UserAgent $($GlobalAuditSummary.UserAgent.Name)
         if ($user) {
-            $object = [PSCustomObject]@{ 
+            $object = [PSCustomObject]@{
                 DisplayName = $user.DisplayName
                 UserPrincipalName = $user.UserPrincipalName
                 Type = "User"
@@ -5330,10 +5330,10 @@ function Get-ObjectInfo {
             '$select' = "Id,DisplayName,SecurityEnabled,IsAssignableToRole"
         }
         $group = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/groups/$ObjectID" -QueryParameters $QueryParameters -BetaAPI -Suppress404 -UserAgent $($GlobalAuditSummary.UserAgent.Name)
-        
+
         if ($group) {
             $IsAssignabletoRole = if ($null -ne $group.IsAssignableToRole) { $group.IsAssignableToRole } else { $false }
-            $object = [PSCustomObject]@{ 
+            $object = [PSCustomObject]@{
                 DisplayName = $group.DisplayName
                 Type = "Group"
                 SecurityEnabled = $group.SecurityEnabled
@@ -5342,12 +5342,12 @@ function Get-ObjectInfo {
 
             $script:ObjectInfoCache[$cacheKey] = $object
             Return $object
-        } 
+        }
     }
 
     if ($normalizedType -eq "unknown") {
         Write-Log -Level Debug -Message "Unknown Object: $ObjectID"
-        $object = [PSCustomObject]@{ 
+        $object = [PSCustomObject]@{
             DisplayName = $ObjectID
             Type = "Unknown"
         }
@@ -5713,7 +5713,7 @@ function invoke-EntraFalconAuth {
                         $true
                     }
                 }
-                
+
                 SecurityFindings = @{
                     AuthCode = {
                         $tokens = Invoke-Auth -ClientID '80ccca67-54bd-44ab-8625-4b79c4dc7775' `
@@ -5784,7 +5784,7 @@ function invoke-EntraFalconAuth {
                         $true
                     }
 
-                    
+
                 }
 
                 PimforGroup = @{
@@ -6033,12 +6033,12 @@ function Show-EntraFalconBanner {
     )
     $banner = @'
 
-    ______      __                ______      __               
-   / ____/___  / /__________ _   / ____/___ _/ /________  ____ 
+    ______      __                ______      __
+   / ____/___  / /__________ _   / ____/___ _/ /________  ____
   / __/ / __ \/ __/ ___/ __ `/  / /_  / __ `/ / ___/ __ \/ __ \
  / /___/ / / / /_/ /  / /_/ /  / __/ / /_/ / / /__/ /_/ / / / /
-/_____/_/ /_/\__/_/   \__,_/  /_/    \__,_/_/\___/\____/_/ /_/ 
-                                                               
+/_____/_/ /_/\__/_/   \__,_/  /_/    \__,_/_/\___/\____/_/ /_/
+
 '@
 
     # Show Banner with color

@@ -1,11 +1,11 @@
-<#
+﻿<#
 .SYNOPSIS
    Enumerate Enterprise Applications (including: API Permission, Source Tenant, Groups, Roles).
 
 .DESCRIPTION
    This script will enumerate all Enterprise Applications (including: API Permission, Source Tenant, Groups, Roles).
    By default, MS applications are filtered out.
-   
+
 #>
 
 function Invoke-CheckEnterpriseApps {
@@ -95,7 +95,7 @@ function Invoke-CheckEnterpriseApps {
         if ($null -ne $item.AppRoles) {
             $role = $item.AppRoles | Where-Object {$_.AllowedMemberTypes -contains "Application"} | select-object id,DisplayName,Value,Description
             foreach ($permission in $role) {
-                [PSCustomObject]@{ 
+                [PSCustomObject]@{
                     AppID = $item.Id
                     AppName = $item.DisplayName
                     ApiPermissionId = $permission.id
@@ -103,7 +103,7 @@ function Invoke-CheckEnterpriseApps {
                     ApiPermissionDisplayName = $permission.DisplayName
                     ApiPermissionDescription = $permission.Description
                     ApiPermissionCategorization = Get-APIPermissionCategory -InputPermission $permission.id -PermissionType "application"
-                } 
+                }
             }
         }
     }
@@ -152,16 +152,16 @@ function Invoke-CheckEnterpriseApps {
             id = $app.appId
             lastSignIn = if ($app.lastSignInActivity.lastSignInDateTime) {$app.lastSignInActivity.lastSignInDateTime} else { "-" }
             lastSignInDays = if ($app.lastSignInActivity.lastSignInDateTime) { (New-TimeSpan -Start $app.lastSignInActivity.lastSignInDateTime).Days } else { "-" }
-    
+
             lastSignInAppAsClient = if ($app.applicationAuthenticationClientSignInActivity.lastSignInDateTime) {$app.applicationAuthenticationClientSignInActivity.lastSignInDateTime} else { "-" }
             lastSignInAppAsClientDays = if ($app.applicationAuthenticationClientSignInActivity.lastSignInDateTime) { (New-TimeSpan -Start $app.applicationAuthenticationClientSignInActivity.lastSignInDateTime).Days } else { "-" }
-    
+
             lastSignInAppAsResource = if ($app.applicationAuthenticationResourceSignInActivity.lastSignInDateTime) {$app.applicationAuthenticationResourceSignInActivity.lastSignInDateTime} else { "-" }
             lastSignInAppAsResourceDays = if ($app.applicationAuthenticationResourceSignInActivity.lastSignInDateTime) { (New-TimeSpan -Start $app.applicationAuthenticationResourceSignInActivity.lastSignInDateTime).Days } else { "-" }
-    
+
             lastSignInDelegatedAsClient = if ($app.delegatedClientSignInActivity.lastSignInDateTime) {$app.delegatedClientSignInActivity.lastSignInDateTime} else { "-" }
             lastSignInDelegatedAsClientDays = if ($app.delegatedClientSignInActivity.lastSignInDateTime) { (New-TimeSpan -Start $app.delegatedClientSignInActivity.lastSignInDateTime).Days } else { "-" }
-    
+
             lastSignInDelegatedAsResource = if ($app.delegatedResourceSignInActivity.lastSignInDateTime) {$app.delegatedResourceSignInActivity.lastSignInDateTime} else { "-" }
             lastSignInDelegatedAsResourceDays = if ($app.delegatedResourceSignInActivity.lastSignInDateTime) { (New-TimeSpan -Start $app.delegatedResourceSignInActivity.lastSignInDateTime).Days } else { "-" }
         }
@@ -290,14 +290,14 @@ function Invoke-CheckEnterpriseApps {
 
     #Enumerate all AppRoles configured (only of the apps in scope)
     $AppRoles = [System.Collections.ArrayList]::new()
-    
+
     foreach ($app in $EnterpriseApps) {
         if (-not $AppRolesAssignedToRaw.ContainsKey($app.Id)) { continue }
-    
+
         $userRoles = $app.AppRoles
-    
+
         foreach ($assignment in $AppRolesAssignedToRaw[$app.Id]) {
-            
+
             # Handle default access assignments
             if ($assignment.appRoleId -eq '00000000-0000-0000-0000-000000000000') {
                 [void]$AppRoles.Add([PSCustomObject]@{
@@ -314,10 +314,10 @@ function Invoke-CheckEnterpriseApps {
                 })
                 continue
             }
-    
+
             # Handle explicitly assigned roles
             $matchedRole = $userRoles | Where-Object { $_.Id -eq $assignment.appRoleId }
-    
+
             if ($matchedRole) {
                 foreach ($role in $matchedRole) {
                     [void]$AppRoles.Add([PSCustomObject]@{
@@ -384,7 +384,7 @@ function Invoke-CheckEnterpriseApps {
         $OwnerUserDetails = @()
         $OwnerSPDetails = @()
         $AppRegObjectId = ""
-        
+
 
         # Display status based on the objects numbers (slightly improves performance)
         if ($ProgressCounter % $StatusUpdateInterval -eq 0 -or $ProgressCounter -eq $EnterpriseAppsCount) {
@@ -488,19 +488,19 @@ function Invoke-CheckEnterpriseApps {
                     AppRoleAssignmentType = $role.AppRoleAssignmentType
                     AppRoleDescription = $description
                 }
-        
+
                 # Add the new object to the array
                 $MatchingAppRoles += $newRole
             }
         }
 
-    
+
         # Enumerate all roles including scope the app is assigned to (note: Get-MgBetaServicePrincipalMemberOf do not return custom roles or scoped roles)
         $MatchingRoles = $TenantRoleAssignments[$item.Id]
 
         $AppEntraRoles = @()
-        $AppEntraRoles = foreach ($Role in $MatchingRoles) { 
-            [PSCustomObject]@{ 
+        $AppEntraRoles = foreach ($Role in $MatchingRoles) {
+            [PSCustomObject]@{
                 Type = "Roles"
                 DisplayName = $Role.DisplayName
                 Enabled = $Role.IsEnabled
@@ -566,15 +566,15 @@ function Invoke-CheckEnterpriseApps {
                     '$select' = "DisplayName"
                 }
                 #Set odata.metadata=none to avoid having metadata in the response
-                $headers = @{ 
-                    'Accept' = 'application/json;odata.metadata=none' 
+                $headers = @{
+                    'Accept' = 'application/json;odata.metadata=none'
                 }
                 $ApiAppDisplayNameCache[$permission.ResourceId] = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/servicePrincipals/$($permission.ResourceId)" -QueryParameters $QueryParameters -AdditionalHeaders $headers -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
             }
 
             # Split the Scope field by spaces to get individual permissions. Ignores whitespece at the start of the string
             $scopes = $permission.Scope.Trim() -split " "
-            
+
             if ($permission.ConsentType -eq "Principal") {
                 $principal = $permission.PrincipalId
             } else {
@@ -608,8 +608,8 @@ function Invoke-CheckEnterpriseApps {
             $count = ($DelegatedPermissionDetails | Where-Object { $_.ApiPermissionCategorization -eq $severity } | Measure-Object ).Count
             $DelegateApiPermssionCount[$severity] = $count
         }
-        
-        
+
+
 
         #Get all groups where the SP is member of
         $GroupMember = [System.Collections.ArrayList]::new()
@@ -632,7 +632,7 @@ function Invoke-CheckEnterpriseApps {
             Get-GroupDetails -Group $Group -AllGroupsDetails $AllGroupsDetails
         }
 
-        
+
         #Get application owned objects (can own groups or applications)
         $OwnedApplications   = [System.Collections.ArrayList]::new()
         $OwnedGroups  	= [System.Collections.ArrayList]::new()
@@ -673,8 +673,8 @@ function Invoke-CheckEnterpriseApps {
                 }
             }
         }
-        
-        $OwnedGroups = foreach ($Group in $OwnedGroups) { 
+
+        $OwnedGroups = foreach ($Group in $OwnedGroups) {
             Get-GroupDetails -Group $Group -AllGroupsDetails $AllGroupsDetails
         }
 
@@ -718,7 +718,7 @@ function Invoke-CheckEnterpriseApps {
 
         $OwnedApplicationsCount = $OwnedApplications.count
         $OwnedSPCount = $OwnedSP.count
-    
+
 
         #Check if sp has configured credentials
         $AppCredentialsSecrets = foreach ($creds in $item.PasswordCredentials) {
@@ -748,8 +748,8 @@ function Invoke-CheckEnterpriseApps {
         }
 
     ########################################## SECTION: RISK RATING AND WARNINGS ##########################################
-    
-    
+
+
         # Check if it the Entra Connect Sync App
         if ($item.DisplayName -match "ConnectSyncProvisioning_") {
             $EntraConnectApp = $true
@@ -771,7 +771,7 @@ function Invoke-CheckEnterpriseApps {
 
             #If not set corresponding SP object ID
             $AppRegObjectId = $AppRegistrations[$($item.AppId)].id
-            
+
         } else {
             $ForeignTenant = $true
         }
@@ -824,7 +824,7 @@ function Invoke-CheckEnterpriseApps {
                 }
             }
         }
-        
+
         $OwnersCount = $OwnerUserDetails.count + $OwnerSPDetails.count
         #Check owners of the SP.
         if ($OwnersCount -ge 1) {
@@ -836,7 +836,7 @@ function Invoke-CheckEnterpriseApps {
                 $Warnings += "SP with owner (unknown AppLock)!"
             } else {
                 $AppLockConfiguration = $AppRegistrations[$($item.AppId)].ServicePrincipalLockConfiguration
-                
+
                 #App instance property lock can be completely disabled or more granular
                 if ($AppLockConfiguration.IsEnabled -ne $true -or ($AppLockConfiguration.AllProperties -ne $true -and $AppLockConfiguration.credentialsWithUsageVerify -ne $true)) {
                     $LikelihoodScore += $SPLikelihoodScore["NoAppLock"]
@@ -846,39 +846,39 @@ function Invoke-CheckEnterpriseApps {
                 }
             }
         }
-            
+
         #Increase likelihood for each owner (user) SP ownership is calculated in the post-processing part
-        $LikelihoodScore += $OwnerUserDetails.count * $SPLikelihoodScore["Owners"] 
+        $LikelihoodScore += $OwnerUserDetails.count * $SPLikelihoodScore["Owners"]
 
         #Increase impact for each App role
         $AppRolesCount = ($MatchingAppRoles | Measure-Object).count
         if ($AppRolesCount -ge 1) {
-            $ImpactScore += $AppRolesCount * $SPImpactScore["AppRole"] 
+            $ImpactScore += $AppRolesCount * $SPImpactScore["AppRole"]
         }
 
-        #Increase impact if App Roles needs to be assigned 
+        #Increase impact if App Roles needs to be assigned
         if ($item.AppRoleAssignmentRequired) {
-            $ImpactScore += $SPImpactScore["AppRoleRequired"] 
+            $ImpactScore += $SPImpactScore["AppRoleRequired"]
         }
 
         #If SP owns App Registration
         if ($OwnedApplicationsCount -ge 1) {
-            $Warnings += "SP owns $OwnedApplicationsCount App Registrations!" 
+            $Warnings += "SP owns $OwnedApplicationsCount App Registrations!"
         }
 
         #If SP owns another SP
         if ($OwnedSPCount -ge 1) {
-            $Warnings += "SP owns $OwnedSPCount Enterprise Applications!" 
+            $Warnings += "SP owns $OwnedSPCount Enterprise Applications!"
         }
-        
+
 
         #Check if it is one of the MS default SPs
-        if ($GLOBALMsTenantIds -contains $item.AppOwnerOrganizationId -or $item.DisplayName -eq "O365 LinkedIn Connection" -and $item.DisplayName -ne "P2P Server") {  
+        if ($GLOBALMsTenantIds -contains $item.AppOwnerOrganizationId -or $item.DisplayName -eq "O365 LinkedIn Connection" -and $item.DisplayName -ne "P2P Server") {
             $DefaultMS = $true
         } else {
             $DefaultMS = $false
         }
-        
+
 
         #Process group memberships
         if (($GroupMember | Measure-Object).count -ge 1) {
@@ -945,7 +945,7 @@ function Invoke-CheckEnterpriseApps {
             $Warnings += $EntraRolesProcessedDetails.Warning
             $ImpactScore += $EntraRolesProcessedDetails.ImpactScore
         }
-       
+
 
         #If SP owns groups
         if (($OwnedGroups | Measure-Object).count -ge 1) {
@@ -1041,7 +1041,7 @@ function Invoke-CheckEnterpriseApps {
         if ($severities.Count -gt 0) {
             $lastIndex = $severities.Count - 1
             $last = $severities[$lastIndex]
-            
+
             if ($severities.Count -gt 1) {
                 $first = $severities[0..($lastIndex - 1)] -join ", "
                 $joined = "$first and $last"
@@ -1107,7 +1107,7 @@ function Invoke-CheckEnterpriseApps {
             if ($severities.Count -gt 0) {
                 $lastIndex = $severities.Count - 1
                 $last = $severities[$lastIndex]
-                
+
                 if ($severities.Count -gt 1) {
                     $first = $severities[0..($lastIndex - 1)] -join ", "
                     $joined = "$first and $last"
@@ -1135,7 +1135,7 @@ function Invoke-CheckEnterpriseApps {
             ''
         }
 
-        # if 
+        # if
         if ($AppsignInData.lastSignInDays) {
             $LastSignInDays = $AppsignInData.lastSignInDays
         } else {
@@ -1145,7 +1145,7 @@ function Invoke-CheckEnterpriseApps {
         $AzureRolesEffective = $AzureRolesDirect + $AzureRolesThroughGroupMembership + $AzureRolesThroughGroupOwnership
 
         #Write custom object
-        $SPInfo = [PSCustomObject]@{ 
+        $SPInfo = [PSCustomObject]@{
             Id = $item.Id
             DisplayName = $item.DisplayName
             Enabled = $item.accountEnabled
@@ -1194,7 +1194,7 @@ function Invoke-CheckEnterpriseApps {
             AppRoles = ($MatchingAppRoles | Measure-Object).count
             AppRolesDetails = $MatchingAppRoles
             ApiDelegated = $DelegatedPermissionDetailsUnique
-            ApiDelegatedDetails  = $DelegatedPermissionDetails 
+            ApiDelegatedDetails  = $DelegatedPermissionDetails
             ApiDelegatedDangerous = $DelegateApiPermssionCount.Dangerous
             ApiDelegatedHigh = $DelegateApiPermssionCount.High
             ApiDelegatedMedium = $DelegateApiPermssionCount.Medium
@@ -1216,7 +1216,7 @@ function Invoke-CheckEnterpriseApps {
 
     ########################################## SECTION: POST-PROCESSING ##########################################
     write-host "[*] Post-processing SP ownership relation with other apps"
-    
+
 
     #Process indirect App ownerships (SP->AppReg->SP) (take over Impact, inherit likelihood)
     $SPOwningApps = $AllServicePrincipal | Where-Object { $_.AppOwn -ge 1 }
@@ -1224,10 +1224,10 @@ function Invoke-CheckEnterpriseApps {
 
     # For each object which owns an App registration
     foreach ($SpObject in $SPOwningApps) {
-        
+
         # For each owned App Registration
         foreach ($AppRegistration in $SpObject.OwnedApplicationsDetails) {
-            
+
             #For each corresponding SP object of the App Registration
             foreach ($OwnedSP in $AllServicePrincipal | Where-Object { $_.AppId -eq $AppRegistration.AppId }) {
 
@@ -1256,7 +1256,7 @@ function Invoke-CheckEnterpriseApps {
     Write-Log -Level Debug -Message "Number of ownerships SP->SP: $($SPOwningSPs.count)"
     #For each object which owns an App registration
     foreach ($SpOwnerObject in $SPOwningSPs) {
-        
+
         # For each owned App Registration
         foreach ($OwnedSPObject in $SpOwnerObject.OwnedSPDetails) {
 
@@ -1289,7 +1289,7 @@ function Invoke-CheckEnterpriseApps {
 
     #Define output of the main table
     $tableOutput = $AllServicePrincipal | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,AppRoleRequired,PublisherName,DefaultMS,Foreign,Enabled,Inactive,SAML,LastSignInDays,CreationInDays,AppRoles,GrpMem,GrpOwn,AppOwn,SpOwn,EntraRoles,EntraMaxTier,Owners,Credentials,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,ApiDelegated,ApiDelegatedDangerous,ApiDelegatedHigh,ApiDelegatedMedium,ApiDelegatedLow,ApiDelegatedMisc,Impact,Likelihood,Risk,Warnings
-    
+
     #Define the apps to be displayed in detail and sort them by risk score
     $details = $AllServicePrincipal | Sort-Object Risk -Descending
 
@@ -1350,7 +1350,7 @@ function Invoke-CheckEnterpriseApps {
         }
 
         [void]$DetailTxtBuilder.AppendLine(($ReportingEntAppInfo| Select-Object $TxtReportProps | Out-String))
-       
+
         ############### Last Sing-Ins
         $lastSignIn = if ($($item.AppsignInData.lastSignIn) -and $($item.AppsignInData.lastSignIn) -ne "-") {"$($item.AppsignInData.lastSignIn) ($($item.AppsignInData.lastSignInDays) days ago)"} else {"-"}
         $lastSignInAppAsClient = if ($($item.AppsignInData.lastSignInAppAsClient) -and $($item.AppsignInData.lastSignInAppAsClient) -ne "-") {"$($item.AppsignInData.lastSignInAppAsClient) ($($item.AppsignInData.lastSignInAppAsClientDays) days ago)"} else {"-"}
@@ -1362,8 +1362,8 @@ function Invoke-CheckEnterpriseApps {
             "Last sign-in as application (client)" = $lastSignInAppAsClient
             "Last sign-in as application (resource)" = $lastSignInAppAsResource
             "Last sign-in delegated (client)" = $lastSignInDelegatedAsClient
-            "Last sign-in delegated (resource)" = $lastSignInDelegatedAsResource 
-        }           
+            "Last sign-in delegated (resource)" = $lastSignInDelegatedAsResource
+        }
         [void]$DetailTxtBuilder.AppendLine("-----------------------------------------------------------------")
         [void]$DetailTxtBuilder.AppendLine("Last Sign-Ins Details")
         [void]$DetailTxtBuilder.AppendLine("-----------------------------------------------------------------")
@@ -1378,7 +1378,7 @@ function Invoke-CheckEnterpriseApps {
         ############### Entra Roles
         if ($($item.EntraRoleDetails | Measure-Object).count -ge 1) {
             $ReportingRoles = foreach ($object in $($item.EntraRoleDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Role name" = $($object.DisplayName)
                     "Tier Level" = $($object.RoleTier)
                     "Privileged" = $($object.isPrivileged)
@@ -1392,12 +1392,12 @@ function Invoke-CheckEnterpriseApps {
             [void]$DetailTxtBuilder.AppendLine("================================================================================================")
             [void]$DetailTxtBuilder.AppendLine(($ReportingRoles | format-table | Out-String))
         }
-    
+
 
         ############### Azure Roles
         if ($($item.AzureRoleDetails | Measure-Object).count -ge 1) {
             $ReportingAzureRoles = foreach ($object in $($item.AzureRoleDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Role name" = $($object.RoleName)
                     "RoleType" = $($object.RoleType)
                     "Tier Level" = $($object.RoleTier)
@@ -1416,7 +1416,7 @@ function Invoke-CheckEnterpriseApps {
         ############### Group Owner
         if ($($item.GroupOwner | Measure-Object).count -ge 1) {
             $ReportingGroupOwner = foreach ($object in $($item.GroupOwner)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=Groups_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                     "SecurityEnabled" = $($object.SecurityEnabled)
@@ -1445,12 +1445,12 @@ function Invoke-CheckEnterpriseApps {
                     Warnings                = $obj.Warnings
                 }
             }
-        } 
+        }
 
         ############### App owner
         if ($($item.OwnedApplicationsDetails | Measure-Object).count -ge 1) {
             $ReportingAppOwner = foreach ($object in $($item.OwnedApplicationsDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=AppRegistration_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                 }
@@ -1470,10 +1470,10 @@ function Invoke-CheckEnterpriseApps {
         ############### SP owner
         if ($($item.OwnedSPDetails | Measure-Object).count -ge 1) {
             $ReportingSPOwner = foreach ($object in $($item.OwnedSPDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=#$($object.id)>$($object.DisplayName)</a>"
-                    "Foreign" = $($object.Foreign)                    
+                    "Foreign" = $($object.Foreign)
                     "Impact" = $($object.Impact)
                 }
             }
@@ -1490,11 +1490,11 @@ function Invoke-CheckEnterpriseApps {
                 }
             }
         }
-        
+
         ############### Group Member
         if ($($item.GroupMember | Measure-Object).count -ge 1) {
             $ReportingGroupMember = foreach ($object in $($item.GroupMember)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayName" = $($object.DisplayName)
                     "DisplayNameLink" = "<a href=Groups_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                     "SecurityEnabled" = $($object.SecurityEnabled)
@@ -1523,12 +1523,12 @@ function Invoke-CheckEnterpriseApps {
                     Warnings                = $obj.Warnings
                 }
             }
-        } 
+        }
 
         ############### Enterprise Application Credentials
         if ($($item.AppCredentialsDetails | Measure-Object).count -ge 1) {
             $ReportingCredentials = foreach ($object in $($item.AppCredentialsDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Type" = $($object.Type)
                     "DisplayName" = $($object.DisplayName)
                     "StartDateTime" = $(if ($null -ne $object.StartDateTime) { $object.StartDateTime.ToString() } else { "-" })
@@ -1540,7 +1540,7 @@ function Invoke-CheckEnterpriseApps {
             [void]$DetailTxtBuilder.AppendLine("Enterprise Application Credentials")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================")
             [void]$DetailTxtBuilder.AppendLine(($ReportingCredentials | Out-String))
-        } 
+        }
 
         ############### App Roles
         if ($($item.AppRolesDetails | Measure-Object).count -ge 1) {
@@ -1569,7 +1569,7 @@ function Invoke-CheckEnterpriseApps {
                         Write-Log -Level Debug -Message "Unknown AppRoleAssignmentType: $($object.AppRoleAssignmentType) / object: $($object.AppRoleMemberId)"
                     }
                 }
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "AppRoleClaim" = $($object.AppRoleClaim)
                     "AppRoleName" = $($object.AppRoleName)
                     "RoleEnabled" = $($object.RoleEnabled)
@@ -1583,7 +1583,7 @@ function Invoke-CheckEnterpriseApps {
             [void]$DetailTxtBuilder.AppendLine("Assigned App Roles")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================")
             [void]$DetailTxtBuilder.AppendLine(($ReportingAppRoles | format-table -Property AppRoleName,RoleEnabled,AppRoleAssignmentType,AppRoleMember | Out-String))
-            
+
             #Rebuild for HTML report
             $ReportingAppRoles = foreach ($obj in $ReportingAppRoles) {
                 [pscustomobject]@{
@@ -1600,7 +1600,7 @@ function Invoke-CheckEnterpriseApps {
         if ($($item.OwnerUserDetails | Measure-Object).count -ge 1 -or $($item.OwnerSPDetails | Measure-Object).count -ge 1) {
             if ($($item.OwnerUserDetails | Measure-Object).count -ge 1) {
                 $ReportingAppOwnersUser = foreach ($object in $($item.OwnerUserDetails)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "UPN" = $($object.UPN)
                         "UPNLink" = "<a href=Users_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.UPN)</a>"
                         "Enabled" = $($object.Enabled)
@@ -1614,7 +1614,7 @@ function Invoke-CheckEnterpriseApps {
                 [void]$DetailTxtBuilder.AppendLine("Owners (Users)")
                 [void]$DetailTxtBuilder.AppendLine("================================================================================================")
                 [void]$DetailTxtBuilder.AppendLine(($ReportingAppOwnersUser | format-table -Property UPN,Enabled,Type,OnPremSync,Department,JobTitle | Out-String))
-                
+
                 #Rebuild for HTML report
                 $ReportingAppOwnersUser = foreach ($obj in $ReportingAppOwnersUser) {
                     [pscustomobject]@{
@@ -1630,7 +1630,7 @@ function Invoke-CheckEnterpriseApps {
 
             if ($($item.OwnerSPDetails | Measure-Object).count -ge 1) {
                 $ReportingAppOwnersSP = foreach ($object in $($item.OwnerSPDetails)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "DisplayName" = $($object.DisplayName)
                         "DisplayNameLink" = "<a href=#$($object.id)>$($object.DisplayName)</a>"
                         "Enabled" = $($object.Enabled)
@@ -1651,12 +1651,12 @@ function Invoke-CheckEnterpriseApps {
                     }
                 }
             }
-        }   
+        }
 
         ############### API permission
         if ($($item.AppApiPermission | Measure-Object).count -ge 1) {
             $ReportingAPIPermission = foreach ($object in $($item.AppApiPermission)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "API" = $($object.ApiName)
                     "Category" = $($object.ApiPermissionCategorization)
                     "Permission" = $($object.ApiPermission)
@@ -1668,16 +1668,16 @@ function Invoke-CheckEnterpriseApps {
             [void]$DetailTxtBuilder.AppendLine("API Permission (Application)")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================")
             [void]$DetailTxtBuilder.AppendLine(($ReportingAPIPermission | Out-String))
-        } 
+        }
 
 
         ############### API Delegated Permissions
         if ($($item.ApiDelegatedDetails | Measure-Object).count -ge 1) {
 
             $ReportingDelegatedApiPermission = foreach ($object in $($item.ApiDelegatedDetails)) {
-                
+
                 $userDetails = $AllUsersBasicHT[$object.Principal]
-                
+
                 # Check if a matching user was found
                 if ($userDetails) {
                     $PrincipalUpn = $userDetails.UserPrincipalName
@@ -1688,7 +1688,7 @@ function Invoke-CheckEnterpriseApps {
                     $PrincipalUpnLink = $object.Principal
                 }
 
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "APIName" = $object.APIName
                     "Permission" = $object.Scope
                     "Categorization" = $object.ApiPermissionCategorization
@@ -1704,7 +1704,7 @@ function Invoke-CheckEnterpriseApps {
             [void]$DetailTxtBuilder.AppendLine(($ReportingDelegatedApiPermission | format-table APIName,Permission,Categorization,ConsentType,Principal | Out-String))
 
             $ReportingDelegatedApiPermission = foreach ($obj in $ReportingDelegatedApiPermission) {
-              [pscustomobject]@{ 
+              [pscustomobject]@{
                     "APIName" = $obj.APIName
                     "Permission" = $obj.Permission
                     "Categorization" = $obj.Categorization
@@ -1733,13 +1733,13 @@ function Invoke-CheckEnterpriseApps {
             "API Permission (Application)" = $ReportingAPIPermission
             "API Permission (Delegated)" = $ReportingDelegatedApiPermission
         }
-    
+
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
 
     }
 
     $DetailOutputTxt = $DetailTxtBuilder.ToString()
-    
+
     write-host "[*] Writing log files"
     write-host
 
@@ -1818,16 +1818,16 @@ $headerHtml = @"
     $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
     $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
     $ApiPermissionReference | Format-Table -AutoSize | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
-   
+
     #Write HTML
     $ApiPermissionReferenceHTML += $ApiPermissionReference | ConvertTo-Html -Fragment -PreContent "<h2>Appendix: Used API Permission Reference</h2>"
     $PostContentCombined = $GLOBALJavaScript + "`n" + $ApiPermissionReferenceHTML
     $Report = ConvertTo-HTML -Body "$headerHTML $mainTableHTML" -Title "$Title Enumeration" -Head ($global:GLOBALReportManifestScript + $global:GLOBALCss) -PostContent $PostContentCombined -PreContent $AllObjectDetailsHTML
     $Report | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).html"
-   
+
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
     write-host "[+] Details of $EnterpriseAppsCount Enterprise Applications stored in output files ($OutputFormats): $outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName)"
-   
+
     #Add information to the enumeration summary
     $ForeignCount = 0
     $CredentialCount = 0
@@ -1855,7 +1855,7 @@ $headerHtml = @"
     $GlobalAuditSummary.EnterpriseApps.Count = $EnterpriseAppsCount
     $GlobalAuditSummary.EnterpriseApps.Foreign = $ForeignCount
     $GlobalAuditSummary.EnterpriseApps.Credentials = $CredentialCount
-    
+
 
     $GlobalAuditSummary.EnterpriseApps.ApiCategorization.Dangerous = $AppApiDangerous
     $GlobalAuditSummary.EnterpriseApps.ApiCategorization.High = $AppApiHigh

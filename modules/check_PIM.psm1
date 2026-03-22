@@ -1,4 +1,4 @@
-<#
+﻿<#
 	.SYNOPSIS
 	   Enumerates PIM role configuration.
 #>
@@ -77,7 +77,7 @@ function Invoke-CheckPIM {
 
 
     ########################################## SECTION: DATACOLLECTION ##########################################
-    
+
     # Check if access token for PIM is still valid. Refresh if required
     if (-not (Invoke-CheckTokenExpiration $GLOBALPIMsGraphAccessToken)) {Invoke-MsGraphRefreshPIM | Out-Null}
 
@@ -87,18 +87,18 @@ function Invoke-CheckPIM {
 
     write-host "[*] Get PIM settings"
     # Get all Entra Roles PIM Policies
-    $QueryParameters = @{ 
+    $QueryParameters = @{
         '$filter' = "scopeId eq '/' and scopeType eq 'DirectoryRole'"
         '$expand' = 'rules'
         '$select' = "Id,scopeId,scopeType,rules"
     }
     $AllPimEntraPolicies = Send-GraphRequest -AccessToken $GLOBALPIMsGraphAccessToken.access_token -Method GET -Uri '/policies/roleManagementPolicies' -QueryParameters $QueryParameters -BetaAPI
-    
+
     $PimPoliciesCount = $($AllPimEntraPolicies.count)
     write-host "[+] Got $PimPoliciesCount PIM settings"
 
     # Get all Entra Roles PIM Role/Policie relations
-    $QueryParameters = @{ 
+    $QueryParameters = @{
         '$filter' = "scopeId eq '/' and scopeType eq 'DirectoryRole'"
         '$select' = "policyId,scopeId,scopeType,roleDefinitionId"
     }
@@ -107,12 +107,12 @@ function Invoke-CheckPIM {
     Write-Log -Level Verbose -Message "Got $($AllPimEntraPoliciesAssignments.count) PIM settings relations"
 
     # Get all role names
-    $QueryParameters = @{ 
+    $QueryParameters = @{
         '$select' = "id,displayName"
     }
-    $EntraRolesDefinition = Send-GraphRequest -AccessToken $GLOBALPIMsGraphAccessToken.access_token -Method GET -Uri '/roleManagement/directory/roleDefinitions' -QueryParameters $QueryParameters -BetaAPI 
-    
-    Write-Log -Level Verbose -Message "Got $($EntraRolesDefinition.count) Entra role definitions"   
+    $EntraRolesDefinition = Send-GraphRequest -AccessToken $GLOBALPIMsGraphAccessToken.access_token -Method GET -Uri '/roleManagement/directory/roleDefinitions' -QueryParameters $QueryParameters -BetaAPI
+
+    Write-Log -Level Verbose -Message "Got $($EntraRolesDefinition.count) Entra role definitions"
 
     # Create a lookup for role display names
     $RoleIdToNameMap = @{}
@@ -140,7 +140,7 @@ function Invoke-CheckPIM {
             EligibleAssignments = $eligibleAssignments.Count
         }
     }
-    
+
 
     # Build a lookup for PolicyId -> Rules
     $PolicyRulesMap = @{}
@@ -276,7 +276,7 @@ function Invoke-CheckPIM {
             $parsedAdminAssignmentDurationValue = "-"
             $parsedAdminAssignmentDurationUnit = ""
         }
-        
+
 
         # Extract Enablement_Admin_Assignment
         $adminAssignmentEnabledRules = @()
@@ -303,13 +303,13 @@ function Invoke-CheckPIM {
                         $type = 'Unknown'
                         $MemberCount = "-"
 
-                        if ($approver.'@odata.type' -match 'groupMembers') { 
+                        if ($approver.'@odata.type' -match 'groupMembers') {
                             $type = 'Group'
                             if ($AllGroupsDetails.ContainsKey($approver.id)) {
                                 $MemberCount = $AllGroupsDetails[$approver.id].Users
                             }
-                        } elseif ($approver.'@odata.type' -match 'singleUser') { 
-                            $type = 'User' 
+                        } elseif ($approver.'@odata.type' -match 'singleUser') {
+                            $type = 'User'
                         }
 
                         $approverObj = [PSCustomObject]@{
@@ -393,7 +393,7 @@ function Invoke-CheckPIM {
         if ($authCtxEnabled) {
             $AuthContextIssues = ""
             $AuthContextIssueSummary = [System.Collections.Generic.List[string]]::new()
-            
+
             # Process each matching policy
             $LinkedCaps = @(
                 $AllCaps.values | Where-Object { $_.AuthContextId -contains $claimValue } | ForEach-Object {
@@ -449,7 +449,7 @@ function Invoke-CheckPIM {
                     if ($policy.IncPlatforms -gt 0 -and $policy.IncPlatforms -lt 6) {
                         $Issues.Add("includes specific platforms")
                     }
-            
+
                     # Check if policy exclude networks
                     if ($policy.ExcNw -gt 1) {
                         $Issues.Add("exclude networks")
@@ -610,7 +610,7 @@ function Invoke-CheckPIM {
 
     #Define output of the main table
     $tableOutput = $AllPIMDetails | select-object Role,RoleLink,Tier,Eligible,Active,ActivationAuthContext,ActivationMFA,ActivationJustification,ActivationTicketing,ActivationDuration,ActivationApproval,EligibleExpiration,EligibleExpirationTime,ActiveExpiration,ActiveExpirationTime,ActiveAssignMFA,ActiveAssignJustification,AlertAssignEligible,AlertAssignActive,AlertActivation,Warnings
-    
+
     #Create HTML main table
     $mainTable = $tableOutput | select-object -Property @{Name = "Role"; Expression = { $_.RoleLink}},Tier,Eligible,Active,ActivationAuthContext,ActivationMFA,ActivationJustification,ActivationTicketing,ActivationDuration,ActivationApproval,EligibleExpiration,EligibleExpirationTime,ActiveExpiration,ActiveExpirationTime,ActiveAssignMFA,ActiveAssignJustification,AlertAssignEligible,AlertAssignActive,AlertActivation,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
@@ -648,13 +648,13 @@ function Invoke-CheckPIM {
         }
 
         [void]$DetailTxtBuilder.AppendLine(($PimRoleSettingInfo| Format-List $TxtReportProps | Out-String))
-       
+
 
         ############### Activation Settings
-        $ActivationSettings = [pscustomobject]@{ 
+        $ActivationSettings = [pscustomobject]@{
                     "Activation Max Duration" = "$($item.ActivationDuration) $($item.ActivationDurationUnit)"
                     "Justification Required" = $item.ActivationJustification
-                    "Ticket Info Required" = $item.ActivationTicketing 
+                    "Ticket Info Required" = $item.ActivationTicketing
                     "MFA Claim Required" = $item.ActivationMFA
                     "Auth Context Required" = $item.ActivationAuthContext
                     "Approver Required" = $item.ActivationApproval
@@ -664,7 +664,7 @@ function Invoke-CheckPIM {
         [void]$DetailTxtBuilder.AppendLine("Activation Settings")
         [void]$DetailTxtBuilder.AppendLine("================================================================================================")
         [void]$DetailTxtBuilder.AppendLine(($ActivationSettings | format-table | Out-String))
-    
+
 
 
         ############## Approvers
@@ -678,7 +678,7 @@ function Invoke-CheckPIM {
                         default     { $($object.Description) }
                     }
 
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "Type" = $object.Type
                         "DisplayNameLink" = $DisplayNameLink
                         "DisplayName" = $object.Description
@@ -689,7 +689,7 @@ function Invoke-CheckPIM {
 
             } else {
                 #If approvals are required but none are configured
-                $ApproversRaw = [pscustomobject]@{ 
+                $ApproversRaw = [pscustomobject]@{
                         "Type" = "-"
                         "DisplayNameLink" = "No approvers configured. Defaulting to Privileged Role Administrators or Global Administrators."
                         "DisplayName" = "No approvers configured. Defaulting to Privileged Role Administrators or Global Administrators."
@@ -713,7 +713,7 @@ function Invoke-CheckPIM {
         if ($item.LinkedCaps -ge 1) {
 
             $LinkedCapsRaw = foreach ($object in $($item.LinkedCapsDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "DisplayNameLink" = "<a href=ConditionalAccessPolicies_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                     "DisplayName" = $object.DisplayName
                     "AuthContextId" = ($object.AuthContextId -join ', ')
@@ -738,7 +738,7 @@ function Invoke-CheckPIM {
         if ($item.EligibleExpiration) {
             $MaxEligibleAssignment = "$($item.EligibleExpirationTime) $($item.EligibleExpirationUnit)"
         } else {
-            $MaxEligibleAssignment = "-"      
+            $MaxEligibleAssignment = "-"
         }
 
         if ($item.ActiveExpiration) {
@@ -748,7 +748,7 @@ function Invoke-CheckPIM {
         }
 
         # $item.EligibleExpiration and $item.ActiveExpiration are inverted due to the wording used in the portal.
-        $AssignmentSettings = [pscustomobject]@{ 
+        $AssignmentSettings = [pscustomobject]@{
                     "Allow Permanent Eligible Assignment" = !$item.EligibleExpiration
                     "Expire Eligible Assignments After" = $MaxEligibleAssignment
                     "Allow Permanent Active Assignment" = !$item.ActiveExpiration
@@ -763,7 +763,7 @@ function Invoke-CheckPIM {
         [void]$DetailTxtBuilder.AppendLine(($AssignmentSettings | format-table | Out-String))
 
 
-        $NotificationSettings = [pscustomobject]@{ 
+        $NotificationSettings = [pscustomobject]@{
                     "Alert On Eligible Assignment" = $item.AlertAssignEligible
                     "Alert On Permanent Assignments" = $item.AlertAssignActive
                     "Alert On Role Activation" = $item.AlertActivation
@@ -774,7 +774,7 @@ function Invoke-CheckPIM {
         [void]$DetailTxtBuilder.AppendLine("================================================================================================")
         [void]$DetailTxtBuilder.AppendLine(($NotificationSettings | format-table | Out-String))
 
-        #Build final object   
+        #Build final object
         $ObjectDetails = [pscustomobject]@{
             "Object Name"     = $item.Role
             "Object ID"       = $item.id
@@ -785,7 +785,7 @@ function Invoke-CheckPIM {
             "Assignment Settings" = $AssignmentSettings
             "Notification Settings" = $NotificationSettings
         }
-    
+
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
 
     }
@@ -827,7 +827,7 @@ $ObjectsDetailsHEAD = @'
     if ($Csv) {
         $tableOutput | select-object Role,Tier,Eligible,Active,ActivationAuthContext,ActivationMFA,ActivationJustification,ActivationTicketing,ActivationDuration,ActivationApproval,EligibleExpiration,EligibleExpirationTime,ActiveExpiration,ActiveExpirationTime,ActiveAssignMFA,ActiveAssignJustification,AlertAssignEligible,AlertAssignActive,AlertActivation,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).csv" -NoTypeInformation
     }
-    $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append    
+    $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName).txt" -Append
 
     # Set generic information which get injected into the HTML
     Set-GlobalReportManifest -CurrentReportKey 'PIM' -CurrentReportName 'PIM Enumeration'

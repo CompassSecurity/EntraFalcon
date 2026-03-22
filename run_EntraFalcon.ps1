@@ -1,4 +1,4 @@
-<#
+﻿<#
     .Synopsis
     PowerShell-based security assessment tool for Microsoft Entra ID environments.
 
@@ -28,7 +28,7 @@
     Useful when CAE breaks the script.
 
     .PARAMETER LimitResults
-    Limits the number of groups or users included in the report. 
+    Limits the number of groups or users included in the report.
     The limit is applied *after* sorting by risk score, ensuring only the highest-risk groups and users are processed and reported. This helps improve performance and keep the reports usable in large environments.
 
     .PARAMETER AuthFlow
@@ -51,7 +51,7 @@
     Skips the enumeration of PIM for Groups, avoiding the need for a secondary authentication flow.
 
     .PARAMETER IncludeMsApps
-    Includes Microsoft-owned enterprise applications in the enumeration and analysis.  
+    Includes Microsoft-owned enterprise applications in the enumeration and analysis.
     By default, these are excluded to reduce noise.
 
     .PARAMETER LogLevel
@@ -70,7 +70,7 @@
 
     .NOTES
     Author: Christian Feuchter, Compass Security Switzerland AG, https://www.compass-security.com/
-    Source: https://github.com/CompassSecurity/EntraFalcon 
+    Source: https://github.com/CompassSecurity/EntraFalcon
 
 #>
 
@@ -154,7 +154,7 @@ if (-not (Test-NonWindowsAuthFlowCompatibility -AuthFlow $AuthFlow -ReadmePath (
 }
 
 #Splat AuthMethods
-$Global:GLOBALAuthMethods = @{ 
+$Global:GLOBALAuthMethods = @{
     AuthFlow = $AuthFlow
  }
 
@@ -163,7 +163,7 @@ if (-not [string]::IsNullOrWhiteSpace($BroCiToken)) {
     # Access tokens (JWT) typically start with 'ey'
     if ($BroCiToken.StartsWith("ey")) {
         Write-Error "Invalid -BroCiToken: access token (JWT) detected. A refresh token is required." -ErrorAction Stop
-    }    
+    }
 
     # Must look like a refresh token (Azure refresh tokens usually start with "1.")
     if (-not $BroCiToken.StartsWith("1.")) {

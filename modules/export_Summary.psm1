@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
    Generate a summary about the enumerated objects in the tenant.
 
@@ -23,7 +23,7 @@ function Export-Summary {
         for ($i = 1; $i -le $ChartCount; $i++) {
             $charts += "<div class='chart-box'><canvas id='${Prefix}_chart$i'></canvas></div>`n"
         }
-    
+
 return @"
 <section class='summary-chart-panel'>
     <div class='summary-chart-panel-header'>
@@ -484,7 +484,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'Group': $($GlobalAuditSummary.AzureRoleAssignments.PrincipalType.Group),
             'ServicePrincipal': $($GlobalAuditSummary.AzureRoleAssignments.PrincipalType.SP),
             'Unknown': $($GlobalAuditSummary.AzureRoleAssignments.PrincipalType.Unknown)
-        }        
+        }
     };
 
     // === 2. Shared chart config ===
@@ -578,7 +578,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }],
             };
         }
-        
+
         // ============ Groups ============
 
         if (datasetKey === 'groups_general') {
@@ -951,7 +951,7 @@ document.addEventListener('DOMContentLoaded', function () {
         { id: 'user_chart4', title: 'Cloud-Only vs Synced', type: 'bar', dataset: 'users_onprem', showLegend: false },
         { id: 'user_chart5', title: 'Active vs Inactive', type: 'bar', dataset: 'users_inactive', showLegend: false },
         { id: 'user_chart6', title: 'Last Successful Sign-In', type: 'bar', dataset: 'users_lastsignin', indexAxis: 'y', showLegend: false },
-        
+
         // ============ Groups ============
         { id: 'group_chart1', title: 'Security vs M365', type: 'doughnut', dataset: 'groups_general' },
         { id: 'group_chart2', title: 'Cloud-Only vs Synced', type: 'bar', dataset: 'groups_onprem', showLegend: false },
@@ -1246,7 +1246,7 @@ Enumeration Results:
 
     # Build header section
     $headerHTML = "<div id=`"loadingOverlay`"><div class=`"spinner`"></div><div class=`"loading-text`">Loading data...</div></div>$generalSectionHtml"
-  
+
     #Write HTML
     $PostContentCombined =  $Chartsection + "`n" + $GLOBALJavaScript
     $CssCombined = $GLOBALcss + $CustomCss + $global:GLOBALReportManifestScript

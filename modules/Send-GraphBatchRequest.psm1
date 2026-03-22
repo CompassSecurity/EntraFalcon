@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Sends a batch request to Microsoft Graph API.
 
@@ -59,21 +59,21 @@
     $Requests = @(
         @{ "id" = "1"; "method" = "GET"; "url" = "/groups" }
     )
-    
+
     Send-GraphBatchRequest -AccessToken $AccessToken -Requests $Requests -DebugMode
 
 .EXAMPLE
     $AccessToken = "YOUR_ACCESS_TOKEN"
     $Requests = @(
-        @{ 
+        @{
             "id" = "1"
             "method" = "POST"
             "url" = "/groups"
             "body" = @{ "displayName" = "New Group"; "mailEnabled" = $false; "mailNickname" = "whatever"; "securityEnabled" = $true }
-            "headers" = @{"Content-Type"= "application/json"} 
+            "headers" = @{"Content-Type"= "application/json"}
         }
     )
-    
+
     Send-GraphBatchRequest -AccessToken $AccessToken -Requests $Requests -RawJson
 
 .EXAMPLE
@@ -301,9 +301,9 @@ function Send-GraphBatchRequest {
                 Write-Warning ("[{0}] [!] Missing first-page data for ID {1} - initializing empty list." -f (Get-Date -Format "HH:mm:ss"), $id)
                 $PagedResultsMap[$id] = New-Object 'System.Collections.Generic.List[object]'
             }
-        
+
             $PagedResultsMap[$id].AddRange($BatchResult.values[$id])
-        
+
             if ($BatchResult.nextLinks.ContainsKey($id)) {
                 $GlobalNextLinks.Add("$id|$($BatchResult.nextLinks[$id])")
             }
@@ -416,19 +416,19 @@ function Invoke-GraphNextLinkBatch {
     }
     $ResultMap = @{}
     $MoreLinksMap = @{}
-    
+
     foreach ($resp in $BatchResp.responses) {
         $i = [int]($resp.id -replace 'nl_', '')
         $realId = $Ids[$i]
-    
+
         if (-not $ResultMap.ContainsKey($realId)) {
             $ResultMap[$realId] = New-Object 'System.Collections.Generic.List[object]'
         }
-    
+
         if ($resp.body.value) {
             $ResultMap[$realId].AddRange(@($resp.body.value))
         }
-    
+
         if ($resp.body.'@odata.nextLink') {
             $MoreLinksMap[$realId] = $resp.body.'@odata.nextLink'
         }

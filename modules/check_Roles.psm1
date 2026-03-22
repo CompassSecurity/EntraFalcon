@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
    Collects and enriches Entra ID and Azure IAM role assignments, producing output in HTML, TXT, and CSV formats.
 #>
@@ -39,7 +39,7 @@ function Invoke-CheckRoles {
         if ($normalizedType -eq "unknown" -or $normalizedType -eq "user") {
             $MatchingUser = $Users[$($ObjectID)]
             if ($MatchingUser) {
-                $object = [PSCustomObject]@{ 
+                $object = [PSCustomObject]@{
                     DisplayName = $MatchingUser.UPN
                     DisplayNameLink = "<a href=Users_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($ObjectID)>$($MatchingUser.UPN)</a>"
                     Type = "User"
@@ -52,20 +52,20 @@ function Invoke-CheckRoles {
         if ($normalizedType -eq "unknown" -or $normalizedType -eq "group" ) {
             $MatchingGroup = $AllGroupsDetails[$($ObjectID)]
             if ($MatchingGroup) {
-                $object = [PSCustomObject]@{ 
+                $object = [PSCustomObject]@{
                     DisplayName = $MatchingGroup.DisplayName
                     DisplayNameLink = "<a href=Groups_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($ObjectID)>$($MatchingGroup.DisplayName)</a>"
                     Type = "Group"
                 }
                 $ObjectDetailsCache[$cacheKey] = $object
                 Return $object
-            } 
+            }
         }
 
         if ($normalizedType -eq "unknown" -or $normalizedType -eq "serviceprincipal") {
             $MatchingEnterpriseApp = $EnterpriseApps[$($ObjectID)]
             if ($MatchingEnterpriseApp) {
-                $object = [PSCustomObject]@{ 
+                $object = [PSCustomObject]@{
                     DisplayName = $MatchingEnterpriseApp.DisplayName
                     DisplayNameLink = "<a href=EnterpriseApps_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($ObjectID)>$($MatchingEnterpriseApp.DisplayName)</a>"
                     Type = "Enterprise Application"
@@ -78,7 +78,7 @@ function Invoke-CheckRoles {
         if ($normalizedType -eq "unknown" -or $normalizedType -eq "managedidentity" -or $normalizedType -eq "serviceprincipal") {
             $MatchingManagedIdentity = $ManagedIdentities[$($ObjectID)]
             if ($MatchingManagedIdentity) {
-                $object = [PSCustomObject]@{ 
+                $object = [PSCustomObject]@{
                     DisplayName = $MatchingManagedIdentity.DisplayName
                     DisplayNameLink = "<a href=ManagedIdentities_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($ObjectID)>$($MatchingManagedIdentity.DisplayName)</a>"
                     Type = "Managed Identity"
@@ -87,11 +87,11 @@ function Invoke-CheckRoles {
                 Return $object
             }
         }
-    
+
         if ($normalizedType -eq "unknown" -or $normalizedType -eq "AppRegistration" ) {
             $MatchingAppRegistration = $AppRegistrations[$($ObjectID)]
             if ($MatchingAppRegistration) {
-                $object = [PSCustomObject]@{ 
+                $object = [PSCustomObject]@{
                     DisplayName = $MatchingAppRegistration.DisplayName
                     DisplayNameLink = "<a href=AppRegistration_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($ObjectID)>$($MatchingAppRegistration.DisplayName)</a>"
                     Type = "App Registration"
@@ -100,11 +100,11 @@ function Invoke-CheckRoles {
                 Return $object
             }
         }
-    
+
         if ($normalizedType -eq "unknown" -or $normalizedType -eq "administrativeunit") {
             $MatchingAdministrativeUnit = $AdminUnitWithMembers | Where-Object { $_.AuId -eq $ObjectID }
             if ($MatchingAdministrativeUnit) {
-                $object = [PSCustomObject]@{ 
+                $object = [PSCustomObject]@{
                     DisplayName = $MatchingAdministrativeUnit.DisplayName
                     DisplayNameLink = $MatchingAdministrativeUnit.DisplayName
                     Type = "Administrative Unit"
@@ -118,7 +118,7 @@ function Invoke-CheckRoles {
         # Fallback: resolve unknown objects via directoryObjects/getByIds (expensive but should be OK with caching)
         if ($normalizedType -eq "unknown" -or $normalizedType -like "*foreign*") {
 
-        
+
             Write-Log -Level Trace -Message "Manually resolve $ObjectID"
             # Not sure if device make sense, but the Azure Portal use it as well
             $Body = @{
@@ -266,7 +266,7 @@ function Invoke-CheckRoles {
         #Unknown Object
         if ($normalizedType -eq "unknown") {
 
-            $object = [PSCustomObject]@{ 
+            $object = [PSCustomObject]@{
                 DisplayName = $ObjectID
                 DisplayNameLink = $ObjectID
                 Type = "Unknown Object"
@@ -320,7 +320,7 @@ function Invoke-CheckRoles {
             3 {$RoleTier = "Tier-3"; break}
             "?" {$RoleTier = "Uncategorized"}
         }
-        [pscustomobject]@{ 
+        [pscustomobject]@{
             "Role" = $($item.DisplayName)
             "PrincipalId" = $($item.PrincipalId)
             "PrincipalDisplayName" = $($PrincipalDetails.DisplayName)
@@ -538,7 +538,7 @@ $headerHtml = @"
         $SortedEntraRoles | select-object Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType, PrincipalDisplayName, PrincipalType,ScopeResolved | Export-Csv -Path "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.DisplayName).csv" -NoTypeInformation
     }
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
-    write-host "[+] Details of $($SortedEntraRoles.count) Entra ID role assignments stored in output files ($OutputFormats): $outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.DisplayName)"    
+    write-host "[+] Details of $($SortedEntraRoles.count) Entra ID role assignments stored in output files ($OutputFormats): $outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.DisplayName)"
 
     #Add information to the enumeration summary
     $EntraEligibleCount = 0
@@ -593,7 +593,7 @@ $headerHtml = @"
     $GlobalAuditSummary.EntraRoleAssignments.Tiers."Tier-1" = $Tier1Count
     $GlobalAuditSummary.EntraRoleAssignments.Tiers."Tier-2" = $Tier2Count
     $GlobalAuditSummary.EntraRoleAssignments.Tiers.Uncategorized = $TierUncatCount
-    
+
 
 
     if ($SortedAzureRoles.count -ge 1) {
@@ -606,7 +606,7 @@ $headerHtml = @"
             $SortedAzureRoles | select-object Scope,Role,RoleTier,RoleType,Conditions,AssignmentType,PrincipalDisplayName,PrincipalType | Export-Csv -Path "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.DisplayName).csv" -NoTypeInformation
         }
         write-host "[+] Details of $($SortedAzureRoles.count) Azure role assignments stored in output files ($OutputFormats): $outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.DisplayName)"
-        
+
         #Add information to the enumeration summary
         $AzureEligibleCount = 0
         $AzureTier0Count = 0

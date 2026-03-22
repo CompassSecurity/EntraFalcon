@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
    Enumerate App Registrations (including: API Permission (Application), Owner, Secrets, Certificates, 	Access through App Roles etc.).
 
@@ -47,7 +47,7 @@ function Invoke-CheckAppRegistrations {
                 } else {
                     $Department = $User.Department
                 }
-                [PSCustomObject]@{ 
+                [PSCustomObject]@{
                     Type = "User"
                     DisplayName = $User.DisplayName
                     UPN= $User.UserPrincipalName
@@ -65,7 +65,7 @@ function Invoke-CheckAppRegistrations {
             $MatchingGroup = $AllGroupsDetails[$($Object)]
 
             if (($MatchingGroup | Measure-Object).count -ge 1) {
-                [PSCustomObject]@{ 
+                [PSCustomObject]@{
                     Type = "Group"
                     Id = $MatchingGroup.Id
                     DisplayName = $MatchingGroup.DisplayName
@@ -83,7 +83,7 @@ function Invoke-CheckAppRegistrations {
             $MatchingEnterpriseApp = $EnterpriseApps[$($Object)]
 
             if (($MatchingEnterpriseApp | Measure-Object).count -ge 1) {
-                [PSCustomObject]@{ 
+                [PSCustomObject]@{
                     Type = "ServicePrincipal"
                     Id = $MatchingEnterpriseApp.Id
                     DisplayName = $MatchingEnterpriseApp.DisplayName
@@ -103,14 +103,14 @@ function Invoke-CheckAppRegistrations {
                     $Expired = $False
                 }
             }
-            [PSCustomObject]@{ 
+            [PSCustomObject]@{
                 Type = "Secret"
                 DisplayName = $Object.DisplayName
                 EndDateTime = $Object.EndDateTime
                 Expired = $Expired
                 Hint = $Object.Hint
             }
-        
+
         }
 
         if ($type -eq "Cert" ) {
@@ -122,7 +122,7 @@ function Invoke-CheckAppRegistrations {
                     $Expired = $False
                 }
             }
-            [PSCustomObject]@{ 
+            [PSCustomObject]@{
                 Type = "Cert"
                 DisplayName = $Object.DisplayName
                 EndDateTime = $Object.EndDateTime
@@ -174,7 +174,7 @@ function Invoke-CheckAppRegistrations {
         $AppsTotalCount = $($AppRegistrations.count)
         Write-Log -Level Verbose -Message "Filtered out $AgentIdentityBlueprintCount agent identity blueprints from App Registrations."
     }
-    
+
     write-host "[+] Got $AppsTotalCount App registrations"
 
     #Abort if no apps are present
@@ -241,7 +241,7 @@ function Invoke-CheckAppRegistrations {
         $ObjectDetails | Add-Member -MemberType NoteProperty -Name Role -Value 'CloudApplicationAdministrator'
         $ObjectDetails | Add-Member -MemberType NoteProperty -Name Scope -Value 'Tenant' -PassThru
     }
-    
+
     #Get members of Application Administrator (9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3) with the scope for current the Tenant
     $AppAdminTenant = if ($AppAdminAssignmentsByScope.ContainsKey("/")) {
         @($AppAdminAssignmentsByScope["/"])
@@ -306,7 +306,7 @@ function Invoke-CheckAppRegistrations {
     if ($AppsTotalCount -gt 0 -and $StatusUpdateInterval -gt 1) {
         Write-Host "[*] Status: Processing app 1 of $AppsTotalCount (updates every $StatusUpdateInterval apps)..."
     }
-    
+
     #region Processing Loop
     #Loop through each app and get additional info and store it in a custom object
     foreach ($item in $AppRegistrations) {
@@ -417,7 +417,7 @@ function Invoke-CheckAppRegistrations {
             WindowsRedirectUris = $item.Windows.RedirectUris
             PublicClientRedirectUris = $item.PublicClient.RedirectUris
         }
-        
+
         # Define patterns with severity levels
         $RedirectPatterns = @(
             [PSCustomObject]@{ Pattern = "*.azurewebsites.net"; Severity = "High" },
@@ -493,7 +493,7 @@ function Invoke-CheckAppRegistrations {
         }
 
         #Get application home page
-        if ($null -ne $item.web.HomePageUrl) { 
+        if ($null -ne $item.web.HomePageUrl) {
             $AppHomePage = $item.web.HomePageUrl
         }
 
@@ -549,7 +549,7 @@ function Invoke-CheckAppRegistrations {
         } else {
             @()
         }
-        
+
         $CloudAppAdminCurrentAppDetails = foreach ($Object in $CloudAppAdminCurrentApp) {
             # Get the object details
             $ObjectDetails = GetObjectInfo $Object.PrincipalId
@@ -559,7 +559,7 @@ function Invoke-CheckAppRegistrations {
             $ObjectDetails | Add-Member -MemberType NoteProperty -Name Role -Value 'CloudApplicationAdministrator'
             $ObjectDetails | Add-Member -MemberType NoteProperty -Name Scope -Value 'ThisApplication' -PassThru
         }
-        
+
         #Get members of Application Administrator (9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3) with the scope for current App Registrations
         $AppAdminCurrentApp = if ($AppAdminAssignmentsByScope.ContainsKey($scopeKey)) {
             @($AppAdminAssignmentsByScope[$scopeKey])
@@ -683,9 +683,9 @@ function Invoke-CheckAppRegistrations {
         if ($SecretsCount -ge 1){
             $AppsWithSecrets += $AppCredentialsSecrets
         }
-        
+
         #Write custom object
-        $AppRegDetails = [PSCustomObject]@{ 
+        $AppRegDetails = [PSCustomObject]@{
             Id = $item.Id
             DisplayName = $item.DisplayName
             DisplayNameLink = "<a href=#$($item.Id)>$($item.DisplayName)</a>"
@@ -719,17 +719,17 @@ function Invoke-CheckAppRegistrations {
             Warnings = $Warnings
         }
         [void]$AllAppRegistrations.Add($AppRegDetails)
-        
+
     }
     #endregion
-    
+
     ########################################## SECTION: OUTPUT DEFINITION ##########################################
     write-host "[*] Generating reports"
 
 
     #Define Table for output
     $tableOutput = $AllAppRegistrations | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,Enabled,CreationInDays,SignInAudience,AppRoles,AppLock,Owners,CloudAppAdmins,AppAdmins,SecretsCount,CertsCount,FederatedCreds,Impact,Likelihood,Risk,Warnings
-    
+
 
     #Define the apps to be displayed in detail and sort them by risk score
     $details = $AllAppRegistrations | Sort-Object Risk -Descending
@@ -737,7 +737,7 @@ function Invoke-CheckAppRegistrations {
 
     #Define stringbuilder to avoid performance impact
     $DetailTxtBuilder = [System.Text.StringBuilder]::new()
-    
+
     foreach ($item in $details) {
         $ReportingAppRegInfo = @()
         $ReportingCredentials = @()
@@ -749,7 +749,7 @@ function Invoke-CheckAppRegistrations {
         $ScopedAdminUser = @()
         $ScopedAdminGroup = @()
         $ScopedAdminSP = @()
-        
+
 
         [void]$DetailTxtBuilder.AppendLine("############################################################################################################################################")
 
@@ -783,7 +783,7 @@ function Invoke-CheckAppRegistrations {
         ############### App Registration Credentials
         if ($($item.AppCredentialsDetails | Measure-Object).count -ge 1) {
             $ReportingCredentials = foreach ($object in $($item.AppCredentialsDetails)) {
-                [pscustomobject]@{ 
+                [pscustomobject]@{
                     "Type" = $($object.Type)
                     "DisplayName" = $($object.DisplayName)
                     "StartDateTime" = $(if ($null -ne $object.StartDateTime) { $object.StartDateTime.ToString() } else { "-" })
@@ -836,7 +836,7 @@ function Invoke-CheckAppRegistrations {
 
             if ($($item.AppOwnerUsers | Measure-Object).count -ge 1) {
                 $ReportingAppOwnersUser = foreach ($object in $($item.AppOwnerUsers)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "UPN" = $($object.userPrincipalName)
                         "UPNLink" = "<a href=Users_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.userPrincipalName)</a>"
                         "Enabled" = $($object.accountEnabled)
@@ -866,7 +866,7 @@ function Invoke-CheckAppRegistrations {
 
             if ($($item.AppOwnerSPs | Measure-Object).count -ge 1) {
                 $ReportingAppOwnersSP = foreach ($object in $($item.AppOwnerSPs)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "DisplayName" = $($object.DisplayName)
                         "DisplayNameLink" = "<a href=EnterpriseApps_$($StartTimestamp)_$([System.Uri]::EscapeDataString($CurrentTenant.DisplayName)).html#$($object.id)>$($object.DisplayName)</a>"
                         "Foreign" = $($object.Foreign)
@@ -891,7 +891,7 @@ function Invoke-CheckAppRegistrations {
         }
 
         ############### Scoped Admins
-       
+
         #Wrap to Array and merge
         $CloudAppAdminCurrentAppDetails = @($item.CloudAppAdminCurrentAppDetails)
         $AppAdminCurrentAppDetails = @($item.AppAdminCurrentAppDetails)
@@ -908,7 +908,7 @@ function Invoke-CheckAppRegistrations {
 
             if ($($EntityDetails.Users | Measure-Object).count -ge 1) {
                 $ScopedAdminUser = foreach ($object in $($EntityDetails.Users)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "Role" = $($object.Role)
                         "Scope" = $($object.Scope)
                         "AssignmentType"  = $($object.AssignmentType)
@@ -943,7 +943,7 @@ function Invoke-CheckAppRegistrations {
 
             if ($($EntityDetails.Groups | Measure-Object).count -ge 1) {
                 $ScopedAdminGroup = foreach ($object in $($EntityDetails.Groups)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "Role" = $($object.Role)
                         "Scope" = $($object.Scope)
                         "AssignmentType"  = $($object.AssignmentType)
@@ -975,7 +975,7 @@ function Invoke-CheckAppRegistrations {
 
             if ($($EntityDetails.SP | Measure-Object).count -ge 1) {
                 $ScopedAdminSP = foreach ($object in $($EntityDetails.SP)) {
-                    [pscustomobject]@{ 
+                    [pscustomobject]@{
                         "Role" = $($object.Role)
                         "Scope" = $($object.Scope)
                         "AssignmentType"  = $($object.AssignmentType)
@@ -1022,7 +1022,7 @@ function Invoke-CheckAppRegistrations {
             [void]$DetailTxtBuilder.AppendLine(($ReportingAppRoles | format-table | Out-String))
         }
 
-        
+
         $ObjectDetails=[pscustomobject]@{
             "Object Name"     = $item.DisplayName
             "Object ID"       = $item.Id
@@ -1037,7 +1037,7 @@ function Invoke-CheckAppRegistrations {
             "Admins (Groups)"    = $ScopedAdminGroup
             "Admins (ServicePrincipals)"    = $ScopedAdminSP
         }
-    
+
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
 
     }
@@ -1066,7 +1066,7 @@ $ObjectsDetailsHEAD = @'
 '@
 $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
 
-    
+
 #Define header
 $headerTXT = "************************************************************************************************************************
 $Title Enumeration
@@ -1076,13 +1076,13 @@ Execution Warnings = $($ScriptWarningList  -join ' / ')
 ************************************************************************************************************************
 "
 
-$headerHTML = [pscustomobject]@{ 
+$headerHTML = [pscustomobject]@{
     "Executed in Tenant" = "$($CurrentTenant.DisplayName) / ID: $($CurrentTenant.id)"
     "Executed at" = "$StartTimestamp "
     "Execution Warnings" = $ScriptWarningList -join ' / '
 }
 
-    
+
 #Define Appendix
 
 $AppendixClientSecrets = "
@@ -1140,7 +1140,7 @@ $headerHtml = @"
 
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
     write-host "[+] Details of $($AllAppRegistrations.count) App Registrations stored in output files ($OutputFormats): $outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.DisplayName)"
-   
+
     #Add information to the enumeration summary
     $AppLock = 0
     $AzureADMyOrg = 0

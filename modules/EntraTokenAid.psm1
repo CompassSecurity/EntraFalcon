@@ -1,10 +1,10 @@
-<#
+﻿<#
     .Synopsis
     Pure PowerShell Entra OAuth authentication to get access and refresh tokens.
 
     .Description
     EntraTokenAid is a PowerShell module to simplify OAuth workflows with Microsoft Entra ID, to get the access and refresh token for different APIs using different clients.
-    Accessing cleartext access and refresh tokens for various MS APIs (e.g., MS Graph) is often a requirement during engagements and research, especially using pre-consented clients (e.g., AzureCLI) to avoid additional consent prompts. Tokens are needed not only for manual enumeration via APIs but also for tools like AzureHound or GraphRunner, which require a valid refresh token. 
+    Accessing cleartext access and refresh tokens for various MS APIs (e.g., MS Graph) is often a requirement during engagements and research, especially using pre-consented clients (e.g., AzureCLI) to avoid additional consent prompts. Tokens are needed not only for manual enumeration via APIs but also for tools like AzureHound or GraphRunner, which require a valid refresh token.
     With more customers starting to block the Device Code Flow, alternative authentication methods for obtaining cleartext refresh tokens are becoming increasingly important. While using AzureCLI modules is a common solution, its installation may not always be feasible—especially on customer systems. Other alternatives like roadtx require Python, which might not be ideal in customer environments.
     This tool should bridges this gap with a lightweight, standalone PowerShell solution that works even on the customers Windows systems.
 
@@ -90,15 +90,15 @@ function Invoke-Auth {
     Performs OAuth 2.0 authentication using the Authorization Code Flow for Microsoft Entra ID.
 
     .DESCRIPTION
-    The `Invoke-Auth` function facilitates OAuth 2.0 Authorization Code Flow to get access and refresh tokens. It supports flexible configuration options, including scope, tenant, and client ID customization. The function can optionally output tokens, parse JWTs, or suppress PKCE, use CAE, and other standard authentication features. 
+    The `Invoke-Auth` function facilitates OAuth 2.0 Authorization Code Flow to get access and refresh tokens. It supports flexible configuration options, including scope, tenant, and client ID customization. The function can optionally output tokens, parse JWTs, or suppress PKCE, use CAE, and other standard authentication features.
     This function is particularly useful for penetration testers and security researchers who need cleartext access/refresh tokens to interact with Microsoft APIs like Microsoft Graph.
 
     .PARAMETER Port
-    Specifies the local port number for the redirection URI used during the authorization process. 
+    Specifies the local port number for the redirection URI used during the authorization process.
     Default: 13824
 
     .PARAMETER ClientID
-    Specifies the client ID of the application being authenticated. 
+    Specifies the client ID of the application being authenticated.
     Default: `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Microsoft Azure CLI)
 
     .PARAMETER Scope
@@ -128,7 +128,7 @@ function Invoke-Auth {
 
     .PARAMETER DisablePrompt
     Prevents user selection in the browser during authentication (silent authentication).
-    
+
     .PARAMETER UserAgent
     Specifies the user agent string to be used in the HTTP requests (not will only impact non-interactive sign-ins).
     Default: `python-requests/2.32.3`
@@ -262,7 +262,7 @@ function Invoke-Auth {
     if ($LoginHint) {
         $Url += "&login_hint=$LoginHint"
     }
-    
+
     #Check if CAE is wanted
     if (-not $DisableCAE) {
         $Url += '&claims={%22access_token%22:%20{%22xms_cc%22:%20{%22values%22:%20[%22CP1%22]}}}'
@@ -273,7 +273,7 @@ function Invoke-Auth {
         # Start auth flow in Browser
         Start-Process $Url
         # Http Server
-        $HttpListener = [System.Net.HttpListener]::new() 
+        $HttpListener = [System.Net.HttpListener]::new()
         $HttpListener.Prefixes.Add("http://localhost:$Port/")
         Try {
             $HttpListener.Start()
@@ -286,7 +286,7 @@ function Invoke-Auth {
                 write-host "[!] ERROR: $HttpStartError"
             }
         }
-            
+
         if ($HttpListener.IsListening) {
             write-host "[+] HTTP server running on http://localhost:$Port/"
             write-host "[i] Listening for OAuth callback for $HttpTimeout s (HttpTimeout value) "
@@ -361,7 +361,7 @@ function Invoke-Auth {
                     }
                 }
             }
-    
+
 
             #Spawn local HTTP server to catch the auth code
             if ($AuthMode -eq "LocalHTTP") {
@@ -380,7 +380,7 @@ function Invoke-Auth {
                 try {
                     while ($Proceed) {
                         Start-Sleep -Milliseconds 500
-            
+
                         # Check if the runtime exceeds the timeout (if set)
                         if ($HttpTimeout -gt 0 -and ([datetime]::Now - $StartTime).TotalSeconds -ge $HttpTimeout) {
                             Write-Host "[!] Runtime limit reached. Stopping the server..."
@@ -394,7 +394,7 @@ function Invoke-Auth {
                             }
                             break
                         }
-            
+
                         # Process output from the shared queue
                         $Request = $null
                         while ($RequestQueue.TryDequeue([ref]$Request) -and $Proceed) {
@@ -405,12 +405,12 @@ function Invoke-Auth {
                                 write-host "[+] Got OAuth callback request containing CODE"
 
                                 $RawUrl =  $($Request.RawUrl)
-            
+
                                 #Get content of the GET parameters
                                 $QueryString = $RawUrl  -replace '^.*\?', ''
                                 $Params = $QueryString -split '&'
                                 $QueryParams = @{}
-            
+
                                 # Iterate over each parameter and split into key-value pairs
                                 foreach ($Param in $Params) {
                                     $Key, $Value = $Param -split '=', 2
@@ -418,7 +418,7 @@ function Invoke-Auth {
                                 }
                                 $AuthorizationCode = $QueryParams["code"]
                                 $StateResponse = $QueryParams["state"]
-                                
+
                                 if ($StateResponse -ne $State) {
                                     write-host "[!] Error: Wrong state received from IDP. Aborting..."
                                     write-host "[!] Error: Received $StateResponse but expected $State"
@@ -439,23 +439,23 @@ function Invoke-Auth {
                                 write-host "[!] Got OAuth callback request containing an ERROR"
                                 $QueryString = $($Request.QueryString)
                                 $RawUrl =  $($Request.RawUrl)
-            
+
                                 #Get content of the GET parameters
                                 $QueryString = $RawUrl  -replace '^.*\?', ''
                                 $Params = $QueryString -split '&'
                                 $QueryParams = @{}
-            
+
                                 # Iterate over each parameter and split into key-value pairs
                                 foreach ($Param in $Params) {
                                     $Key, $Value = $Param -split '=', 2
                                     $QueryParams[$Key] = $Value
                                 }
-            
+
                                 #Define errors
                                 $ErrorShort = $QueryParams["error"]
-                                $ErrorDescription = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_description"]) 
-                                $MoreInfo = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_uri"]) 
-            
+                                $ErrorDescription = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_description"])
+                                $MoreInfo = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_uri"])
+
                                 write-host "[!] Error in OAuth Callback: $ErrorShort"
                                 write-host "[!] Description: $ErrorDescription"
                                 write-host "[!] More info: $MoreInfo"
@@ -480,7 +480,7 @@ function Invoke-Auth {
                         }
 
                     }
-            
+
                 } finally {
                     #Cleaning up
                     Write-Host "[*] Stopping the server..."
@@ -536,7 +536,7 @@ function Invoke-Auth {
             if ($Url -match 'code=[^&]*') {
                 $Form.Close()
             } elseif ($Url -match 'https://login.microsoftonline.com/') { #Section to capture the MS login errors
-                
+
                 #Scanning URL for code or error parameters and the body for strings which appears on errors
                 if ($Url -match 'error=[^&]*') {
                     write-host "[!] Error parameter in URL detected"
@@ -553,9 +553,9 @@ function Invoke-Auth {
                         #Create Error Object to use in reporting
                         $ErrorDetails = [PSCustomObject]@{
                             ClientID    = $ClientID
-                            ErrorLong   = $ErrorMessage 
+                            ErrorLong   = $ErrorMessage
                         }
-                        Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"   
+                        Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"
                     }
                 } else {
                     $Scripts = $WebBrowser.Document.GetElementsByTagName("script")
@@ -570,21 +570,21 @@ function Invoke-Auth {
                                 #Create Error Object to use in reporting
                                 $ErrorDetails = [PSCustomObject]@{
                                     ClientID    = $ClientID
-                                    ErrorLong   = $ErrorMessage 
+                                    ErrorLong   = $ErrorMessage
                                 }
-                                Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"   
+                                Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"
                             }
                         }
                     }
                 }
             }
-                
+
 
         })
 
         $Form.Controls.Add($WebBrowser)
         $Form.Add_Shown({$Form.Activate()})
-        
+
         $Form.ShowDialog() | Out-Null     #Blocks until auth is complete
 
         $AuthorizationCode = [System.Web.HttpUtility]::ParseQueryString($WebBrowser.Url.Query)['code']
@@ -595,7 +595,7 @@ function Invoke-Auth {
             write-host "[+] Got an AuthCode"
             #Use function to call the Token endpoint
             $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent
-            return $tokens 
+            return $tokens
         }
     }
 
@@ -609,7 +609,7 @@ function Invoke-Auth {
         } else {
             write-host "[i] Copy the full redirected URL (it contains the authorization code) to your clipboard."
         }
-        
+
         Write-Host "[i] Press Enter when done, or press CTRL + C to abort."
         $WaitForCode = $true
         while ($WaitForCode) {
@@ -622,7 +622,7 @@ function Invoke-Auth {
             $QueryString = $RawUrl  -replace '^.*\?', ''
             $Params = $QueryString -split '&'
             $QueryParams = @{}
-        
+
             # Iterate over each parameter and split into key-value pairs
             foreach ($Param in $Params) {
                 $Key, $Value = $Param -split '=', 2
@@ -651,7 +651,7 @@ function Invoke-Auth {
             }
             break
         }
-    
+
         #Call the token endpoint
         $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent
         return $tokens
@@ -667,19 +667,19 @@ function Invoke-Refresh {
     Uses a refresh token to obtain a new access token, optionally for the same or a different API, or client.
 
     .DESCRIPTION
-    `Invoke-Refresh` allows users to exchange an existing refresh token for a new access token. 
-    It supports scenarios such as refreshing tokens for a different client or API, changing scopes, 
+    `Invoke-Refresh` allows users to exchange an existing refresh token for a new access token.
+    It supports scenarios such as refreshing tokens for a different client or API, changing scopes,
     or simply renewing tokens before expiration.
 
     .PARAMETER RefreshToken
     Specifies the refresh token to be exchanged for a new access token. This is a required parameter.
 
     .PARAMETER ClientID
-    Specifies the client ID of the application. Defaults to  
+    Specifies the client ID of the application. Defaults to
     (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) Azure CLI.
 
     .PARAMETER Scope
-    Defines the access scope requested in the new token. Defaults to `default offline_access`. 
+    Defines the access scope requested in the new token. Defaults to `default offline_access`.
 
     .PARAMETER Api
     The base URL of the API for which the new access token is required. Defaults to `graph.microsoft.com`.
@@ -695,7 +695,7 @@ function Invoke-Refresh {
     If specified, the function outputs the access token in the console.
 
     .PARAMETER DisableJwtParsing
-    Disables the automatic parsing of the access token's JWT payload. 
+    Disables the automatic parsing of the access token's JWT payload.
 
     .PARAMETER DisableCAE
     Disables Continuous Access Evaluation (CAE) features when requesting the new token.
@@ -710,7 +710,7 @@ function Invoke-Refresh {
     Define Origin Header to be used in the HTTP request.
 
     .PARAMETER Reporting
-    Enables logging (CSV) the details of the refresh operation for later analysis. 
+    Enables logging (CSV) the details of the refresh operation for later analysis.
 
     .EXAMPLE
     # Example 1: Refresh an access token for the default client and API
@@ -747,7 +747,7 @@ function Invoke-Refresh {
         "X-Client-Ver" = "1.31.0"
         "X-Client-Os" = "win32"
     }
-    
+
     #Add Origin if defined
     if ($Origin) {
         $Headers.Add("Origin", $Origin)
@@ -774,11 +774,11 @@ function Invoke-Refresh {
     if (-not [string]::IsNullOrEmpty($BrkClientId)) {
         $Body.Add("brk_client_id", $BrkClientId)
     }
-    
+
     #Check if redirect uri is wanted
     if (-not [string]::IsNullOrEmpty($RedirectUri)) {
         $Body.Add("redirect_uri", $RedirectUri)
-    }    
+    }
 
     Write-Host "[*] Sending request to token endpoint"
     # Call the token endpoint to get the tokens
@@ -789,7 +789,7 @@ function Invoke-Refresh {
         $tokens = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/token" -Method POST -Body $Body -Headers $Headers
     } Catch {
         Write-Host "[!] Request Error:"
-        $RequestError = $_ 
+        $RequestError = $_
         $ParsedError = $null
 
         # Check if $RequestError is valid JSON
@@ -825,7 +825,7 @@ function Invoke-Refresh {
             Write-Host "[+] Got an access token (no refresh token requested)"
         }
         $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
-    
+
 
         if (-not $DisableJwtParsing) {
 
@@ -833,8 +833,8 @@ function Invoke-Refresh {
             Try {
                 $JWT = Invoke-ParseJwt -jwt $tokens.access_token
             } Catch {
-                
-                $JwtParseError = $_ 
+
+                $JwtParseError = $_
                 Write-Host "[!] JWT Parse error: $($JwtParseError)"
                 Write-Host "[!] Aborting...."
                 break
@@ -857,7 +857,7 @@ function Invoke-Refresh {
         } else {
             Write-Host "[i] Expires at: $($tokens.expiration_time)"
         }
-        
+
         #Print token info if switch is used
         if ($TokenOut) {
             invoke-PrintTokenInfo -jwt $tokens -NotParsed $DisableJwtParsing
@@ -871,7 +871,7 @@ function Invoke-Refresh {
     } elseif($Proceed) {
         Write-Host "[!] The answer obtained from the token endpoint do not contains tokens"
     }
-    
+
 }
 
 function Invoke-DeviceCodeFlow {
@@ -880,12 +880,12 @@ function Invoke-DeviceCodeFlow {
         Performs OAuth 2.0 authentication using the Device Code Flow.
 
         .DESCRIPTION
-        The `Invoke-DeviceCodeFlow` function facilitates OAuth 2.0 authentication using the Device Code Flow. 
-        This flow is ideal for scenarios where interactive login via a browser is required, but the client application runs in an environment where a browser is not readily available (e.g., CLI or limited UI environments). 
+        The `Invoke-DeviceCodeFlow` function facilitates OAuth 2.0 authentication using the Device Code Flow.
+        This flow is ideal for scenarios where interactive login via a browser is required, but the client application runs in an environment where a browser is not readily available (e.g., CLI or limited UI environments).
         The function automatically starts a browser session to complete authentication and copies the user code to the clipboard for convenience. Upon successful authentication, the function retrieves access and refresh tokens.
 
         .PARAMETER ClientID
-        Specifies the client ID of the application being authenticated. 
+        Specifies the client ID of the application being authenticated.
         Default: `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Microsoft Azure CLI)
 
         .PARAMETER Api
@@ -895,7 +895,7 @@ function Invoke-DeviceCodeFlow {
         .PARAMETER Scope
         Specifies the API permissions (scopes) to request during authentication. Multiple scopes should be space-separated.
         Default: `default offline_access`
-        
+
         .PARAMETER DisableJwtParsing
         Disables parsing of the JWT access token. When set, the token is returned as-is without any additional information.
 
@@ -918,7 +918,7 @@ function Invoke-DeviceCodeFlow {
         Default: `organizations`
 
         .PARAMETER Reporting
-        Enables logging (CSV) the details of the authentication operation for later analysis. 
+        Enables logging (CSV) the details of the authentication operation for later analysis.
 
         .EXAMPLE
         Invoke-DeviceCodeFlow
@@ -948,10 +948,10 @@ function Invoke-DeviceCodeFlow {
     )
 
     $Proceed = $true
-    
+
     # Construct scope string for v2 endpoints
     $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
-    
+
 
     $Headers=@{}
     $Headers["User-Agent"] = $UserAgent
@@ -967,7 +967,7 @@ function Invoke-DeviceCodeFlow {
     Try {
         $DeviceCodeDetails = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/devicecode" -Method POST -Body $Body -Headers $Headers
     } Catch {
-        $InitialError = $_ | ConvertFrom-Json  
+        $InitialError = $_ | ConvertFrom-Json
         Write-Host "[!] Aborting...."
         Write-Host "[!] Error: $($InitialError.error)"
         Write-Host "[!] Error Description: $($InitialError.error_description)"
@@ -980,7 +980,7 @@ function Invoke-DeviceCodeFlow {
         }
         $Proceed = $false
     }
-    
+
     if ($Proceed) {
         Set-Clipboard $DeviceCodeDetails.user_code
         write-host "[i] User code: $($DeviceCodeDetails.user_code). Copied to clipboard..."
@@ -1050,12 +1050,12 @@ function Invoke-DeviceCodeFlow {
                         # Parse the token
                         $JWT = Invoke-ParseJwt -jwt $TokensDeviceCode.access_token
                     } Catch {
-                        $JwtParseError = $_ 
+                        $JwtParseError = $_
                         Write-Host "[!] JWT Parse error: $($JwtParseError)"
                         Write-Host "[!] Aborting...."
                         break
                     }
-            
+
                     #Add additonal infos to token object
                     $TokensDeviceCode | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp
                     $TokensDeviceCode | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
@@ -1073,8 +1073,8 @@ function Invoke-DeviceCodeFlow {
                 } else {
                     Write-Host "[i] Expires at: $($TokensDeviceCode.expiration_time)"
                 }
-                
-                
+
+
                 #Print token info if switch is used
                 if ($TokenOut) {
                     invoke-PrintTokenInfo -jwt $TokensDeviceCode -NotParsed $DisableJwtParsing
@@ -1100,7 +1100,7 @@ function Invoke-ClientCredential {
         Performs OAuth 2.0 authentication using the Client Credential  Flow.
 
         .DESCRIPTION
-        The `Invoke-ClientCredential` function implements the OAuth 2.0 Client Credentials Flow. 
+        The `Invoke-ClientCredential` function implements the OAuth 2.0 Client Credentials Flow.
         It retrieves an access token for the specified API and supports additional features like JWT parsing, custom reporting, and secure handling of client secrets.
 
         .PARAMETER ClientId
@@ -1108,7 +1108,7 @@ function Invoke-ClientCredential {
 
         .PARAMETER ClientSecret
         Specifies the client secret of the application being authenticated. If not provided, the function prompts for secure input during execution.
-        
+
         .PARAMETER Api
         Specifies the target API for the authentication request.
         Default: `graph.microsoft.com`
@@ -1116,7 +1116,7 @@ function Invoke-ClientCredential {
         .PARAMETER Scope
         Specifies the API permissions (scopes) to request during authentication. Multiple scopes should be space-separated.
         Default: `default`
-        
+
         .PARAMETER DisableJwtParsing
         Disables parsing of the JWT access token. When set, the token is returned as-is without any additional information.
 
@@ -1131,7 +1131,7 @@ function Invoke-ClientCredential {
         Specifies the tenant ID for authentication. This parameter is mandatory.
 
         .PARAMETER Reporting
-        Enables logging (CSV) the details of the authentication operation for later analysis. 
+        Enables logging (CSV) the details of the authentication operation for later analysis.
 
         .EXAMPLE
         Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id"
@@ -1150,7 +1150,7 @@ function Invoke-ClientCredential {
 
         .NOTES
         Ensure the client application has the appropriate permissions for the specified API and scope in Azure AD.
-        
+
     #>
     param (
         [Parameter(Mandatory=$true)][string]$ClientId,
@@ -1167,7 +1167,7 @@ function Invoke-ClientCredential {
     $Proceed = $true
     $Headers=@{}
     $Headers["User-Agent"] = $UserAgent
-    
+
     #Prompt for client credential if not defined
     if (-not $ClientSecret) {
         $ClientSecretSecure = Read-Host -Prompt "Enter the client secret" -AsSecureString
@@ -1183,21 +1183,21 @@ function Invoke-ClientCredential {
 
     # Construct scope string for v2 endpoints
     $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
-        
-     # Get Access Token 
-    $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" 
+
+     # Get Access Token
+    $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token"
     $body = @{
          'scope'     = $ApiScopeUrl
-         'client_id'      = $ClientId 
+         'client_id'      = $ClientId
          'client_secret' = $ClientSecret
-         'grant_type' = 'client_credentials' 
+         'grant_type' = 'client_credentials'
     }
 
     write-host "[*] Starting Client Credential flow: API $Api / Client id: $ClientID"
     Try {
         $TokensClientCredential = Invoke-RestMethod -Method Post -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
     } Catch {
-        $InitialError = $_ | ConvertFrom-Json  
+        $InitialError = $_ | ConvertFrom-Json
         Write-Host "[!] Aborting...."
         Write-Host "[!] Error: $($InitialError.error)"
         Write-Host "[!] Error Description: $($InitialError.error_description)"
@@ -1222,7 +1222,7 @@ function Invoke-ClientCredential {
                     # Parse the token
                     $JWT = Invoke-ParseJwt -jwt $TokensClientCredential.access_token
                 } Catch {
-                    $JwtParseError = $_ 
+                    $JwtParseError = $_
                     Write-Host "[!] JWT Parse error: $($JwtParseError)"
                     Write-Host "[!] Aborting...."
                     break
@@ -1239,8 +1239,8 @@ function Invoke-ClientCredential {
             } else {
                 Write-Host "[i] Expires at: $($TokensClientCredential.expiration_time)"
             }
-            
-            
+
+
             #Print token info if switch is used
             if ($TokenOut) {
                 invoke-PrintTokenInfo -jwt $TokensClientCredential -NotParsed $DisableJwtParsing
@@ -1254,7 +1254,7 @@ function Invoke-ClientCredential {
         }
     }
 
-    Return $TokensClientCredential 
+    Return $TokensClientCredential
 }
 
 function Invoke-ParseJwt {
@@ -1263,7 +1263,7 @@ function Invoke-ParseJwt {
         Parses the body of a JWT and returns the decoded contents as a PowerShell object.
 
         .DESCRIPTION
-        The `Invoke-ParseJwt` function parses a JSON Web Token (JWT) and decodes its payload (body). 
+        The `Invoke-ParseJwt` function parses a JSON Web Token (JWT) and decodes its payload (body).
         This is useful for analyzing token claims, scopes, expiration, and other metadata embedded in the JWT.
 
         .PARAMETER Jwt
@@ -1286,19 +1286,19 @@ function Invoke-ParseJwt {
 
     [cmdletbinding()]
     param([Parameter(Mandatory=$true)][string]$jwt)
- 
+
     #JWT verification
-    if (!$jwt.Contains(".") -or !$jwt.StartsWith("eyJ")) { 
+    if (!$jwt.Contains(".") -or !$jwt.StartsWith("eyJ")) {
         if ($jwt.StartsWith("1.")) {
             Write-Error "Invalid token! The refresh token can not be parsed since it is encrypted." -ErrorAction Stop
         } else {
-            Write-Error "Invalid token!" -ErrorAction Stop 
+            Write-Error "Invalid token!" -ErrorAction Stop
         }
     }
 
     #Process Token Body
     $TokenBody = $jwt.Split(".")[1].Replace('-', '+').Replace('_', '/')
-    
+
     #Fix padding as needed, keep adding "=" until string length modulus 4 reaches 0
     while ($TokenBody.Length % 4) { Write-Verbose "Invalid length for a Base-64 char array or string, adding ="; $TokenBody += "=" }
 
@@ -1321,7 +1321,7 @@ function Invoke-PrintTokenInfo {
     The `Invoke-PrintTokenInfo` function is an internal utility designed to display claims and metadata from a JSON Web Token (JWT) in a readable, formatted manner. Depending on whether the token has been pre-parsed, it extracts and shows specific details.
 
     .PARAMETER JWT
-    Specifies the JSON Web Token (JWT) object containing the metadata to display. 
+    Specifies the JSON Web Token (JWT) object containing the metadata to display.
 
     .PARAMETER NotParsed
     Indicates whether the JWT has not been pre-parsed. If set to `$true`, the function displays a reduced set of token details, assuming minimal processing has occurred.
@@ -1365,7 +1365,7 @@ function Invoke-PrintTokenInfo {
         if ($JWT.roles) {Write-Host "Roles: $($JWT.roles)"}
     } else {
         Write-Host "Scope: $($JWT.scope)"
-    } 
+    }
 
     if ($JWT.foci) {Write-Host "Foci: $($JWT.foci)"} else {Write-Host "Foci: 0" }
     if ($JWT.xms_cc) {Write-Host "CAE (xms_cc): $($JWT.xms_cc)"} else {Write-Host "CAE (xms_cc): 0" }
@@ -1397,7 +1397,7 @@ function Invoke-Reporting {
         Logs JWT information to a CSV file for internal analysis and comparison during mass testing.
 
         .DESCRIPTION
-        The `Invoke-Reporting` function is an internal utility designed to log selected claims and metadata from a JSON Web Token (JWT) to a CSV file. 
+        The `Invoke-Reporting` function is an internal utility designed to log selected claims and metadata from a JSON Web Token (JWT) to a CSV file.
         It is particularly useful for analyzing multiple tokens.
         This function intended for internal use by other functions or scripts within the module.
         If the specified CSV file does not exist, the function creates it with headers. If the file exists, the new data is appended without rewriting the headers.
@@ -1435,7 +1435,7 @@ function Invoke-Reporting {
         $ErrorDetails | Add-Member -MemberType NoteProperty -Name "timestamp" -Value (Get-Date).ToString("o")
         $SelectedInfo = $ErrorDetails  | select-object timestamp,ClientID,ErrorLong
     }
-    
+
 
     # Write to CSV with or without headers
     if (-Not (Test-Path -Path $OutputFile)) {
@@ -1522,7 +1522,7 @@ function Get-Token {
 
 
     write-host "[*] Calling the token endpoint"
-        
+
     #Define headers (emulate Azure CLI)
     $Headers = @{
         "User-Agent" = $UserAgent
@@ -1588,7 +1588,7 @@ function Get-Token {
         }
         Write-Host "[!] Error Details: $($TokenRequestError.error)"
         Write-Host "[!] Error Description: $($TokenRequestError.error_description)"
-        
+
         if ($Reporting) {
             $ErrorDetails = [PSCustomObject]@{
                 ClientID    = $ClientID
@@ -1597,7 +1597,7 @@ function Get-Token {
             Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"
         }
         return
-        
+
     }
 
     #Check if answer contains an access token (refresh token can be omitted)
@@ -1616,7 +1616,7 @@ function Get-Token {
                 # Parse the token
                 $JWT = Invoke-ParseJwt -jwt $tokens.access_token
             } Catch {
-                $JwtParseError = $_ 
+                $JwtParseError = $_
                 Write-Host "[!] JWT Parse error: $($JwtParseError)"
                 Write-Host "[!] Aborting...."
 
@@ -1650,7 +1650,7 @@ function Get-Token {
         } else {
             Write-Host "[i] Expires at: $($tokens.expiration_time)"
         }
-        
+
         $AuthError = $false
 
         if (-Not $AuthError) {
@@ -1658,7 +1658,7 @@ function Get-Token {
             if ($TokenOut) {
                 invoke-PrintTokenInfo -jwt $tokens -NotParsed $DisableJwtParsing
             }
-            
+
             #Check if report file should be written
             if ($Reporting) {
                 Invoke-Reporting -jwt $tokens -OutputFile "Auth_report_$($ReportName).csv"
@@ -1684,7 +1684,7 @@ function Get-Token {
             Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"
         }
         return
-    }    
+    }
 
 }
 
@@ -1695,9 +1695,9 @@ function Show-EntraTokenAidHelp {
     $banner = @'
     ______      __            ______      __              ___    _     __
    / ____/___  / /__________ /_  __/___  / /_____  ____  /   |  (_)___/ /
-  / __/ / __ \/ __/ ___/ __ `// / / __ \/ //_/ _ \/ __ \/ /| | / / __  / 
- / /___/ / / / /_/ /  / /_/ // / / /_/ / ,< /  __/ / / / ___ |/ / /_/ /  
-/_____/_/ /_/\__/_/   \__,_//_/  \____/_/|_|\___/_/ /_/_/  |_/_/\__,_/                                                                
+  / __/ / __ \/ __/ ___/ __ `// / / __ \/ //_/ _ \/ __ \/ /| | / / __  /
+ / /___/ / / / /_/ /  / /_/ // / / /_/ / ,< /  __/ / / / ___ |/ / /_/ /
+/_____/_/ /_/\__/_/   \__,_//_/  \____/_/|_|\___/_/ /_/_/  |_/_/\__,_/
 '@
 
     # Header
