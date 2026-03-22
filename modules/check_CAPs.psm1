@@ -37,7 +37,7 @@ function Invoke-CheckCaps {
     }
 
     # Function to check if an object is empty, considering nested properties
-    function Is-Empty {
+    function Test-IsEmpty {
         param ([Object]$Obj)
 
         if ($null -eq $Obj -or $Obj -eq "") {
@@ -46,7 +46,7 @@ function Invoke-CheckCaps {
 
         if ($Obj -is [System.Collections.IEnumerable] -and $Obj -isnot [string]) {
             foreach ($item in $Obj) {
-                if (-not (Is-Empty $item)) {
+                if (-not (Test-IsEmpty $item)) {
                     return $false
                 }
             }
@@ -55,7 +55,7 @@ function Invoke-CheckCaps {
 
         if ($Obj -is [PSCustomObject]) {
             foreach ($property in $Obj.PSObject.Properties) {
-                if (-not (Is-Empty $property.Value)) {
+                if (-not (Test-IsEmpty $property.Value)) {
                     return $false
                 }
             }
@@ -174,7 +174,7 @@ function Invoke-CheckCaps {
             $newIndent = "$Indent  "
 
             # Skip empty properties
-            if (Is-Empty $value) { continue }
+            if (Test-IsEmpty $value) { continue }
 
             if ($value -is [System.Collections.IEnumerable] -and $value -isnot [string]) {
                 $isNestedObject = $false
@@ -188,7 +188,7 @@ function Invoke-CheckCaps {
                 if ($isNestedObject) {
                     Write-Output "${Indent}${name}:"
                     foreach ($item in $value) {
-                        if (-not (Is-Empty $item)) {
+                        if (-not (Test-IsEmpty $item)) {
                             Write-Output "${newIndent}-"
                             ConvertTo-Yaml -InputObject $item -Indent "$newIndent  " -Report $Report
                         }

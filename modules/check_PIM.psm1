@@ -23,7 +23,7 @@ function Invoke-CheckPIM {
     ############################## Function section ########################
 
     #Function to parse ISO8601 used in PIM
-    function Parse-ISO8601Duration {
+    function ConvertFrom-ISO8601Duration {
         param (
             [string]$DurationString,
 
@@ -237,7 +237,7 @@ function Invoke-CheckPIM {
         if ($ruleMap.ContainsKey("Expiration_EndUser_Assignment")) {
             $expirationRule = $ruleMap["Expiration_EndUser_Assignment"]
             $durationRaw = $expirationRule.maximumDuration
-            $parsedActivationDuration = Parse-ISO8601Duration -DurationString $durationRaw -ReturnUnit 'Hours'
+            $parsedActivationDuration = ConvertFrom-ISO8601Duration -DurationString $durationRaw -ReturnUnit 'Hours'
         }
 
         # Extract Expiration_Admin_Eligibility
@@ -251,7 +251,7 @@ function Invoke-CheckPIM {
 
         # Display the value even if it's set, as it doesn't affect the outcome
         if ($adminEligibilityEnabled) {
-            $parsedAdminEligibilityDuration = Parse-ISO8601Duration -DurationString $adminEligibilityDurationRaw -ReturnUnit 'Days'
+            $parsedAdminEligibilityDuration = ConvertFrom-ISO8601Duration -DurationString $adminEligibilityDurationRaw -ReturnUnit 'Days'
             $parsedAdminEligibilityDurationValue = $parsedAdminEligibilityDuration.Value
             $parsedAdminEligibilityDurationUnit = $parsedAdminEligibilityDuration.Unit
         } else {
@@ -271,7 +271,7 @@ function Invoke-CheckPIM {
 
         # Even if a value is set display - because it does not matter
         if ($adminAssignmentEnabled) {
-            $parsedAdminAssignmentDuration = Parse-ISO8601Duration -DurationString $adminAssignmentDurationRaw -ReturnUnit 'Days'
+            $parsedAdminAssignmentDuration = ConvertFrom-ISO8601Duration -DurationString $adminAssignmentDurationRaw -ReturnUnit 'Days'
             $parsedAdminAssignmentDurationValue = $parsedAdminAssignmentDuration.Value
             $parsedAdminAssignmentDurationUnit = $parsedAdminAssignmentDuration.Unit
         } else {
