@@ -233,7 +233,7 @@ function Invoke-AgentIdentityBlueprints {
     # Get Agent Identity Blueprint Definitions
     write-host "[*] Get Agent Identity Blueprint Definitions"
     $QueryParameters = @{
-        '$select' = "Id,AppID,DisplayName,SignInAudience,RequiredResourceAccess,web,createdDateTime,KeyCredentials,PasswordCredentials,AppRoles,api"
+        '$select' = "Id,AppID,DisplayName,SignInAudience,isDisabled,RequiredResourceAccess,web,createdDateTime,KeyCredentials,PasswordCredentials,AppRoles,api"
     }
     $BlueprintDefinitions = @(Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri '/applications/microsoft.graph.agentIdentityBlueprint' -QueryParameters $QueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name))
     $BlueprintCount = $($BlueprintDefinitions.count)
@@ -350,6 +350,7 @@ function Invoke-AgentIdentityBlueprints {
         $DirectImpactScore = 0
         $InheritedImpactScore = 0
         $AppHomePage = $null
+        $BlueprintEnabled = -not ($item.isDisabled -eq $true)
 
         $ProgressCounter ++
 
@@ -753,6 +754,7 @@ function Invoke-AgentIdentityBlueprints {
             DisplayName = $item.DisplayName
             DisplayNameLink = "<a href=#$($item.Id)>$($item.DisplayName)</a>"
             AppId = $item.AppId
+            Enabled = $BlueprintEnabled
             SignInAudience = $item.signInAudience
             BlueprintPrincipals = ($BlueprintPrincipals | Measure-Object).Count
             BlueprintPrincipalsDetails = $BlueprintPrincipals

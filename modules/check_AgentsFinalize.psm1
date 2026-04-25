@@ -1840,7 +1840,7 @@ Appendix: Used API Permission Reference
     $BlueprintItems = @($AgentIdentityBlueprints.Values | Sort-Object Risk -Descending)
     foreach ($item in $BlueprintItems) {
         [void]$BlueprintTxt.AppendLine("############################################################################################################################################")
-        [void]$BlueprintTxt.AppendLine(($item | Select-Object DisplayName,AppId,@{Name = 'Child Blueprint Principals'; Expression = { $_.BlueprintPrincipals }},@{Name = 'Child Agent Identities'; Expression = { $_.LinkedAgentIdentities }},@{Name = 'Child Agent Users'; Expression = { $_.AgentUsers }},Impact,Likelihood,Risk,Warnings | Out-String))
+        [void]$BlueprintTxt.AppendLine(($item | Select-Object DisplayName,AppId,Enabled,@{Name = 'Child Blueprint Principals'; Expression = { $_.BlueprintPrincipals }},@{Name = 'Child Agent Identities'; Expression = { $_.LinkedAgentIdentities }},@{Name = 'Child Agent Users'; Expression = { $_.AgentUsers }},Impact,Likelihood,Risk,Warnings | Out-String))
         if (($item.BlueprintPrincipalsDetails | Measure-Object).Count -ge 1) {
             [void]$BlueprintTxt.AppendLine("Child Blueprint Principals")
             [void]$BlueprintTxt.AppendLine(($item.BlueprintPrincipalsDetails | Select-Object DisplayName,@{Name = 'Child Agent Identities'; Expression = { $_.LinkedAgentIdentities }},@{Name = 'Child Agent Users'; Expression = { $_.AgentUsers }},Impact,Warnings | Format-Table | Out-String))
@@ -1866,6 +1866,7 @@ Appendix: Used API Permission Reference
                 "Blueprint Name" = $item.DisplayName
                 "Blueprint Client-ID" = $item.AppId
                 "Blueprint Object-ID" = $item.Id
+                "Enabled" = $item.Enabled
                 "CreationDate" = $item.CreationDate
                 "SignInAudience" = $item.SignInAudience
                 "Child Blueprint Principals" = $item.BlueprintPrincipals
@@ -2031,11 +2032,11 @@ Appendix: Agent Identity Blueprints with Client Secrets
     $GlobalAuditSummary.AgentIdentityBlueprints.Credentials.None = @($BlueprintItems | Where-Object { $_.SecretsCount -eq 0 -and $_.CertsCount -eq 0 -and $_.FederatedCreds -eq 0 }).Count
 
     $BlueprintTableOutput = @(
-        $BlueprintItems | Select-Object DisplayName,SignInAudience,CreationInDays,BlueprintPrincipals,@{Name = 'AgentIdentities'; Expression = { $_.LinkedAgentIdentities }},AgentUsers,AppRoles,Owners,Sponsors,@{Name = 'InheritableScopes'; Expression = { $_.InhScopes }},@{Name = 'InheritableRoles'; Expression = { $_.InhRoles }},FederatedCreds,SecretsCount,CertsCount,Impact,Likelihood,Risk,Warnings
+        $BlueprintItems | Select-Object DisplayName,SignInAudience,Enabled,CreationInDays,BlueprintPrincipals,@{Name = 'AgentIdentities'; Expression = { $_.LinkedAgentIdentities }},AgentUsers,AppRoles,Owners,Sponsors,@{Name = 'InheritableScopes'; Expression = { $_.InhScopes }},@{Name = 'InheritableRoles'; Expression = { $_.InhRoles }},FederatedCreds,SecretsCount,CertsCount,Impact,Likelihood,Risk,Warnings
     )
     $BlueprintMainTable = @(
-        $BlueprintItems | Select-Object @{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},SignInAudience,CreationInDays,BlueprintPrincipals,@{Name = 'AgentIdentities'; Expression = { $_.LinkedAgentIdentities }},AgentUsers,AppRoles,Owners,Sponsors,@{Name = 'InheritableScopes'; Expression = { $_.InhScopes }},@{Name = 'InheritableRoles'; Expression = { $_.InhRoles }},FederatedCreds,SecretsCount,CertsCount,Impact,Likelihood,Risk,Warnings
+        $BlueprintItems | Select-Object @{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},SignInAudience,Enabled,CreationInDays,BlueprintPrincipals,@{Name = 'AgentIdentities'; Expression = { $_.LinkedAgentIdentities }},AgentUsers,AppRoles,Owners,Sponsors,@{Name = 'InheritableScopes'; Expression = { $_.InhScopes }},@{Name = 'InheritableRoles'; Expression = { $_.InhRoles }},FederatedCreds,SecretsCount,CertsCount,Impact,Likelihood,Risk,Warnings
     )
 
-    New-ReportFileSet -Title "AgentIdentityBlueprints" -ReportKey "AgentIdentityBlueprints" -ReportName "Agent Identity Blueprints Enumeration (BETA)" -HtmlTitle "EF - Agent Blueprints" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $BlueprintTableOutput -MainTable $BlueprintMainTable -AllObjectDetailsHTML $BlueprintDetails -DetailOutputTxt $BlueprintTxt.ToString() -TxtColumns @('DisplayName','SignInAudience','CreationInDays','BlueprintPrincipals','AgentIdentities','AgentUsers','AppRoles','Owners','Sponsors','InheritableScopes','InheritableRoles','FederatedCreds','SecretsCount','CertsCount','Impact','Likelihood','Risk','Warnings') -WarningList $BlueprintWarnings -AppendixTxt $BlueprintAppendixTxt -AppendixHtml $BlueprintAppendixHtml -AdditionalCsvExports $BlueprintAdditionalCsvExports -Csv:$Csv
+    New-ReportFileSet -Title "AgentIdentityBlueprints" -ReportKey "AgentIdentityBlueprints" -ReportName "Agent Identity Blueprints Enumeration (BETA)" -HtmlTitle "EF - Agent Blueprints" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $BlueprintTableOutput -MainTable $BlueprintMainTable -AllObjectDetailsHTML $BlueprintDetails -DetailOutputTxt $BlueprintTxt.ToString() -TxtColumns @('DisplayName','SignInAudience','Enabled','CreationInDays','BlueprintPrincipals','AgentIdentities','AgentUsers','AppRoles','Owners','Sponsors','InheritableScopes','InheritableRoles','FederatedCreds','SecretsCount','CertsCount','Impact','Likelihood','Risk','Warnings') -WarningList $BlueprintWarnings -AppendixTxt $BlueprintAppendixTxt -AppendixHtml $BlueprintAppendixHtml -AdditionalCsvExports $BlueprintAdditionalCsvExports -Csv:$Csv
 }

@@ -996,7 +996,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         BlueprintPrincipals: ">0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "BlueprintPrincipals", "AgentIdentities", "AgentUsers", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "BlueprintPrincipals", "AgentIdentities", "AgentUsers", "Impact", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1007,7 +1007,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         AgentIdentities: ">0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "BlueprintPrincipals", "AgentIdentities", "AgentUsers", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "BlueprintPrincipals", "AgentIdentities", "AgentUsers", "Impact", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1018,7 +1018,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         AgentUsers: ">0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "BlueprintPrincipals", "AgentIdentities", "AgentUsers", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "BlueprintPrincipals", "AgentIdentities", "AgentUsers", "Impact", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1030,7 +1030,7 @@ $global:GLOBALJavaScript_Table = @'
                         InheritableScopes: "or_>0",
                         InheritableRoles: "or_>0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "BlueprintPrincipals", "AgentIdentities", "InheritableScopes", "InheritableRoles", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "BlueprintPrincipals", "AgentIdentities", "InheritableScopes", "InheritableRoles", "Impact", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1043,7 +1043,7 @@ $global:GLOBALJavaScript_Table = @'
                         SecretsCount: "or_>0",
                         CertsCount: "or_>0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "FederatedCreds", "SecretsCount", "CertsCount", "BlueprintPrincipals", "AgentIdentities", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "FederatedCreds", "SecretsCount", "CertsCount", "BlueprintPrincipals", "AgentIdentities", "Impact", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1054,7 +1054,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         SecretsCount: ">0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "SecretsCount", "CertsCount", "FederatedCreds", "CreationInDays", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "SecretsCount", "CertsCount", "FederatedCreds", "CreationInDays", "Impact", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1065,7 +1065,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         AgentIdentities: "=0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "CreationInDays", "BlueprintPrincipals", "AgentIdentities", "InheritableScopes", "InheritableRoles", "FederatedCreds", "SecretsCount", "CertsCount", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "CreationInDays", "BlueprintPrincipals", "AgentIdentities", "InheritableScopes", "InheritableRoles", "FederatedCreds", "SecretsCount", "CertsCount", "Impact", "Risk"],
                     sort: { column: "CreationInDays", direction: "desc" }
                 },
                 {
@@ -1076,7 +1076,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         BlueprintPrincipals: "=0"
                     },
-                    columns: ["DisplayName", "SignInAudience", "CreationInDays", "BlueprintPrincipals", "AgentIdentities", "InheritableScopes", "InheritableRoles", "FederatedCreds", "SecretsCount", "CertsCount", "Impact", "Risk"],
+                    columns: ["DisplayName", "SignInAudience", "Enabled", "CreationInDays", "BlueprintPrincipals", "AgentIdentities", "InheritableScopes", "InheritableRoles", "FederatedCreds", "SecretsCount", "CertsCount", "Impact", "Risk"],
                     sort: { column: "CreationInDays", direction: "desc" }
                 }
             ]
@@ -1230,7 +1230,7 @@ $global:GLOBALJavaScript_Table = @'
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "DisplayName", "BlueprintPrincipals", "AgentIdentities",
+                        "DisplayName", "SignInAudience", "Enabled", "BlueprintPrincipals", "AgentIdentities",
                         "AgentUsers", "Owners", "InheritableScopes", "InheritableRoles",
                         "FederatedCreds", "SecretsCount", "CertsCount", "Impact", "Likelihood", "Risk", "Warnings"
                     ]
