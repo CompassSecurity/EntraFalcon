@@ -1382,6 +1382,43 @@ $global:GLOBALJavaScript_Table = @'
             let responsiveProfileApplied = false;
             let filterDebounceTimer = null;
 
+            function normalizeSortColumn(column) {
+                if (column == null) return null;
+                const desired = String(column).trim().toLowerCase();
+                if (!desired) return null;
+                return columns.find(col => col.toLowerCase() === desired) || null;
+            }
+
+            function isValidSortColumn(column) {
+                return normalizeSortColumn(column) !== null;
+            }
+
+            function getDefaultSort() {
+                const riskColumn = normalizeSortColumn("Risk");
+                return riskColumn ? { column: riskColumn, asc: false } : null;
+            }
+
+            function sortEquals(a, b) {
+                if (!a && !b) return true;
+                if (!a || !b) return false;
+                return (a.column || null) === (b.column || null) && !!a.asc === !!b.asc;
+            }
+
+            function applySort(sort) {
+                if (sort && isValidSortColumn(sort.column)) {
+                    currentSort = {
+                        column: normalizeSortColumn(sort.column),
+                        asc: !!sort.asc
+                    };
+                } else {
+                    currentSort = { column: null, asc: true };
+                }
+            }
+
+            function applyDefaultSort() {
+                applySort(getDefaultSort());
+            }
+
             container.addEventListener("input", (e) => {
                 const input = e.target;
                 if (!input || input.tagName !== "INPUT") return;
@@ -1503,7 +1540,7 @@ $global:GLOBALJavaScript_Table = @'
 
             // Sort
             if (view.sort) {
-                const sortCol = columns.find(k => k.toLowerCase() === view.sort.column.toLowerCase());
+                const sortCol = normalizeSortColumn(view.sort.column);
                 if (sortCol) {
                     currentSort.column = sortCol;
                     currentSort.asc = view.sort.direction.toLowerCase() !== "desc";
@@ -1599,7 +1636,7 @@ $global:GLOBALJavaScript_Table = @'
                 columnFilters = {};
                 hiddenColumns = new Set();
                 defaultHidden.forEach(col => hiddenColumns.add(col));
-                currentSort = { column: "Risk", asc: false };
+                applyDefaultSort();
                 filterData();
                 createColumnSelector();
                 if (window.location.protocol !== "file:") history.replaceState(null, "", window.location.pathname);
@@ -1710,7 +1747,7 @@ $global:GLOBALJavaScript_Table = @'
 
             container.insertBefore(toolbar, wrapper);
 
-            shareBtn.onclick = () => {
+            shareBtn.onclick = (event) => {
                 const url = new URL(window.location.href);
                 url.search = "";
 
@@ -1732,13 +1769,15 @@ $global:GLOBALJavaScript_Table = @'
                 url.searchParams.set("columns", visibleCols.join(","));
 
                 // Add sort info
-                if (currentSort.column) {
+                const defaultSort = getDefaultSort();
+                if (isValidSortColumn(currentSort.column) && !sortEquals(currentSort, defaultSort)) {
                     url.searchParams.set("sort", currentSort.column);
                     url.searchParams.set("sortDir", currentSort.asc ? "asc" : "desc");
                 }
 
                 // Copy to clipboard
-                navigator.clipboard.writeText(url.toString()).then(() => {
+                const copyValue = (event && (event.ctrlKey || event.metaKey)) ? url.search : url.toString();
+                navigator.clipboard.writeText(copyValue).then(() => {
                     showToast("View (Filter, Columns, Sorting) link copied to clipboard");
                 }).catch(err => {
                     console.error("Clipboard write failed", err);
@@ -2259,17 +2298,17 @@ $global:GLOBALJavaScript_Table = @'
 
         //Apply sort based on GET parameters
         if (urlParams.sort) {
-            const sortCol = lowerKeys[urlParams.sort.toLowerCase()];
+            const sortCol = normalizeSortColumn(urlParams.sort);
             const sortDir = (urlParams.sortDir || "asc").toLowerCase();
 
             if (sortCol) {
                 currentSort.column = sortCol;
                 currentSort.asc = sortDir !== "desc";
+            } else {
+                applyDefaultSort();
             }
         } else {
-            //Default sort: Risk (descending)
-            currentSort.column = "Risk";
-            currentSort.asc = false;
+            applyDefaultSort();
         }
  
         // Init
