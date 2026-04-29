@@ -7,13 +7,14 @@
 
 $global:GLOBALMainTableDetailsHEAD = @'
 <div id="mainTableContainer">
-  <label>
+  <div class="page-size-wrapper">
+    <span class="page-size-icon">&#x2630;</span>
     <select id="pageSize">
-      <option value="1000">1000</option>
-      <option value="5000">5000</option>
-      <option value="10000">10000</option>
+      <option value="1000">1000 rows</option>
+      <option value="5000">5000 rows</option>
+      <option value="10000">10000 rows</option>
     </select>
-  </label>
+  </div>
   <div id="tableWrapper"></div>
   <div id="paginationControls"></div>
 </div>
@@ -1720,11 +1721,8 @@ $global:GLOBALJavaScript_Table = @'
             rightSection.className = "right-section";
 
             // Page size selector
-            const pageSizeLabel = document.createElement("label");
-            pageSizeLabel.textContent = "Rows per page:";
-            pageSizeLabel.style.fontSize = "14px";
-            pageSizeLabel.appendChild(pageSizeSelector);
-            leftSection.appendChild(pageSizeLabel);
+            const pageSizeWrapper = container.querySelector(".page-size-wrapper") || pageSizeSelector;
+            leftSection.appendChild(pageSizeWrapper);
 
             // Column toggle menu
             const columnWrapper = document.createElement("div");
@@ -1950,7 +1948,9 @@ $global:GLOBALJavaScript_Table = @'
         function renderInfo(start, end) {
             const shownStart = filteredData.length === 0 ? 0 : start + 1;
             const shownEnd = Math.min(end, filteredData.length);
-            infoBox.textContent = `Showing ${shownStart}-${shownEnd} of ${filteredData.length} entries`;
+            const isFiltered = filteredData.length < data.length;
+            infoBox.textContent = `Showing ${shownStart}-${shownEnd} of ${filteredData.length} entries` +
+                (isFiltered ? ` (filtered from ${data.length})` : "");
         }
 
         window.goToPage = function (page) {
@@ -3853,6 +3853,8 @@ $global:GLOBALCss = @"
         justify-content: space-between;
         width: 100%;
         margin: 15px 0;
+        gap: 12px 16px;
+        flex-wrap: wrap;
     }
 
     .toolbar .left-section,
@@ -3860,21 +3862,94 @@ $global:GLOBALCss = @"
         display: flex;
         align-items: center;
         gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .toolbar .right-section {
+        margin-left: auto;
+    }
+
+    .page-size-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        white-space: nowrap;
     }
 
     .info-box {
         font-size: 14px;
         white-space: nowrap;
+        max-width: 100%;
     }
 
-    .toolbar select,
+    @media (max-width: 900px) {
+        .toolbar .left-section,
+        .toolbar .right-section {
+            width: 100%;
+        }
+
+        .toolbar .right-section {
+            margin-left: 0;
+            justify-content: flex-start;
+        }
+
+        .info-box {
+            white-space: normal;
+        }
+    }
+
     .toolbar button,
-    select,
     button {
         padding: 6px 10px;
         font-size: 14px;
         border-radius: 4px;
         border: 1px solid;
+    }
+
+    .toolbar select,
+    select {
+        padding: 6px 10px;
+        font-size: 14px;
+        border-radius: 4px;
+        border: 1px solid;
+    }
+
+    .page-size-wrapper {
+        display: inline-flex;
+        align-items: center;
+        position: relative;
+        border: 1px solid;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .page-size-icon {
+        padding: 6px 5px 6px 10px;
+        font-size: 14px;
+        pointer-events: none;
+    }
+
+    .page-size-wrapper select {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        border-radius: 0;
+        padding: 6px 28px 6px 4px;
+        font-size: 14px;
+        background: transparent;
+        cursor: pointer;
+        outline: none;
+    }
+
+    .page-size-wrapper::after {
+        content: "\25BC";
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 10px;
+        pointer-events: none;
     }
 
     #paginationControls {
@@ -4304,19 +4379,22 @@ $global:GLOBALCss = @"
     }
 
     body.dark-mode select,
-    body.dark-mode button {
+    body.dark-mode button,
+    body.dark-mode .page-size-wrapper {
         background-color: #2a2a2a;
         color: #e0e0e0;
         border-color: #555;
     }
 
     body.dark-mode select:hover,
-    body.dark-mode button:hover {
+    body.dark-mode button:hover,
+    body.dark-mode .page-size-wrapper:hover {
         background-color: #3a3a3a;
     }
 
     body.dark-mode select:focus,
-    body.dark-mode button:focus {
+    body.dark-mode button:focus,
+    body.dark-mode .page-size-wrapper:focus {
         outline: none;
         border-color: #888;
         box-shadow: 0 0 4px #888;
@@ -4491,19 +4569,22 @@ $global:GLOBALCss = @"
     }
 
     body.light-mode select,
-    body.light-mode button {
+    body.light-mode button,
+    body.light-mode .page-size-wrapper {
         background-color: #f4f4f4;
         color: #000;
         border-color: #ccc;
     }
 
     body.light-mode select:hover,
-    body.light-mode button:hover {
+    body.light-mode button:hover,
+    body.light-mode .page-size-wrapper:hover {
         background-color: #e0e0e0;
     }
 
     body.light-mode select:focus,
-    body.light-mode button:focus {
+    body.light-mode button:focus,
+    body.light-mode .page-size-wrapper:focus {
         outline: none;
         border-color: #666;
         box-shadow: 0 0 4px #aaa;
