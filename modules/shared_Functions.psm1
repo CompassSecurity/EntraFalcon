@@ -157,6 +157,20 @@ $global:GLOBALJavaScript_Table = @'
                     sort: { column: "CreatedDays", direction: "asc" }
                 },
                 {
+                    id: "PVU-015",
+                    group: "Lifecycle",
+                    description: "Enabled synced user older than 90 days with no sign-in",
+                    label: "Unnecessary Synced Users",
+                    filters: {
+                        Enabled: "=true",
+                        OnPrem: "=true",
+                        LastSignInDays: "=-",
+                        CreatedDays: ">90"
+                    },
+                    columns: ["UPN", "Enabled", "OnPrem", "LicenseStatus", "GrpMem", "GrpOwn", "AuUnits", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "AppRegOwn", "SPOwn", "Inactive", "LastSignInDays", "CreatedDays", "MfaCap", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Impact", direction: "desc" }
+                },
+                {
                     id: "PVU-011",
                     group: "Identity Type",
                     description: "Accounts flagged as agent/workload identities",
