@@ -119,8 +119,10 @@ $global:GLOBALJavaScript_Table = @'
                     label: "Users Without MFA Methods",
                     filters: {
                         MfaCap: "=false",
-                        Agent: "=false"
-                    }
+                        Agent: "=false",
+                        UPN: "!^Sync_&&!^ADToAADSyncServiceAccount"
+                    },
+                    columns: ["UPN", "Enabled", "UserType", "GrpMem", "GrpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Inactive", "AppRegOwn", "SPOwn", "Impact", "MfaCap", "Likelihood", "Risk", "Warnings"]
                 },
                 {
                     id: "PVU-008",
