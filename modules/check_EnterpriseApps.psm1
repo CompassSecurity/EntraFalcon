@@ -66,6 +66,7 @@ function Invoke-CheckEnterpriseApps {
         "Owners"          	        = 5
 	    "UnknownAppLock"            = 1
         "NoAppLock"                 = 2
+        "KnownMaliciousApp"         = 1000
     }
 
     function Resolve-EnterpriseAppOwner {
@@ -394,6 +395,7 @@ function Invoke-CheckEnterpriseApps {
         $WarningsHighPermission = $null
         $WarningsDangerousPermission = $null
         $WarningsMediumPermission = $null
+        $KnownMaliciousApp = $null
         $AppCredentials = @()
         $OwnerUserDetails = @()
         $OwnerSPDetails = @()
@@ -741,6 +743,12 @@ function Invoke-CheckEnterpriseApps {
             
         } else {
             $ForeignTenant = $true
+        }
+
+        $KnownMaliciousApp = Get-KnownMaliciousEnterpriseApp -AppId $item.AppId
+        if ($null -ne $KnownMaliciousApp) {
+            $Warnings += "Known malicious application!"
+            $LikelihoodScore += $SPLikelihoodScore["KnownMaliciousApp"]
         }
 
         if ($AzureRoleCount -ge 1) {
@@ -1205,6 +1213,8 @@ function Invoke-CheckEnterpriseApps {
             ApiMedium = $AppApiPermissionMedium
             ApiLow = $AppApiPermissionLow
             ApiMisc = $AppApiPermissionUncategorized
+            KnownMaliciousApplication = ($null -ne $KnownMaliciousApp)
+            KnownMaliciousSourceUrl = $KnownMaliciousApp
             Impact = $ImpactScore
             Likelihood = $LikelihoodScore
             Risk = $ImpactScore * $LikelihoodScore
@@ -1343,6 +1353,17 @@ function Invoke-CheckEnterpriseApps {
 
         #Build dynamic TXT report property list
         $TxtReportProps = @("App Name","Publisher Name","Publisher TenantId","Enabled", "App Client-ID","App Object-ID","MS Default","Foreign","Require AppRole","SAML","RiskScore")
+
+        if ($item.KnownMaliciousApplication) {
+            $ReportingEntAppInfo | Add-Member -NotePropertyName "Known Malicious Application" -NotePropertyValue $true
+            if (-not [string]::IsNullOrWhiteSpace($item.KnownMaliciousSourceUrl)) {
+                $ReportingEntAppInfo | Add-Member -NotePropertyName "Malicious App Source" -NotePropertyValue "<a href=`"$($item.KnownMaliciousSourceUrl)`" target=`"_blank`">$($item.KnownMaliciousSourceUrl)</a>"
+            }
+            $TxtReportProps += "Known Malicious Application"
+            if ($ReportingEntAppInfo.PSObject.Properties.Name -contains "Malicious App Source") {
+                $TxtReportProps += "Malicious App Source"
+            }
+        }
 
         if ($item.Warnings -ne '') {
             $ReportingEntAppInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $item.Warnings

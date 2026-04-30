@@ -5,6 +5,89 @@
 
 ############################## Static variables ########################
 
+# Reference list for known malicious Enterprise Application client IDs.
+$global:GLOBALKnownMaliciousEnterpriseApps = @{
+    'fc5d3843-d0e8-4c3f-b0ee-6d407f667751' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '5037c1a6-7cfc-48b5-b887-f2a045937081' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '58427324-4e5d-4441-b029-cd2d532b47d7' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '706e0542-2dfb-4e7f-98f0-1e17eab6d5b8' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'b0d8ea55-bc29-436c-9f8b-f8829030261d' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'c4d0b015-689a-4bcf-b69b-3ed5005fddb6' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'c52517b0-46eb-4d61-975a-771d9978dac0' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'f927b0f3-6fce-4d59-a246-904fa7317969' = 'https://github.com/Cyera-Research-Labs/m365-malicious-app-iocs'
+    '355d1228-1537-4e90-80a6-dae111bb4d70' = 'https://rhisac.org/threat-intelligence/microsoft-oauth-app-impersonation-leads-to-mfa-phishing/'
+    '14b2864e-3cff-4d33-b5cd-7f14ca272ea4' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '85da47ec-2977-40ab-af03-f3d45aaab169' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'fc45d3d0-d870-4c83-b3f7-08ebca61d3a0' = 'https://raw.githubusercontent.com/anak0ndah/EntraHunt/main/data/threats.json'
+    '6a77659d-dd6f-4c73-a555-aed25926a05f' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '6628b5b8-55af-42b4-9797-5cd5c148313c' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '599fc26c-5a11-432e-a1b1-f441314ab378' = 'https://www.proofpoint.com/us/blog/cloud-security/dangerous-consequences-threat-actors-abusing-microsofts-verified-publisher'
+    '2e024fe5-fe68-4b4f-893a-53630a97b0ae' = 'https://www.proofpoint.com/us/blog/cloud-security/dangerous-consequences-threat-actors-abusing-microsofts-verified-publisher'
+    '8bf3e5b9-2888-4cf3-b82f-9ba6e8a1a8b9' = 'https://www.proofpoint.com/us/blog/cloud-security/dangerous-consequences-threat-actors-abusing-microsofts-verified-publisher'
+    'a3903ccd-ec81-4264-8f6a-a7d4cd395fd5' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'db2eb385-c02f-44fc-b204-ade7d9f418b1' = 'https://github.com/Cyera-Research-Labs/m365-malicious-app-iocs'
+    'fdcf7337-92bf-4c70-9888-ea234b6ffb0d' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'f99a0806-7650-4d78-acef-71e445dfc844' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'f66985e0-7bb1-4cc5-a871-1cea533665d9' = 'https://github.com/Cyera-Research-Labs/m365-malicious-app-iocs'
+    '854189f9-4c71-44bb-9880-dd0c2f75922a' = 'https://raw.githubusercontent.com/anak0ndah/EntraHunt/main/data/threats.json'
+    '2ef68ccc-8a4d-42ff-ae88-2d7bb89ad139' = 'https://raw.githubusercontent.com/anak0ndah/EntraHunt/main/data/threats.json'
+    'b7cb9a9b-ddc9-4444-935b-1122733c97c4' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '57b8c81f-1d9a-42fe-8ba5-2262822d7291' = 'https://www.joesandbox.com/joereverser/analysis/download/8d0148db-3ef0-401f-ab09-60523df1531f'
+    '31c6b531-dd95-4361-93df-f5a9c906da39' = 'https://github.com/Cyera-Research-Labs/m365-malicious-app-iocs'
+    'c7121e86-fe4d-4dbd-b5f3-e61a62ee533a' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'a69a0f78-a77c-451c-b090-b766425caee2' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'ff8d92dc-3d82-41d6-bcbd-b9174d163620' = 'https://raw.githubusercontent.com/anak0ndah/EntraHunt/main/data/threats.json'
+    'bbc79423-4b95-4ab5-814f-5437a954126c' = 'https://www.joesandbox.com/analysis/1887080/0/html'
+    '1e69a9f6-bb18-452a-baba-b4650ff21882' = 'https://github.com/Cyera-Research-Labs/m365-malicious-app-iocs'
+    '48cb1fac-7195-47b3-98b2-fe3562bee75c' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '482fb03a-5218-43c2-8ce6-61956c7ca99b' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '4e4d64ac-4a2a-432c-b79e-65ca8213ede5' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '768a57a0-1c5e-477a-939a-63aebf2e5ecf' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'a43a3d51-c821-4b86-9a63-fbc775120fc2' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '0bd8e698-4298-405a-bc6b-da5647a4616b' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'a8ca8dad-f6e6-4b01-9d6b-02e1da6c9d7f' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '055399fa-29b9-46ab-994d-4ae06f40bada' = 'https://rhisac.org/threat-intelligence/microsoft-oauth-app-impersonation-leads-to-mfa-phishing/'
+    '22c606e8-7d68-4a09-89d9-c3c563a453a0' = 'https://rhisac.org/threat-intelligence/microsoft-oauth-app-impersonation-leads-to-mfa-phishing/'
+    '987c259f-da29-4575-8072-96c610204830' = 'https://rhisac.org/threat-intelligence/microsoft-oauth-app-impersonation-leads-to-mfa-phishing/'
+    'fe0e32ca-d09e-4f80-af3c-5b086d4b8e66' = 'https://rhisac.org/threat-intelligence/microsoft-oauth-app-impersonation-leads-to-mfa-phishing/'
+    '00afba72-9008-454f-bbe6-d24e743fbe73' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '1b6f59dd-45da-4ff7-9b70-36fb780f855b' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '3cc07cb4-dba8-4051-82cd-93250a43b53b' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '440f4886-2c3a-4269-a78c-088b3b521e02' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '6755c710-194d-464f-9365-7d89d773b443' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '6efe57d9-b00a-4091-b861-a16b7368ab11' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '6fae87b3-3a0f-4519-8b56-006ba50f62c4' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '89430f84-6c29-43f8-9b23-62871a314417' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '8c659c19-8a90-49b0-a9f1-15aeba3bb449' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '9a36eaa2-cf9d-4e50-ad3e-58c9b5c04255' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    'a68c61ee-6185-4b36-bc59-1dca946d95cb' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    'bc618bf4-c6d1-4653-8c4d-c6036001b226' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    'c752e1ef-e475-43c0-9b97-9c9832dd3755' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    'f73c6332-4618-4b9d-bcd4-c77726581acd' = 'https://github.com/guardzcom/security-research-labs/blob/main/Threat-Intel/IOCs/OAuth-abuse/Microsoft-Intel-OAuth.md'
+    '21f81c9e-475d-4c26-9308-1de74a286f73' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '626b6813-13dc-45d7-abfe-a7fe09fd5276' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '443efa1c-8a0a-47a0-bd31-7c30fe32dee4' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    '3280b1dc-4b64-4f90-a16a-b0804e6ec4ca' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+}
+
+function Get-KnownMaliciousEnterpriseApp {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)][string]$AppId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($AppId)) {
+        return $null
+    }
+
+    $normalizedAppId = $AppId.Trim().ToLowerInvariant()
+    if ($global:GLOBALKnownMaliciousEnterpriseApps.ContainsKey($normalizedAppId)) {
+        return [string]$global:GLOBALKnownMaliciousEnterpriseApps[$normalizedAppId]
+    }
+
+    return $null
+}
+
 $global:GLOBALMainTableDetailsHEAD = @'
 <div id="mainTableContainer">
   <div class="page-size-wrapper">
@@ -8908,4 +8991,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,start-CleanUp,Format-ReportSection,Get-OrgInfo,Get-LogLevel, Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,start-CleanUp,Format-ReportSection,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
