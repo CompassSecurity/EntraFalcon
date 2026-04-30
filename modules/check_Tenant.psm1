@@ -1149,6 +1149,18 @@ function Invoke-CheckTenant {
     "AffectedObjects": []
   },
   {
+    "FindingId": "ENT-013",
+    "Title": "Known Malicious Enterprise Applications",
+    "Category": "Enterprise Applications",
+    "Severity": 4,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
     "FindingId": "APP-001",
     "Title": "App Registrations with Secrets",
     "Category": "App Registrations",
@@ -2226,6 +2238,21 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Description = "<p>No enabled internal enterprise applications were identified that have privileged Azure roles (tier-0 or tier-1) assigned.</p>"
         }
     }
+    $ENT013VariantProps = @{
+        Default = @{
+            Threat = "<p>If the identified enterprise application is confirmed to be malicious and has been granted permissions in the tenant, attackers may be able to access sensitive Microsoft 365 or Entra ID resources, modify tenant configuration, or maintain persistence, depending on the assigned permissions.</p>"
+            Remediation = "<p>Review the identified enterprise applications and the referenced source URLs. If the application is confirmed to be malicious or is not required, remove the enterprise application from the tenant, and investigate related sign-in activity, consent events, credentials, and affected users.</p>"
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Confidence = "Sure"
+            Description = "<p>No enterprise applications were identified that match the list of known malicious AppIds.</p>"
+        }
+    }
     #endregion
     #region APP VariantProps
     $APP001VariantProps = @{
@@ -2728,6 +2755,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "ENT-010" = $ENT010VariantProps.Default
         "ENT-011" = $ENT011VariantProps.Default
         "ENT-012" = $ENT012VariantProps.Default
+        "ENT-013" = $ENT013VariantProps.Default
         "APP-001" = $APP001VariantProps.Default
         "APP-002" = $APP002VariantProps.Default
         "APP-003" = $APP003VariantProps.Default
@@ -2774,13 +2802,13 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     ############################## Enumeration section ########################
     #region Enumeration And Check Evaluation
     #region Enumeration: Enterprise Applications
-    # ENT-001/ENT-002/ENT-003/ENT-004/ENT-005/ENT-006/ENT-007/ENT-008/ENT-009/ENT-010/ENT-011/ENT-012: Reuse a single pass over enterprise apps.
+    # ENT-001/ENT-002/ENT-003/ENT-004/ENT-005/ENT-006/ENT-007/ENT-008/ENT-009/ENT-010/ENT-011/ENT-012/ENT-013: Reuse a single pass over enterprise apps.
     # ENT-001 = enabled + non-SAML + credentials; ENT-002 = enabled + inactive; ENT-003 = enabled + owners + impact>=threshold;
     # ENT-004 = enabled + foreign + extensive API permissions (application); ENT-005 = enabled + foreign + extensive API permissions (delegated);
     # ENT-006 = enabled + foreign + Entra ID roles; ENT-007 = enabled + foreign + Azure roles; ENT-008 = enabled + foreign + owns groups/apps/SPs;
     # ENT-009 = enabled + internal + extensive API permissions (application) excluding ConnectSyncProvisioning_;
     # ENT-010 = enabled + internal + extensive API permissions (delegated);
-    # ENT-011 = enabled + internal + Entra max tier 0/1; ENT-012 = enabled + internal + Azure max tier 0/1.
+    # ENT-011 = enabled + internal + Entra max tier 0/1; ENT-012 = enabled + internal + Azure max tier 0/1; ENT-013 = known malicious AppId match.
     $ownerFindingMinImpact = 50
     $blueprintOwnerFindingMinImpact = 200
     $entAppsWithSecrets = [System.Collections.Generic.List[object]]::new()
@@ -2795,6 +2823,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $entAppsInternalDelegated = [System.Collections.Generic.List[object]]::new()
     $entAppsInternalTier0 = [System.Collections.Generic.List[object]]::new()
     $entAppsInternalAzureTier = [System.Collections.Generic.List[object]]::new()
+    $entAppsKnownMalicious = [System.Collections.Generic.List[object]]::new()
     $enterpriseAppIds = @{}
     if ($EnterpriseApps) {
         write-host "[*] Analyzing Enterprise Applications"
@@ -2802,6 +2831,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $enterpriseAppIds[$entry.Key] = $true
             $app = $entry.Value
             if (-not $app) { continue }
+            if (-not [string]::IsNullOrWhiteSpace("$($app.KnownMaliciousSourceUrl)")) {
+                $entAppsKnownMalicious.Add($app)
+            }
             if ($app.Enabled -eq $true -and $app.SAML -eq $false -and $app.Credentials -gt 0) {
                 $entAppsWithSecrets.Add($app)
             }
@@ -5715,6 +5747,35 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     } else {
         Write-Log -Level Verbose -Message "[ENT-012] No internal enterprise apps with privileged Azure roles found."
         Set-FindingOverride -FindingId "ENT-012" -Props $ENT012VariantProps.Secure
+    }
+
+    # ENT-013: Apply result for enterprise apps matching known malicious AppIds.
+    if ($entAppsKnownMalicious.Count -gt 0) {
+        Write-Log -Level Verbose -Message "[ENT-013] Found $($entAppsKnownMalicious.Count) enterprise applications matching known malicious AppIds."
+        Set-FindingOverride -FindingId "ENT-013" -Props $ENT013VariantProps.Vulnerable
+        Set-FindingOverride -FindingId "ENT-013" -Props @{
+            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Known+malicious+application!&columns=DisplayName%2CPublisherName%2CEnabled%2CInactive%2CLastSignInDays%2CCreationInDays%2COwners%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiDelegatedDangerous%2CApiDelegatedHigh%2CApiDelegatedMedium%2CImpact%2CLikelihood%2CWarnings&sort=Impact&sortDir=desc"
+            AffectedSortKey = "_SortLastSignIn"
+            AffectedSortDir = "DESC"
+            Confidence = "Requires Verification"
+        }
+        $entKnownMaliciousAffected = [System.Collections.Generic.List[object]]::new()
+        foreach ($app in $entAppsKnownMalicious) {
+            $entKnownMaliciousAffected.Add([pscustomobject]@{
+                "DisplayName" = "<a href=`"EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($app.Id)`" target=`"_blank`">$($app.DisplayName)</a>"
+                "Enabled" = $app.Enabled
+                "Last sign-in (days)" = $app.LastSignInDays
+                "Source" = if (-not [string]::IsNullOrWhiteSpace($app.KnownMaliciousSourceUrl)) { "<a href=`"$($app.KnownMaliciousSourceUrl)`" target=`"_blank`">$($app.KnownMaliciousSourceUrl)</a>" } else { "-" }
+                "_SortLastSignIn" = if ("$($app.LastSignInDays)" -eq "-") { 999999 } else { (Get-IntSafe $app.LastSignInDays) }
+            })
+        }
+        Set-FindingOverride -FindingId "ENT-013" -Props @{
+            Description = "<p>$($entAppsKnownMalicious.Count) enterprise application(s) were identified whose AppId matches the list of known malicious OAuth applications.</p><p><strong>Important:</strong> This finding requires manual verification. This finding is based on a match against a public list of known malicious OAuth applications. Since the accuracy of public lists cannot be guaranteed, the referenced source URL and the identified application should be manually reviewed.</p>"
+            AffectedObjects = $entKnownMaliciousAffected
+        }
+    } else {
+        Write-Log -Level Verbose -Message "[ENT-013] No enterprise applications matching known malicious AppIds found."
+        Set-FindingOverride -FindingId "ENT-013" -Props $ENT013VariantProps.Secure
     }
 
     #endregion
