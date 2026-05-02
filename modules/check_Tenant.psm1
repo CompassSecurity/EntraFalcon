@@ -2885,8 +2885,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
             $grpOwnValue = Get-IntSafe $app.GrpOwn
             $appOwnValue = Get-IntSafe $app.AppOwn
+            $blueprintOwnValue = Get-IntSafe $app.BlueprintOwn
             $spOwnValue = Get-IntSafe $app.SpOwn
-            if ($app.Enabled -eq $true -and $app.Foreign -eq $true -and ($grpOwnValue -gt 0 -or $appOwnValue -gt 0 -or $spOwnValue -gt 0)) {
+            if ($app.Enabled -eq $true -and $app.Foreign -eq $true -and ($grpOwnValue -gt 0 -or $appOwnValue -gt 0 -or $blueprintOwnValue -gt 0 -or $spOwnValue -gt 0)) {
                 $entAppsForeignOwningObjects.Add($app)
             }
             $isExcludedName = $false
@@ -5285,7 +5286,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[ENT-008] Found $($entAppsForeignOwningObjects.Count) foreign enterprise apps owning objects."
         Set-FindingOverride -FindingId "ENT-008" -Props $ENT008VariantProps.Vulnerable
         Set-FindingOverride -FindingId "ENT-008" -Props @{
-            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Enabled=%3Dtrue&Foreign=%3Dtrue&or_GrpOwn=%3E0&or_AppOwn=%3E0&or_SpOwn=%3E0&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CInactive%2COwners%2CCredentials%2CAppRoles%2CGrpMem%2CGrpOwn%2CAppOwn%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDelegated%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
+            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Enabled=%3Dtrue&Foreign=%3Dtrue&or_GrpOwn=%3E0&or_AppOwn=%3E0&or_BlueprintOwn=%3E0&or_SpOwn=%3E0&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CInactive%2COwners%2CCredentials%2CAppRoles%2CGrpMem%2CGrpOwn%2CAppOwn%2CBlueprintOwn%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDelegated%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortImpact"
             AffectedSortDir = "DESC"
         }
@@ -5294,19 +5295,21 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         foreach ($app in $entAppsForeignOwningObjects) {
             $grpOwnValue = Get-IntSafe $app.GrpOwn
             $appOwnValue = Get-IntSafe $app.AppOwn
+            $blueprintOwnValue = Get-IntSafe $app.BlueprintOwn
             $spOwnValue = Get-IntSafe $app.SpOwn
             $entOwnershipAffected.Add([pscustomobject][ordered]@{
                 "DisplayName" = "<a href=`"EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($app.Id)`" target=`"_blank`">$($app.DisplayName)</a>"
                 "Publisher Name" = $app.PublisherName
                 "Owned Groups" = $grpOwnValue
                 "Owned App Registrations" = $appOwnValue
+                "Owned Blueprints" = $blueprintOwnValue
                 "Owned Enterprise Applications" = $spOwnValue
                 "Warnings" = $app.Warnings
                 "_SortImpact" = $app.Impact
             })
         }
         Set-FindingOverride -FindingId "ENT-008" -Props @{
-            Description = "<p>$($entAppsForeignOwningObjects.Count) enabled foreign enterprise applications own other objects (groups, app registrations, or enterprise applications).</p><p><strong>Important:</strong> This finding requires manual verification.</p>"
+            Description = "<p>$($entAppsForeignOwningObjects.Count) enabled foreign enterprise applications own other objects (groups, app registrations, agent identity blueprints, or enterprise applications).</p><p><strong>Important:</strong> This finding requires manual verification.</p>"
             AffectedObjects = $entOwnershipAffected
         }
     } else {

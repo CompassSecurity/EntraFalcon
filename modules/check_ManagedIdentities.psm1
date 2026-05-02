@@ -12,6 +12,7 @@ function Invoke-CheckManagedIdentities {
         [Parameter(Mandatory=$true)][hashtable]$AllGroupsDetails,
         [Parameter(Mandatory=$true)][Object[]]$CurrentTenant,
         [Parameter(Mandatory=$false)][hashtable]$AzureIAMAssignments,
+        [Parameter(Mandatory=$true)][hashtable]$AgentObjectBasics,
         [Parameter(Mandatory=$false)][hashtable]$AppRoleReferenceCache = @{},
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory = $true)][int]$ApiTop,
@@ -46,6 +47,28 @@ function Invoke-CheckManagedIdentities {
 
     $SPLikelihoodScore = @{
         "Base"          	        = 1
+    }
+
+    function Resolve-ManagedIdentityOwnedAgentObject {
+        param(
+            [Parameter(Mandatory = $true)]$OwnedObject
+        )
+
+        $resolvedObject = Resolve-DirectoryObjectReference -ObjectId $OwnedObject.Id -RawType $OwnedObject.'@odata.type' -CurrentTenant $CurrentTenant -AllUsersBasicHT @{} -AllGroupsDetails @{} -ServicePrincipalBasics @{} -AgentObjectBasics $AgentObjectBasics
+        if (-not $resolvedObject) { return $null }
+
+        return [pscustomobject]@{
+            Id                   = $resolvedObject.Id
+            AppId                = if ($resolvedObject.PSObject.Properties.Name -contains 'AppId') { $resolvedObject.AppId } else { $null }
+            DisplayName          = $resolvedObject.DisplayName
+            Enabled              = $resolvedObject.Enabled
+            PublisherName        = $resolvedObject.PublisherName
+            Foreign              = $resolvedObject.Foreign
+            Type                 = $resolvedObject.ObjectKind
+            TargetReport         = $resolvedObject.TargetReport
+            ServicePrincipalType = $resolvedObject.ServicePrincipalType
+            CreationDate         = if ($resolvedObject.PSObject.Properties.Name -contains 'CreationDate') { $resolvedObject.CreationDate } else { $null }
+        }
     }
 
     ########################################## SECTION: DATACOLLECTION ##########################################
@@ -313,6 +336,9 @@ function Invoke-CheckManagedIdentities {
         $OwnedApplications   = [System.Collections.ArrayList]::new()
         $OwnedGroups  	= [System.Collections.ArrayList]::new()
         $OwnedSP  	= [System.Collections.ArrayList]::new()
+        $OwnedBlueprints = [System.Collections.ArrayList]::new()
+        $OwnedBlueprintPrincipals = [System.Collections.ArrayList]::new()
+        $OwnedAgentIdentities = [System.Collections.ArrayList]::new()
         if ($OwnedObjectsRaw.ContainsKey($item.Id)) {
             foreach ($OwnedObject in $OwnedObjectsRaw[$item.Id]) {
                 switch ($OwnedObject.'@odata.type') {
@@ -343,6 +369,27 @@ function Invoke-CheckManagedIdentities {
                                 displayName = $OwnedObject.displayName
                             }
                         )
+                    }
+
+                    '#microsoft.graph.agentIdentityBlueprint' {
+                        $resolvedOwnedObject = Resolve-ManagedIdentityOwnedAgentObject -OwnedObject $OwnedObject
+                        if ($resolvedOwnedObject) {
+                            [void]$OwnedBlueprints.Add($resolvedOwnedObject)
+                        }
+                    }
+
+                    '#microsoft.graph.agentIdentityBlueprintPrincipal' {
+                        $resolvedOwnedObject = Resolve-ManagedIdentityOwnedAgentObject -OwnedObject $OwnedObject
+                        if ($resolvedOwnedObject) {
+                            [void]$OwnedBlueprintPrincipals.Add($resolvedOwnedObject)
+                        }
+                    }
+
+                    '#microsoft.graph.agentIdentity' {
+                        $resolvedOwnedObject = Resolve-ManagedIdentityOwnedAgentObject -OwnedObject $OwnedObject
+                        if ($resolvedOwnedObject) {
+                            [void]$OwnedAgentIdentities.Add($resolvedOwnedObject)
+                        }
                     }
 
                 }
@@ -393,6 +440,7 @@ function Invoke-CheckManagedIdentities {
         }
 
         $OwnedApplicationsCount = $OwnedApplications.count
+        $OwnedBlueprintsCount = $OwnedBlueprints.count
         $OwnedSPCount = $OwnedSP.count
     
 
@@ -432,6 +480,11 @@ function Invoke-CheckManagedIdentities {
         #If SP owns App Registration
         if ($OwnedApplicationsCount -ge 1) {
             $Warnings += "SP owns $OwnedApplicationsCount App Registrations!" 
+        }
+
+        #If SP owns Agent Identity Blueprint
+        if ($OwnedBlueprintsCount -ge 1) {
+            $Warnings += "SP owns $OwnedBlueprintsCount Agent Identity Blueprint(s)!"
         }
 
         #If SP owns App Registration
@@ -647,7 +700,11 @@ function Invoke-CheckManagedIdentities {
             PermissionCount = ($AppAssignments | Measure-Object).count
             GroupOwnership = ($OwnedGroups | Measure-Object).count
             AppOwnership = $OwnedApplicationsCount
+            BlueprintOwn = $OwnedBlueprintsCount
             OwnedApplicationsDetails = $OwnedApplications
+            OwnedBlueprintsDetails = $OwnedBlueprints
+            OwnedBlueprintPrincipalsDetails = $OwnedBlueprintPrincipals
+            OwnedAgentIdentitiesDetails = $OwnedAgentIdentities
             SpOwn = $OwnedSPCount
             GroupMember = $GroupMember
             EntraRoleDetails = $AppEntraRoles
@@ -683,7 +740,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Generating reports"
 
     #Define output of the main table
-    $tableOutput = $AllServicePrincipal | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $AllServicePrincipal | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     
     #Define the apps to be displayed in detail and sort them by risk score
     $details = $AllServicePrincipal | Sort-Object Risk -Descending
@@ -698,6 +755,9 @@ function Invoke-CheckManagedIdentities {
         $ReportingAzureRoles = @()
         $ReportingAPIPermission = @()
         $ReportingAppOwner = @()
+        $ReportingBlueprintOwner = @()
+        $ReportingBlueprintPrincipalOwner = @()
+        $ReportingAgentIdentityOwner = @()
         $ReportingGroupMember = @()
         $ReportingGroupOwner = @()
         $ReportingCredentials = @()
@@ -819,6 +879,75 @@ function Invoke-CheckManagedIdentities {
 
         }
 
+        if ($($item.OwnedBlueprintsDetails | Measure-Object).count -ge 1) {
+            $ReportingBlueprintOwner = foreach ($object in $($item.OwnedBlueprintsDetails)) {
+                [pscustomobject]@{
+                    "DisplayName" = $($object.DisplayName)
+                    "DisplayNameLink" = "<a href=AgentIdentityBlueprints_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($object.id)>$($object.DisplayName)</a>"
+                    "Enabled" = $(if ($null -eq $object.Enabled) { "-" } else { $object.Enabled })
+                    "Created" = $(if ($null -ne $object.CreationDate) { $object.CreationDate.ToString() } else { "-" })
+                }
+            }
+
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Owned Blueprints`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingBlueprintOwner | Format-Table DisplayName,Enabled,Created | Out-String))
+            $ReportingBlueprintOwner = foreach ($obj in $ReportingBlueprintOwner) {
+                [pscustomobject]@{
+                    DisplayName = $obj.DisplayNameLink
+                    Enabled     = $obj.Enabled
+                    Created     = $obj.Created
+                }
+            }
+        }
+
+        if ($($item.OwnedBlueprintPrincipalsDetails | Measure-Object).count -ge 1) {
+            $ReportingBlueprintPrincipalOwner = foreach ($object in $($item.OwnedBlueprintPrincipalsDetails)) {
+                [pscustomobject]@{
+                    "DisplayName" = $($object.DisplayName)
+                    "DisplayNameLink" = "<a href=AgentIdentityBlueprintsPrincipals_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($object.id)>$($object.DisplayName)</a>"
+                    "Enabled" = $($object.Enabled)
+                    "PublisherName" = $($object.PublisherName)
+                }
+            }
+
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Owned Blueprint Principals`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingBlueprintPrincipalOwner | Format-Table DisplayName,Enabled,PublisherName | Out-String))
+            $ReportingBlueprintPrincipalOwner = foreach ($obj in $ReportingBlueprintPrincipalOwner) {
+                [pscustomobject]@{
+                    DisplayName   = $obj.DisplayNameLink
+                    Enabled       = $obj.Enabled
+                    PublisherName = $obj.PublisherName
+                }
+            }
+        }
+
+        if ($($item.OwnedAgentIdentitiesDetails | Measure-Object).count -ge 1) {
+            $ReportingAgentIdentityOwner = foreach ($object in $($item.OwnedAgentIdentitiesDetails)) {
+                [pscustomobject]@{
+                    "DisplayName" = $($object.DisplayName)
+                    "DisplayNameLink" = "<a href=AgentIdentities_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($object.id)>$($object.DisplayName)</a>"
+                    "Enabled" = $($object.Enabled)
+                    "PublisherName" = $($object.PublisherName)
+                }
+            }
+
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Owned Agent Identities`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingAgentIdentityOwner | Format-Table DisplayName,Enabled,PublisherName | Out-String))
+            $ReportingAgentIdentityOwner = foreach ($obj in $ReportingAgentIdentityOwner) {
+                [pscustomobject]@{
+                    DisplayName   = $obj.DisplayNameLink
+                    Enabled       = $obj.Enabled
+                    PublisherName = $obj.PublisherName
+                }
+            }
+        }
+
 
         ############### Group Member
         if ($($item.GroupMember | Measure-Object).count -ge 1) {
@@ -897,6 +1026,9 @@ function Invoke-CheckManagedIdentities {
             "Azure IAM assignment" = $ReportingAzureRoles
             "API Permission (Application)" = $ReportingAPIPermission
             "Owned App Registrations" = $ReportingAppOwner
+            "Owned Blueprints" = $ReportingBlueprintOwner
+            "Owned Blueprint Principals" = $ReportingBlueprintPrincipalOwner
+            "Owned Agent Identities" = $ReportingAgentIdentityOwner
             "Member in Groups (transitive)" = $ReportingGroupMember
             "Owner of Groups" = $ReportingGroupOwner
             "Credentials" = $ReportingCredentials
@@ -911,7 +1043,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Writing log files"
     write-host
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1004,9 +1136,9 @@ $headerHtml = @"
 
         #Write TXT and CSV files
         $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
         }
         $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append

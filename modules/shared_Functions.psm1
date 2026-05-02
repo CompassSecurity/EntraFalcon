@@ -324,7 +324,7 @@ $global:GLOBALJavaScript_Table = @'
                         CAPs: "or_>0",
                         Warnings: "or_Eligible"
                     },
-                    columns: ["DisplayName", "Type", "Dynamic", "Protected", "SecurityEnabled", "Visibility", "Users", "Devices", "NestedInGroups", "AppRoles", "CAPs", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "Type", "Dynamic", "Protected", "SecurityEnabled", "Visibility", "Users", "NestedInGroups", "AppRoles", "CAPs", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Impact", direction: "desc" }
                 },
                 {
@@ -397,6 +397,7 @@ $global:GLOBALJavaScript_Table = @'
                         ApiHigh: "or_>0",
                         ApiMedium: "or_>0",
                         AppOwn: "or_>0",
+                        BlueprintOwn: "or_>0",
                         SpOwn: "or_>0",
                         ApiDelegatedDangerous: "or_>0",
                         ApiDelegatedHigh: "or_>0",
@@ -405,7 +406,7 @@ $global:GLOBALJavaScript_Table = @'
                         AzureRoles: "or_>0",
                         Warnings: "or_through group"
                     },
-                    columns: ["DisplayName", "PublisherName", "Enabled", "Inactive", "Foreign", "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
+                    columns: ["DisplayName", "PublisherName", "Enabled", "Inactive", "Foreign", "GrpMem", "GrpOwn", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
                 },
                 {
                     id: "PVE-002",
@@ -457,12 +458,13 @@ $global:GLOBALJavaScript_Table = @'
                         ApiDelegatedDangerous: "or_>0",
                         ApiDelegatedHigh: "or_>0",
                         AppOwn: "or_>0",
+                        BlueprintOwn: "or_>0",
                         SpOwn: "or_>0",
                         EntraMaxTier: "or_Tier-0||Tier-1",
                         AzureMaxTier: "or_Tier-0||Tier-1",
                         Warnings: "or_through group"
                     },
-                    columns: ["DisplayName", "Foreign", "Enabled", "Inactive", "AppOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegatedDangerous", "ApiDelegatedHigh", "Impact", "Likelihood", "Risk", "Warnings"]
+                    columns: ["DisplayName", "Foreign", "Enabled", "Inactive", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegatedDangerous", "ApiDelegatedHigh", "Impact", "Likelihood", "Risk", "Warnings"]
                 },
                 {
                     id: "PVE-006",
@@ -473,7 +475,7 @@ $global:GLOBALJavaScript_Table = @'
                         Credentials: ">0",
                         SAML: "=false",
                     },
-                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "SAML", "Credentials", "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
+                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "SAML", "Credentials", "GrpMem", "GrpOwn", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
                 },
                 {
                     id: "PVE-007",
@@ -483,7 +485,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         Owners: ">0"
                     },
-                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "Owners", "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
+                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "Owners", "GrpMem", "GrpOwn", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
                 },
                 {
                     id: "PVE-008",
@@ -494,7 +496,7 @@ $global:GLOBALJavaScript_Table = @'
                         Inactive: "=true",
                         Enabled: "=true"
                     },
-                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive", "LastSignInDays", "CreationInDays", "Owners", "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive", "LastSignInDays", "CreationInDays", "Owners", "GrpMem", "GrpOwn", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "LastSignInDays", direction: "desc" }
                 },
                 {
@@ -505,7 +507,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         DisplayName: "^ConnectSyncProvisioning_"
                     },
-                    columns: ["DisplayName", "Enabled", "Inactive", "Owners", "Credentials", "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
+                    columns: ["DisplayName", "Enabled", "Inactive", "Owners", "Credentials", "GrpMem", "GrpOwn", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"]
                 }
             ],
             "Managed Identities": [
@@ -519,12 +521,13 @@ $global:GLOBALJavaScript_Table = @'
                         ApiHigh: "or_>0",
                         ApiMedium: "or_>0",
                         AppOwn: "or_>0",
+                        BlueprintOwn: "or_>0",
                         SpOwn: "or_>0",
                         EntraMaxTier: "or_Tier-0||Tier-1",
                         AzureMaxTier: "or_Tier-0||Tier-1",
                         Warnings: "or_through group"
                     },
-                    columns: ["DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership", "AppOwnership", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership", "AppOwnership", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -1198,7 +1201,7 @@ $global:GLOBALJavaScript_Table = @'
                     maxWidth: 1600,
                     columns: [
                         "DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive",
-                        "Owners", "Credentials", "AppOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "Owners", "Credentials", "AppOwn", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiDelegated",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1206,7 +1209,7 @@ $global:GLOBALJavaScript_Table = @'
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive", "Owners", "Credentials", "AppOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive", "Owners", "Credentials", "AppOwn", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiDelegated",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1300,7 +1303,7 @@ $global:GLOBALJavaScript_Table = @'
                     maxWidth: 1600,
                     columns: [
                         "DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership",
-                        "AppOwnership", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiMisc",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1309,7 +1312,7 @@ $global:GLOBALJavaScript_Table = @'
                     maxWidth: 1200,
                     columns: [
                         "DisplayName", "GroupMembership", "GroupOwnership",
-                        "AppOwnership", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1419,6 +1422,7 @@ $global:GLOBALJavaScript_Table = @'
             "GrpOwn": "Owner of groups",
             "SpOwn": "Owned Service Principals",
             "AppOwn": "Owned App Registrations",
+            "BlueprintOwn": "Owned Agent Identity Blueprints",
             "AppRegOwn": "Owner of App Registrations",
             "EntraMaxTier": "Highest assigned Entra role tier (directly or through groups)",
             "AzureMaxTier": "Highest assigned Azure role tier (directly or through groups)",
@@ -5895,6 +5899,7 @@ function Get-AgentObjectBasics {
     $agentObjectBasics = @{
         AgentIdentities = @{}
         AgentIdentityBlueprintsPrincipals = @{}
+        AgentIdentityBlueprints = @{}
     }
 
     $agentIdentityQueryParameters = @{
@@ -5946,7 +5951,28 @@ function Get-AgentObjectBasics {
         }
     }
 
-    Write-Log -Level Verbose -Message "Got $($agentObjectBasics.AgentIdentities.Count) agent identities and $($agentObjectBasics.AgentIdentityBlueprintsPrincipals.Count) agent identity blueprint principals"
+    $blueprintQueryParameters = @{
+        '$select' = "Id,AppId,DisplayName,isDisabled,createdDateTime"
+        '$top' = $ApiTop
+    }
+    $blueprintsRaw = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri '/applications/microsoft.graph.agentIdentityBlueprint' -QueryParameters $blueprintQueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
+    foreach ($item in @($blueprintsRaw)) {
+        $agentObjectBasics.AgentIdentityBlueprints[$item.Id] = [pscustomobject]@{
+            Id                   = $item.Id
+            AppId                = $item.AppId
+            DisplayName          = $item.DisplayName
+            Enabled              = -not ($item.isDisabled -eq $true)
+            PublisherName        = '-'
+            Foreign              = $false
+            DefaultMS            = $false
+            ObjectKind           = 'AgentIdentityBlueprint'
+            TargetReport         = 'AgentIdentityBlueprints'
+            ServicePrincipalType = $null
+            CreationDate         = $item.createdDateTime
+        }
+    }
+
+    Write-Log -Level Verbose -Message "Got $($agentObjectBasics.AgentIdentities.Count) agent identities, $($agentObjectBasics.AgentIdentityBlueprintsPrincipals.Count) agent identity blueprint principals and $($agentObjectBasics.AgentIdentityBlueprints.Count) agent identity blueprints"
     return $agentObjectBasics
 }
 
@@ -6128,6 +6154,12 @@ function Resolve-DirectoryObjectReference {
             $principals = if ($AgentObjectBasics.ContainsKey('AgentIdentityBlueprintsPrincipals')) { $AgentObjectBasics.AgentIdentityBlueprintsPrincipals } else { @{} }
             if (-not $principals.ContainsKey($normalizedId)) { return $null }
             return $principals[$normalizedId]
+        }
+
+        '#microsoft.graph.agentIdentityBlueprint' {
+            $blueprints = if ($AgentObjectBasics.ContainsKey('AgentIdentityBlueprints')) { $AgentObjectBasics.AgentIdentityBlueprints } else { @{} }
+            if (-not $blueprints.ContainsKey($normalizedId)) { return $null }
+            return $blueprints[$normalizedId]
         }
     }
 
