@@ -2241,7 +2241,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $ENT013VariantProps = @{
         Default = @{
             Threat = "<p>If the identified enterprise application is confirmed to be malicious and has been granted permissions in the tenant, attackers may be able to access sensitive Microsoft 365 or Entra ID resources, modify tenant configuration, or maintain persistence, depending on the assigned permissions.</p>"
-            Remediation = "<p>Review the identified enterprise applications and the referenced source URLs. If the application is confirmed to be malicious or is not required, remove the enterprise application from the tenant, and investigate related sign-in activity, consent events, credentials, and affected users.</p>"
+            Remediation = "<p>Review the identified enterprise applications and the referenced source URLs. If the application is confirmed to be malicious, disable it immideatly, and conduct an investigation of related sign-in activity, consent events, credentials, and affected users.</p><p>To prevent similar incidents, normal users should not be allowed to add enterprise applications without review. A secure approval process should be established to ensure that third-party applications are thoroughly reviewed before they are added to the tenant.</p>"
         }
         Vulnerable = @{
             Status = "Vulnerable"
@@ -5761,11 +5761,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
         $entKnownMaliciousAffected = [System.Collections.Generic.List[object]]::new()
         foreach ($app in $entAppsKnownMalicious) {
+            $lastSignInTimestamp = if ($app.AppsignInData -and $app.AppsignInData.lastSignIn -and $app.AppsignInData.lastSignIn -ne "-") { $app.AppsignInData.lastSignIn } else { "-" }
+            $creationTimestamp = if ($app.CreationDate) { $app.CreationDate } else { "-" }
             $entKnownMaliciousAffected.Add([pscustomobject]@{
                 "DisplayName" = "<a href=`"EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($app.Id)`" target=`"_blank`">$($app.DisplayName)</a>"
                 "Enabled" = $app.Enabled
-                "Last sign-in (days)" = $app.LastSignInDays
-                "Source" = if (-not [string]::IsNullOrWhiteSpace($app.KnownMaliciousSourceUrl)) { "<a href=`"$($app.KnownMaliciousSourceUrl)`" target=`"_blank`">$($app.KnownMaliciousSourceUrl)</a>" } else { "-" }
+                "Created" = $creationTimestamp
+                "Last sign-in" = $lastSignInTimestamp
+                "Indicator Source" = if (-not [string]::IsNullOrWhiteSpace($app.KnownMaliciousSourceUrl)) { "<a href=`"$($app.KnownMaliciousSourceUrl)`" target=`"_blank`">$($app.KnownMaliciousSourceUrl)</a>" } else { "-" }
                 "_SortLastSignIn" = if ("$($app.LastSignInDays)" -eq "-") { 999999 } else { (Get-IntSafe $app.LastSignInDays) }
             })
         }
@@ -9549,7 +9552,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "GRP-005" -Props $GRP005VariantProps.Vulnerable
         Set-FindingOverride -FindingId "GRP-005" -Props @{
             Description = "<p>There are $($unprotectedSensitiveGroups.Count) sensitive groups that are insufficiently protected. They are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p>Unprotected group usage:</p><ul><li>$groupsUsedInCaps groups are used in Conditional Access policies</li><li>$groupsUsedInAzureRoles groups are used for Azure role assignments</li><li>$groupsUsedInEntraRoles groups are used for Entra ID role assignments</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess the impact if a lower-tier administrator or application can manage the membership of these groups.</p>"
-            RelatedReportUrl = "Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Protected=%3Dfalse&or_EntraRoles=%3E0&or_AzureRoles=%3E0&or_CAPs=%3E0&columns=DisplayName%2CType%2CSecurityEnabled%2CDynamic%2CVisibility%2CProtected%2CUsers%2CDevices%2CNestedInGroups%2CAppRoles%2CCAPs%2CEntraRoles%2CAzureRoles%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
+            RelatedReportUrl = "Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Protected=%3Dfalse&or_EntraRoles=%3E0&or_AzureRoles=%3E0&or_CAPs=%3E0&columns=DisplayName%2CType%2CSecurityEnabled%2CDynamic%2CVisibility%2CProtected%2CUsers%2CEntraMaxTier%2C%2CAzureMaxTier%2CNestedInGroups%2CAppRoles%2CCAPs%2CEntraRoles%2CAzureRoles%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
             AffectedSortKey = "_SortImpact"
             AffectedSortDir = "DESC"
             AffectedObjects = $grp005Affected
