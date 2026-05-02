@@ -2232,7 +2232,10 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Threat = "<p>If attackers gain access to an application secret (client secret or certificate), or if they are able to add their own, they can take control of the application. They can then authenticate in all tenants where the enterprise application exists and abuse its privileges.</p>"
             Remediation = "<p>Review each application to determine whether access to the corresponding data is acceptable.</p><p>General guidance:</p><ul><li>Limit privileges to the absolute minimum required (for example, use reader roles instead of roles that allow modifying objects).</li><li>Consider using a custom role that contains only the required privileges.</li></ul>"
         }
-        Vulnerable = @{ Status = "Vulnerable" }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
         Secure = @{
             Status = "NotVulnerable"
             Description = "<p>No enabled internal enterprise applications were identified that have privileged Azure roles (tier-0 or tier-1) assigned.</p>"
