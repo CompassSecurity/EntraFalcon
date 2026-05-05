@@ -21,7 +21,7 @@
 
 .PARAMETER UserAgent
     Specifies the user agent string to be used in the HTTP requests. This can be customized to mimic specific browser or application behavior.
-    Default: `python-requests/2.32.3`
+    Default: `Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.19045; en-us) PowerShell/7.5.0`
 
 .PARAMETER MaxRetries
     Specifies the maximum number of retry attempts for failed requests. Default is 6.
@@ -35,8 +35,14 @@
 .PARAMETER BatchDelay
     Specifies a delay in seconds between each batch request to avoid throttling. Default is 0 (no delay).
 
+.PARAMETER MaxBatchSize
+    Specifies the maximum number of Graph subrequests to include in each batch request. Default is 20.
+
 .PARAMETER Proxy
     Specifies a web proxy to use for the HTTP request (e.g., http://proxyserver:8080). Useful for debugging, traffic inspection.
+
+.PARAMETER SkipCertificateCheck
+    If specified, skips TLS certificate validation for Invoke-RestMethod calls (PS 7).
 
 .PARAMETER JsonDepthRequest
     Specifies the depth for JSON conversion in the request. Default is 10, but can be increased for complex objects.
@@ -110,7 +116,10 @@ function Send-GraphBatchRequest {
         [int]$JsonDepthResponse = 10,
         [string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.19045; en-us) PowerShell/7.5.0",
         [double]$BatchDelay = 0,
+        [ValidateRange(1, 20)]
+        [int]$MaxBatchSize = 20,
         [string]$Proxy,
+        [switch]$SkipCertificateCheck,
         [hashtable]$QueryParameters,
         [switch]$DebugMode,
         [switch]$VerboseMode,
@@ -122,13 +131,17 @@ function Send-GraphBatchRequest {
 
     $ApiVersion = if ($BetaAPI) { "beta" } else { "v1.0" }
     $BatchUrl = "https://graph.microsoft.com/$ApiVersion/`$batch"
-    $MaxBatchSize = 20
     $HttpRequestCount = 0
     $SubRequestCount = 0
+    $SupportsSkipCertificateCheck = (Get-Command Invoke-RestMethod).Parameters.ContainsKey('SkipCertificateCheck')
 
     if (-not $Requests -or $Requests.Count -eq 0) {
         Write-Error "No requests provided."
         return
+    }
+
+    if ($SkipCertificateCheck -and -not $SupportsSkipCertificateCheck -and -not $Silent) {
+        Write-Warning "Current PowerShell does not support -SkipCertificateCheck on Invoke-RestMethod. The flag will be ignored."
     }
 
     $Batches = New-Object 'System.Collections.Generic.List[object]'
@@ -188,6 +201,7 @@ function Send-GraphBatchRequest {
             }
 
             if ($Proxy) { $irmParams['Proxy'] = $Proxy }
+            if ($SkipCertificateCheck -and $SupportsSkipCertificateCheck) { $irmParams['SkipCertificateCheck'] = $true }
             $HttpRequestCount++
             $SubRequestCount += $PendingRequests.Count
 
@@ -277,7 +291,7 @@ function Send-GraphBatchRequest {
     }
 
 	 while (-not $DisablePagination -and $GlobalNextLinks.Count -gt 0) {
-		$ToFetch = $GlobalNextLinks[0..([math]::Min(19, $GlobalNextLinks.Count - 1))]
+		$ToFetch = $GlobalNextLinks[0..([math]::Min($MaxBatchSize - 1, $GlobalNextLinks.Count - 1))]
 		$GlobalNextLinks.RemoveRange(0, $ToFetch.Count)
 
 		$Links = $ToFetch | ForEach-Object { ($_ -split '\|')[1] }
@@ -292,6 +306,8 @@ function Send-GraphBatchRequest {
             -Proxy $Proxy `
             -VerboseMode:$VerboseMode `
             -DebugMode:$DebugMode `
+            -SkipCertificateCheck:$SkipCertificateCheck `
+            -MaxBatchSize $MaxBatchSize `
             -HttpRequestCount ([ref]$HttpRequestCount) `
             -SubRequestCount ([ref]$SubRequestCount)`
             -ApiVersion $ApiVersion
@@ -336,6 +352,9 @@ function Invoke-GraphNextLinkBatch {
         [int]$JsonDepthResponse = 10,
         [int]$JsonDepthRequest = 10,
         [string]$Proxy,
+        [switch]$SkipCertificateCheck,
+        [ValidateRange(1, 20)]
+        [int]$MaxBatchSize = 20,
 		[ref]$HttpRequestCount,
 		[ref]$SubRequestCount,
         [switch]$VerboseMode,
@@ -351,9 +370,10 @@ function Invoke-GraphNextLinkBatch {
         "User-Agent"    = $UserAgent
         "Content-Type"  = "application/json"
     }
+    $SupportsSkipCertificateCheck = (Get-Command Invoke-RestMethod).Parameters.ContainsKey('SkipCertificateCheck')
 
-    for ($i = 0; $i -lt $NextLinks.Count; $i += 20) {
-        $BatchSet = $NextLinks[$i..([math]::Min($i + 19, $NextLinks.Count - 1))]
+    for ($i = 0; $i -lt $NextLinks.Count; $i += $MaxBatchSize) {
+        $BatchSet = $NextLinks[$i..([math]::Min($i + $MaxBatchSize - 1, $NextLinks.Count - 1))]
         $BatchRequests = @()
         $index = 0
 
@@ -378,6 +398,7 @@ function Invoke-GraphNextLinkBatch {
         }
 
         if ($Proxy) { $irmParams['Proxy'] = $Proxy }
+        if ($SkipCertificateCheck -and $SupportsSkipCertificateCheck) { $irmParams['SkipCertificateCheck'] = $true }
 
         try {
             if ($DebugMode) { Write-Host "[i] Sending nextLink batch request..." }
