@@ -20,6 +20,7 @@ function Invoke-CheckTenant {
         [Parameter(Mandatory=$false)][hashtable]$Devices,
         [Parameter(Mandatory=$true)][hashtable]$Users,
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
+        [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprints,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities
     )
@@ -46,6 +47,44 @@ function Invoke-CheckTenant {
         if ($null -eq $Value) { return 0 }
         [int]::TryParse("$Value", [ref]$n) | Out-Null
         return $n
+    }
+
+    function Test-GroupHasEligibleOnlyPimAccessPath {
+        param(
+            [string]$GroupId
+        )
+
+        if ([string]::IsNullOrWhiteSpace($GroupId)) { return $false }
+        if (-not $AllGroupsDetails.ContainsKey($GroupId)) { return $false }
+
+        $group = $AllGroupsDetails[$GroupId]
+        if (-not $group) { return $false }
+
+        $eligibleMemberEntries = if ($EligiblePimGroupMembersByGroupId.ContainsKey($GroupId)) { @($EligiblePimGroupMembersByGroupId[$GroupId]) } else { @() }
+        $eligibleOwnerEntries = if ($EligiblePimGroupOwnersByGroupId.ContainsKey($GroupId)) { @($EligiblePimGroupOwnersByGroupId[$GroupId]) } else { @() }
+        $hasEligiblePath = ($eligibleMemberEntries.Count + $eligibleOwnerEntries.Count) -gt 0
+        if (-not $hasEligiblePath) { return $false }
+
+        $activeDirectUserCount = @(
+            @($group.Userdetails) | Where-Object {
+                $assignmentType = "$($_.AssignmentType)".Trim()
+                [string]::IsNullOrWhiteSpace($assignmentType) -or $assignmentType -eq "Active"
+            }
+        ).Count
+        if ($activeDirectUserCount -gt 0) { return $false }
+
+        $spCount = Get-IntSafe $group.SPCount
+        if ($spCount -gt 0) { return $false }
+
+        $eligibleMemberGroupEntries = @($eligibleMemberEntries | Where-Object { "$($_.Type)".Trim().ToLowerInvariant() -eq "group" })
+        $eligibleOwnerGroupEntries = @($eligibleOwnerEntries | Where-Object { "$($_.Type)".Trim().ToLowerInvariant() -eq "group" })
+        $nestedGroupCount = Get-IntSafe $group.NestedGroups
+        if ($nestedGroupCount -gt $eligibleMemberGroupEntries.Count) { return $false }
+
+        $directOwnersCount = Get-IntSafe $group.DirectOwners
+        if ($directOwnersCount -gt $eligibleOwnerEntries.Count) { return $false }
+
+        return $true
     }
 
     function Get-CredentialDisplayName {
@@ -2253,7 +2292,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Secure = @{
             Status = "NotVulnerable"
             Confidence = "Sure"
-            Description = "<p>No enterprise applications were identified that match the list of known malicious AppIds.</p>"
+            Description = "<p>No enterprise applications were identified that match the list of known malicious applications.</p>"
         }
     }
     #endregion
@@ -8023,6 +8062,47 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     # If PIM licensing is missing or no eligible assignments exist, mark as vulnerable and
     # set a flag to skip follow-up PIM configuration checks.
     $skipAdditionalPimChecks = $false
+    $EligiblePimGroupMembersByGroupId = @{}
+    $EligiblePimGroupOwnersByGroupId = @{}
+    $EligiblePimPrincipalMembershipParentsByPrincipalId = @{}
+    $EligiblePimPrincipalOwnershipParentsByPrincipalId = @{}
+    if ($TenantPimForGroupsAssignments) {
+        foreach ($assignment in @($TenantPimForGroupsAssignments)) {
+            if (-not $assignment) { continue }
+            $groupId = "$($assignment.groupId)".Trim()
+            $principalId = "$($assignment.principalId)".Trim()
+            $accessId = "$($assignment.accessId)".Trim().ToLowerInvariant()
+            $principalType = "$($assignment.Type)".Trim()
+            if ([string]::IsNullOrWhiteSpace($groupId) -or [string]::IsNullOrWhiteSpace($principalId)) { continue }
+            if ($accessId -ne "member" -and $accessId -ne "owner") { continue }
+
+            $entry = [pscustomobject]@{
+                GroupId = $groupId
+                PrincipalId = $principalId
+                Type = $principalType
+                AccessId = $accessId
+            }
+            if ($accessId -eq "member") {
+                if (-not $EligiblePimGroupMembersByGroupId.ContainsKey($groupId)) {
+                    $EligiblePimGroupMembersByGroupId[$groupId] = [System.Collections.Generic.List[object]]::new()
+                }
+                $EligiblePimGroupMembersByGroupId[$groupId].Add($entry)
+                if (-not $EligiblePimPrincipalMembershipParentsByPrincipalId.ContainsKey($principalId)) {
+                    $EligiblePimPrincipalMembershipParentsByPrincipalId[$principalId] = [System.Collections.Generic.List[object]]::new()
+                }
+                $EligiblePimPrincipalMembershipParentsByPrincipalId[$principalId].Add($entry)
+            } else {
+                if (-not $EligiblePimGroupOwnersByGroupId.ContainsKey($groupId)) {
+                    $EligiblePimGroupOwnersByGroupId[$groupId] = [System.Collections.Generic.List[object]]::new()
+                }
+                $EligiblePimGroupOwnersByGroupId[$groupId].Add($entry)
+                if (-not $EligiblePimPrincipalOwnershipParentsByPrincipalId.ContainsKey($principalId)) {
+                    $EligiblePimPrincipalOwnershipParentsByPrincipalId[$principalId] = [System.Collections.Generic.List[object]]::new()
+                }
+                $EligiblePimPrincipalOwnershipParentsByPrincipalId[$principalId].Add($entry)
+            }
+        }
+    }
     $pimLicensedForEntraRoles = ($global:GLOBALPIMForEntraRolesChecked -eq $true)
     if (-not $pimLicensedForEntraRoles) {
         Write-Log -Level Verbose -Message "[PIM-001] PIM license check failed. Marking finding as vulnerable."
@@ -8137,9 +8217,25 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $entries = @($roleGroup.Group)
             if ($entries.Count -eq 0) { continue }
 
-            $sampleEntry = $entries[0]
             $userEntries = @($entries | Where-Object { $_.PrincipalType -eq "User" })
             $groupEntries = @($entries | Where-Object { $_.PrincipalType -eq "Group" })
+            if ($TenantPimForGroupsAssignments -and $groupEntries.Count -gt 0) {
+                $filteredGroupEntries = [System.Collections.Generic.List[object]]::new()
+                foreach ($groupEntry in $groupEntries) {
+                    $groupId = "$($groupEntry.PrincipalId)".Trim()
+                    $eligibleOnlyAccess = Test-GroupHasEligibleOnlyPimAccessPath -GroupId $groupId
+                    if ($eligibleOnlyAccess) {
+                        Write-Log -Level Verbose -Message "[PIM-002] Suppressing group '$($groupEntry.PrincipalDisplayName)' because all reachable access paths are only through eligible PIM-for-Groups relationships."
+                        continue
+                    }
+                    $filteredGroupEntries.Add($groupEntry)
+                }
+                $groupEntries = @($filteredGroupEntries)
+                $entries = @($userEntries + $groupEntries)
+                if ($entries.Count -eq 0) { continue }
+            }
+
+            $sampleEntry = $entries[0]
             $userCount = $userEntries.Count
             $groupCount = $groupEntries.Count
 
@@ -8178,7 +8274,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $pim002RoleReportUrl = "Role_Assignments_Entra_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?RoleTier=Tier-0&AssignmentType=Active&ActivatedViaPIM=false&PrincipalType=User%7C%7CGroup&columns=Role%2CRoleTier%2CAssignmentType%2CActivatedViaPIM%2CStart%2CExpires%2CPrincipal%2CPrincipalType%2CScope"
             Set-FindingOverride -FindingId "PIM-002" -Props @{
                 Status = "Vulnerable"
-                Description = "<p>There are $($pim002Violations.Count) Tier-0 Entra roles with active user or group assignments that are not activated via PIM.</p>"
+                Description = "<p>There are $($pim002Violations.Count) Tier-0 Entra roles with active user or group assignments that are not activated via PIM.</p><p><strong>Note:</strong> Active group assignments are excluded when access is only possible through eligible PIM-for-Groups assignments.</p>"
                 RelatedReportUrl = $pim002RoleReportUrl
                 AffectedObjects = $pim002Violations
             }
@@ -8187,7 +8283,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $pim002RoleReportUrl = "Role_Assignments_Entra_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?RoleTier=Tier-0&AssignmentType=Active&ActivatedViaPIM=false&PrincipalType=User%7C%7CGroup&columns=Role%2CRoleTier%2CAssignmentType%2CActivatedViaPIM%2CStart%2CExpires%2CPrincipal%2CPrincipalType%2CScope"
             Set-FindingOverride -FindingId "PIM-002" -Props @{
                 Status = "NotVulnerable"
-                Description = "<p>No Tier-0 Entra roles identified with disallowed active user or group assignments outside PIM activation.</p><p><strong>Allowed exception:</strong> the Global Administrator role may have up to two directly assigned users or one directly assigned group.</p>"
+                Description = "<p>No Tier-0 Entra roles identified with disallowed active user or group assignments outside PIM activation.</p><p><strong>Allowed exception:</strong> the Global Administrator role may have up to two directly assigned users or one directly assigned group.</p><p><strong>Note:</strong> Active group assignments are excluded when access is only possible through eligible PIM-for-Groups assignments.</p>"
                 RelatedReportUrl = $pim002RoleReportUrl
                 AffectedObjects = @()
             }
