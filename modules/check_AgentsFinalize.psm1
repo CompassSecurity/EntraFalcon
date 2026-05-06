@@ -741,7 +741,7 @@ function Invoke-CheckAgentsFinalize {
 
     function Get-ApiPermissionReferenceData {
         param(
-            [Parameter(Mandatory = $true)][object[]]$Items,
+            [Parameter(Mandatory = $false)][AllowEmptyCollection()][object[]]$Items = @(),
             [Parameter(Mandatory = $false)][string]$PermissionProperty = 'AppApiPermission'
         )
 
