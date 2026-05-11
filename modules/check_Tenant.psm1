@@ -4380,7 +4380,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     } else {
         foreach ($policy in $cap007HardPass) {
-            $softResult = Test-CapSoftCompliance -Policy $policy -SkipAllUsersCheck
+            $softResult = Test-CapSoftCompliance -Policy $policy
             if ($softResult.Pass) {
                 $cap007SoftPass.Add($policy)
             } else {
@@ -4435,7 +4435,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     } else {
         foreach ($policy in $cap008HardPass) {
-            $softResult = Test-CapSoftCompliance -Policy $policy -SkipAllUsersCheck
+            $softResult = Test-CapSoftCompliance -Policy $policy
             if ($softResult.Pass) {
                 $cap008SoftPass.Add($policy)
             } else {
