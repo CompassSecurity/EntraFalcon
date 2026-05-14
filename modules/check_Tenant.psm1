@@ -14351,6 +14351,18 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                     borderWidth: 0
                 };
             });
+            var pointsChartBox = pointsCtx.closest(".overview-chart-box");
+            if (pointsChartBox) {
+                var pointsChartMinHeight = 260;
+                var pointsChartRowHeight = 28;
+                var pointsChartPadding = 72;
+                var pointsChartMaxHeight = 820;
+                var pointsChartHeight = Math.min(
+                    pointsChartMaxHeight,
+                    Math.max(pointsChartMinHeight, pointsChartPadding + (categories.length * pointsChartRowHeight))
+                );
+                pointsChartBox.style.height = pointsChartHeight + "px";
+            }
 
             overviewCharts.points = new Chart(pointsCtx, {
                 type: "bar",
