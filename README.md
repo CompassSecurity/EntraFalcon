@@ -46,7 +46,9 @@ Findings are presented in interactive HTML reports to support efficient explorat
     - Azure Role Assignments
     - Conditional Access Policies
     - Administrative Units
-    - PIM settings (for Entra Roles)
+    - PIM settings:
+        - PIM for Entra Roles
+        - PIM for Groups (BroCi auth only)
 
 
 ## ✅ Requirements
@@ -83,12 +85,12 @@ Use `-AuthFlow` to select the authentication flow.
 
 | Auth Flow                    | Windows | Linux/macOS | Interactive Logins | Convenience | Parameter(s)                         | Notes |
 |-----------------------------|---------|-------|--------------------|-------------|--------------------------------------|-------|
-| BroCi                       | Yes     | No    | 1                  | High        | `-AuthFlow BroCi` *(default)*        | Avoids reliance on legacy clients such as *Azure Active Directory PowerShell*. |
-| Auth Code Flow              | Yes     | No    | 4                  | Normal      | `-AuthFlow AuthCode`                 | Standard non-BroCi auth code flow. |
-| Device Code Flow            | Yes     | Yes   | 3                  | Normal      | `-AuthFlow DeviceCode`               | Authentication can be completed on another device, but two Security Findings checks run with reduced depth. |
-| Auth Code + Manual Code Flow| Yes     | Yes   | 4                  | Low-Normal  | `-AuthFlow ManualCode`               | Authentication can be completed on a different device or browser session. |
-| BroCi + Manual Code Flow    | Yes     | Yes   | 1                  | Low         | `-AuthFlow BroCiManualCode`          | Authorization code must be manually extracted from browser developer tools. |
-| BroCi with Token            | Yes     | Yes   | 0                  | Low         | `-AuthFlow BroCiToken -BroCiToken "<refresh_token>"` | Refresh token must be obtained manually (e.g., from browser dev tools or another auth tool). |
+| BroCi                       | Yes     | No    | 1                  | High        | `-AuthFlow BroCi` *(default)*        | Avoids reliance on legacy clients such as *Azure Active Directory PowerShell*. Supports all enumerations. |
+| Auth Code Flow              | Yes     | No    | 4                  | Normal      | `-AuthFlow AuthCode`                 | Standard non-BroCi auth code flow. Does not generate the standalone `PIM (Groups)` settings report. |
+| Device Code Flow            | Yes     | Yes   | 3                  | Normal      | `-AuthFlow DeviceCode`               | Authentication can be completed on another device, but two Security Findings checks run with reduced depth. Does not generate the standalone `PIM (Groups)` settings report. |
+| Auth Code + Manual Code Flow| Yes     | Yes   | 4                  | Low-Normal  | `-AuthFlow ManualCode`               | Authentication can be completed on a different device or browser session. Does not generate the standalone `PIM (Groups)` settings report. |
+| BroCi + Manual Code Flow    | Yes     | Yes   | 1                  | Low         | `-AuthFlow BroCiManualCode`          | Authorization code must be manually extracted from browser developer tools. Supports all enumerations.|
+| BroCi with Token            | Yes     | Yes   | 0                  | Low         | `-AuthFlow BroCiToken -BroCiToken "<refresh_token>"` | Refresh token must be obtained manually (e.g., from browser dev tools or another auth tool). Supports all enumerations. |
 
 
 #### Use BroCi flow (default, Beta / Windows only)
@@ -163,8 +165,8 @@ By default, official Microsoft enterprise applications are excluded from the ass
 ```
 
 #### Skip PIM for Groups Assessment
-Use the `-SkipPimForGroups` switch to skip the enumeration of PIM assignments for groups.  
-This skips the additional authentication needed to access PIM for Groups data.
+Use the `-SkipPimForGroups` switch to skip PIM-for-Groups precollection and enrichment.  
+This also skips the standalone `PIM (Groups)` settings report.
 ```powershell
 .\run_EntraFalcon.ps1 -SkipPimForGroups
 ```
@@ -213,8 +215,11 @@ This skips the additional authentication needed to access PIM for Groups data.
 ### Conditional Access Policies (Details Section)
 ![alt text](/images/caps_details.png)
 
-### PIM Role Settings
+### PIM Role Settings (Entra)
 ![alt text](/images/pim_settings.png)
+
+### Agent Identities
+![alt text](/images/agent_identities.png)
 
 ### Enumeration Summary
 ![alt text](/images/enumeration_overview.png)
@@ -661,7 +666,6 @@ When BroCi authentication is used, only one interactive login occurs.
 |74658136-14ec-4630-ad9b-26e160ff0fc6|Non-Interactive|797f4846-ba00-4fd7-ba43-dac1f8f63013|Retrieve Azure IAM role assignment data|
 
 When BroCi is enabled, EntraFalcon also queries `api.azrbac.mspim.azure.com` for PIM for Groups.
-
 ### Details
 For data collection, the tool sends multiple requests to the Microsoft Graph API and, optionally, the Azure ARM API—one or more per object. Where possible, it leverages the Graph Batch endpoint to reduce the number of individual requests and improve efficiency.
 

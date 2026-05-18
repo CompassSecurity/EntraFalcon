@@ -914,6 +914,95 @@ $global:GLOBALJavaScript_Table = @'
                     columns: ["Role", "Tier", "Eligible", "ActivationAuthContext", "ActivationMFA", "ActivationJustification", "ActivationTicketing", "ActivationApproval", "ActivationDuration", "ActiveAssignMFA", "ActiveAssignJustification", "Warnings"]
                 }
             ],
+            "PIM Groups": [
+                {
+                    id: "PVPG-001",
+                    group: "Tier",
+                    description: "PIM-enabled groups with Tier-0 impact through Entra ID",
+                    label: "Entra Tier-0 Groups",
+                    filters: {
+                        EntraMaxTier: "=Tier-0"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationAuthContext", "ActivationMFA", "ActivationApproval", "Warnings"]
+                },
+                {
+                    id: "PVPG-002",
+                    group: "Tier",
+                    description: "PIM-enabled groups with Tier-0 impact through Entra ID or Azure",
+                    label: "Tier-0 Groups",
+                    filters: {
+                        EntraMaxTier: "or_Tier-0",
+                        AzureMaxTier: "or_Tier-0"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationAuthContext", "ActivationMFA", "ActivationApproval", "Warnings"]
+                },
+                {
+                    id: "PVPG-003",
+                    group: "Tier",
+                    description: "PIM-enabled groups with Tier-0 or Tier-1 impact through Entra ID or Azure",
+                    label: "Tier-0/1 Groups",
+                    filters: {
+                        EntraMaxTier: "or_Tier-0 || Tier-1",
+                        AzureMaxTier: "or_Tier-0 || Tier-1"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationAuthContext", "ActivationMFA", "ActivationApproval", "Warnings"]
+                },
+                {
+                    id: "PVPG-004",
+                    group: "Security",
+                    description: "PIM group roles with active warnings",
+                    label: "Groups With Warnings",
+                    filters: {
+                        Warnings: "!=empty"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationAuthContext", "ActivationApproval", "ActivationDuration", "ActiveExpiration", "Warnings"]
+                },
+                {
+                    id: "PVPG-005",
+                    group: "Usage",
+                    description: "Group roles with at least one eligible or currently active assignment",
+                    label: "Used Group Roles",
+                    filters: {
+                        Eligible: "or_>0",
+                        Active: "or_>0"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationAuthContext", "ActivationMFA", "ActivationApproval", "Warnings"]
+                },
+                {
+                    id: "PVPG-006",
+                    group: "Usage",
+                    description: "Group roles with active assignments but no eligible assignments",
+                    label: "Active Without Eligible",
+                    filters: {
+                        Eligible: "=0",
+                        Active: ">0"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActiveExpiration", "ActiveAssignMFA", "ActiveAssignJustification", "Warnings"]
+                },
+                {
+                    id: "PVPG-007",
+                    group: "Security",
+                    description: "Tier-0/1 group roles missing AuthContext or approval",
+                    label: "High Tier Missing Controls",
+                    filters: {
+                        EntraMaxTier: "or_Tier-0 || Tier-1",
+                        AzureMaxTier: "or_Tier-0 || Tier-1",
+                        ActivationAuthContext: "false",
+                        ActivationApproval: "false"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationAuthContext", "ActivationApproval", "Warnings"]
+                },
+                {
+                    id: "PVPG-008",
+                    group: "Security",
+                    description: "Group roles with long activation duration warnings",
+                    label: "Long Activation Duration",
+                    filters: {
+                        Warnings: "long activation time"
+                    },
+                    columns: ["Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active", "ActivationDuration", "Warnings"]
+                }
+            ],
             "Agent Identities": [
                 {
                     id: "PVAI-001",
@@ -1376,6 +1465,17 @@ $global:GLOBALJavaScript_Table = @'
                         "ActiveExpiration", "ActiveAssignMFA", "Warnings"
                     ]
                 }
+            },
+            "PIMGroups": {
+                compact: {
+                    maxWidth: 1200,
+                    columns: [
+                        "Group", "Role", "EntraMaxTier", "AzureMaxTier", "Eligible", "Active",
+                        "ActivationAuthContext", "ActivationMFA",
+                        "ActivationDuration", "ActivationApproval",
+                        "ActiveExpiration", "ActiveAssignMFA", "Warnings"
+                    ]
+                }
             }
         };
 
@@ -1431,6 +1531,7 @@ $global:GLOBALJavaScript_Table = @'
             "PIM": "Onboarded to PIM for Groups",
             "Protected": "Not role assignable, not synced from on-prem, not in a restricted Administrative Unit.\nTherefore: cannot be modified by low-tier admin",
             "Eligible": "Number of eligible role assignments",
+            "Active": "Number of currently active assignments",
             "Direct": "Number of directly assigned active role assignments that are not activated via PIM",
             "Activated": "Number of currently active role assignments activated via PIM",
             "AssignmentType": "Activated eligible assignments also appear as active",
@@ -1668,6 +1769,7 @@ $global:GLOBALJavaScript_Table = @'
             if (key === "AR") return "App Registrations";
             if (key === "CAP") return "Conditional Access Policies";
             if (key === "PIM") return "PIM";
+            if (key === "PIMGroups") return "PIM Groups";
             if (key === "RoleEntra") return "Role Assignments Entra ID";
             if (key === "RoleAz") return "Role Assignments Azure IAM";
             if (key === "AgentIdentities") return "Agent Identities";
@@ -1701,13 +1803,15 @@ $global:GLOBALJavaScript_Table = @'
             return (tempDiv.textContent || tempDiv.innerText || "").trim();
             }
 
-            // Extract GUID + visible text from "<a href=#GUID>Text</a>"
+            // Extract anchor target + visible text from "<a href=#target>Text</a>".
+            // Some reports use non-GUID synthetic detail ids such as policy ids or
+            // composite keys, so do not restrict this to GUID-only anchors.
             function extractAnchorIdAndText(cellValue) {
             if (cellValue == null) return { id: "", text: "" };
             const s = String(cellValue);
 
-            // Normal reports: <a href=#GUID>...</a>
-            const m = s.match(/<a\s+href=#([a-f0-9-]{36})[^>]*>(.*?)<\/a>/i);
+            // Normal reports: <a href=#target>...</a>
+            const m = s.match(/<a\s+href=#([^\s>]+)[^>]*>(.*?)<\/a>/i);
             if (m) return { id: m[1], text: stripHtmlToText(m[2]) };
 
             // Fallback: treat as plain text
@@ -1951,6 +2055,7 @@ $global:GLOBALJavaScript_Table = @'
                         columnHeader === undefined || // no matching header (cell without header)
                         columnHeaderLower.includes("displayname") ||
                         columnHeaderLower.includes("warnings") ||
+                        columnHeaderLower === "group" ||
                         columnHeaderLower === "role" ||
                         columnHeaderLower === "principal" ||
                         columnHeaderLower === "scope" ||
@@ -5552,6 +5657,9 @@ function Export-EntraFalconDebugObjectDump {
         [object]$PimforEntraRoles,
 
         [Parameter(Mandatory = $false)]
+        [object]$PimforGroups,
+
+        [Parameter(Mandatory = $false)]
         [object]$EnterpriseApps,
 
         [Parameter(Mandatory = $false)]
@@ -5632,13 +5740,14 @@ function Export-EntraFalconDebugObjectDump {
             "16_Devices.clixml"                           = $Devices
             "17_AdminUnitWithMembers.clixml"              = $AdminUnitWithMembers
             "18_PimforEntraRoles.clixml"                  = $PimforEntraRoles
-            "19_EnterpriseApps.clixml"                    = $EnterpriseApps
-            "20_AppRegistrations.clixml"                  = $AppRegistrations
-            "21_ManagedIdentities.clixml"                 = $ManagedIdentities
-            "22_AgentIdentities.clixml"                   = $AgentIdentities
-            "23_AgentIdentityBlueprintsPrincipals.clixml" = $AgentIdentityBlueprintsPrincipals
-            "24_AgentIdentityBlueprints.clixml"           = $AgentIdentityBlueprints
-            "25_SecurityFindings.clixml"                  = $SecurityFindings
+            "19_PimforGroups.clixml"                      = $PimforGroups
+            "20_EnterpriseApps.clixml"                    = $EnterpriseApps
+            "21_AppRegistrations.clixml"                  = $AppRegistrations
+            "22_ManagedIdentities.clixml"                 = $ManagedIdentities
+            "23_AgentIdentities.clixml"                   = $AgentIdentities
+            "24_AgentIdentityBlueprintsPrincipals.clixml" = $AgentIdentityBlueprintsPrincipals
+            "25_AgentIdentityBlueprints.clixml"           = $AgentIdentityBlueprints
+            "26_SecurityFindings.clixml"                  = $SecurityFindings
         }
 
         $summaryProperties = [ordered]@{
@@ -7617,6 +7726,7 @@ function Initialize-TenantReportTabs {
         @{ Prop = 'EntraRoles';                Key = 'RoleEntra';  Title = 'Role Assignments (Entra)';  File = "Role_Assignments_Entra_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'AzureRoles';                Key = 'RoleAz';     Title = 'Role Assignments (Azure)';  File = "Role_Assignments_Azure_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForEntra';               Key = 'PIM';        Title = 'PIM (Entra)';                File = "PIM_${StartTimestamp}_${tenantNameEscaped}.html" }
+        @{ Prop = 'PimForGroups';              Key = 'PIMGroups';  Title = 'PIM (Groups)';               File = "PIM_Groups_${StartTimestamp}_${tenantNameEscaped}.html" }
     )
 
     $tabs = New-Object System.Collections.Generic.List[object]
@@ -7691,6 +7801,19 @@ function Get-PimforGroupsAssignments {
     [CmdletBinding()]
     Param ()
     $ResultAuthCheck = $true
+    $global:GLOBALPimForGroupsHT = @{}
+    $global:GLOBALPimForGroupsResources = @()
+    $global:GLOBALPimForGroupsAssignmentObjects = @()
+    $isBroCiFlow = $false
+    if ($GLOBALAuthMethods -and $GLOBALAuthMethods.ContainsKey("AuthFlow")) {
+        $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains [string]$GLOBALAuthMethods.AuthFlow
+    }
+    $global:GLOBALPimForGroupsPolicySettingsSupported = $isBroCiFlow
+    $global:GLOBALPimForGroupsPolicySettingsSkipReason = if ($isBroCiFlow) {
+        $null
+    } else {
+        "PIM for Groups settings report requires BroCi authentication because non-BroCi flows do not have the required pre-consented permissions."
+    }
     
     Write-Host "[*] Trigger interactive authentication for PIM for Groups assessment (skip with -SkipPimForGroups)"
     if (-not (invoke-EntraFalconAuth -Action Auth -Purpose PimforGroup @GLOBALAuthMethods)) {
@@ -7703,6 +7826,8 @@ function Get-PimforGroupsAssignments {
         write-host "[!] Auth error: $($_.Exception.Message -split '\n')"
         $ResultAuthCheck = $false
         $global:GLOBALPimForGroupsChecked = $false
+        $global:GLOBALPimForGroupsPolicySettingsSupported = $false
+        $global:GLOBALPimForGroupsPolicySettingsSkipReason = "PIM for Groups assessment failed during authentication."
     }
 
     if ($ResultAuthCheck) {
@@ -7712,11 +7837,6 @@ function Get-PimforGroupsAssignments {
         #Retrieve Pim Enabled groups. If HTTP 400 assuing error message is "The tenant needs to have Microsoft Entra ID P2 or Microsoft Entra ID Governance license.",
         try {
             #Use alternative Endpoint for BroCI since no SP with pre-consented privieleges PrivilegedAccess.Read(Write).AzureADGroup exists
-            $isBroCiFlow = $false
-            if ($GLOBALAuthMethods.ContainsKey("AuthFlow")) {
-                $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains [string]$GLOBALAuthMethods.AuthFlow
-            }
-
             if ($isBroCiFlow) {
                 Write-Host "[*] Retrieve PIM enabled groups (BroCi / using api.azrbac.mspim.azure.com)"
                 $uri = "https://api.azrbac.mspim.azure.com/api/v2/privilegedAccess/aadGroups/resources?`$select=id,displayName&`$top=999"
@@ -7741,6 +7861,7 @@ function Get-PimforGroupsAssignments {
                     displayName  = $_.displayName
                 }
             }
+            $global:GLOBALPimForGroupsResources = @($PimEnabledGroups)
     
             #Stored groups in global HT var to use in groups module
             $global:GLOBALPimForGroupsHT = @{}
@@ -7765,12 +7886,15 @@ function Get-PimforGroupsAssignments {
                 }
                 Write-Host "[*] Get eligible objects for those groups"
                 # Send Batch request
-                $PIMforGroupsAssignments = (Send-GraphBatchRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Requests $Requests -BetaAPI -BatchDelay 0.5 -UserAgent $($GlobalAuditSummary.UserAgent.Name)).response.value
+                $PIMforGroupsAssignments = (Send-GraphBatchRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Requests $Requests -BetaAPI -BatchDelay 1 -MaxBatchSize 8 -UserAgent $($GlobalAuditSummary.UserAgent.Name)).response.value
+                $global:GLOBALPimForGroupsAssignmentObjects = @($PIMforGroupsAssignments)
                 Write-Host "[+] Got $($PIMforGroupsAssignments.Count) objects eligible for a PIM-enabled group"
                 
             } else {
                 Write-Host "[!] No PIM enabled groups found"
                 $PIMforGroupsAssignments = ""
+                $global:GLOBALPimForGroupsResources = @()
+                $global:GLOBALPimForGroupsAssignmentObjects = @()
             }
         }
     }
@@ -8921,6 +9045,10 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALArmAccessToken -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALUserAppRoles -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsHT -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALPimForGroupsResources -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALPimForGroupsAssignmentObjects -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALPimForGroupsPolicySettingsSupported -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALPimForGroupsPolicySettingsSkipReason -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAuditSummary -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALMainTableDetailsHEAD -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALJavaScript -ErrorAction SilentlyContinue

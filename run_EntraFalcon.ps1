@@ -129,7 +129,7 @@ Param (
 )
 
 #Constants
-$EntraFalconVersion = "V20260424"
+$EntraFalconVersion = "V20260518"
 
 # Import shared functions
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -147,6 +147,7 @@ Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphBatchRequest.psm1') -For
 Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphRequest.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\export_Summary.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_PIM.psm1') -Force
+Import-Module (Join-Path $ScriptRoot 'modules\check_PIMGroups.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_Tenant.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentityBlueprints.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentityBlueprintsPrincipals.psm1') -Force
@@ -239,6 +240,11 @@ write-host "********************************** PIM for Groups: Pre-Collection Ph
     $TenantPimForGroupsAssignments = Get-PimforGroupsAssignments
 } else {
     $global:GLOBALPimForGroupsChecked = $false
+    $global:GLOBALPimForGroupsHT = @{}
+    $global:GLOBALPimForGroupsResources = @()
+    $global:GLOBALPimForGroupsAssignmentObjects = @()
+    $global:GLOBALPimForGroupsPolicySettingsSupported = $false
+    $global:GLOBALPimForGroupsPolicySettingsSkipReason = "PIM for Groups assessment skipped by parameter."
 }
 
 
@@ -354,6 +360,7 @@ $TenantReports = [pscustomobject]@{
     EntraRoles                = $true
     AzureRoles                = $false
     PimForEntra               = $false
+    PimForGroups              = $false
     SecurityFindings          = $true
     Summary                   = $true
 }
@@ -368,6 +375,7 @@ if (-not $GLOBALAzurePsChecks) {
 }
 $TenantReports.ConditionalAccessPolicies = ($null -ne $Caps -and $Caps.Count -gt 0)
 $TenantReports.PimForEntra               = ($null -ne $TenantPimRoleAssignments -and $TenantPimRoleAssignments.Count -gt 0)
+$TenantReports.PimForGroups              = ($GLOBALPimForGroupsChecked -and $GLOBALPimForGroupsPolicySettingsSupported -and $null -ne $GLOBALPimForGroupsResources -and @($GLOBALPimForGroupsResources).Count -gt 0)
 $TenantReports.AzureRoles                = ($null -ne $AzureIAMAssignments -and $AzureIAMAssignments.Count -gt 0)
 $TenantReports.Groups           = $ReportsBasedOnObjects.Groups
 $TenantReports.AppRegistrations = $ReportsBasedOnObjects.AppRegistrations
@@ -428,7 +436,7 @@ Invoke-CheckRoles -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp 
 write-host "`n********************************** [12/15] Enumerating Conditional Access Policies **********************************"
 $AllCaps = Invoke-CheckCaps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AllGroupsDetails $AllGroupsDetails -Users $Users -OutputFolder $OutputFolder -TenantRoleAssignments $TenantRoleAssignments @optionalParamsOutput @optionalParamsCap
 
-write-host "`n********************************** [13/15] Enumerating PIM Role Settings **********************************"
+write-host "`n********************************** [13/16] Enumerating PIM Role Settings **********************************"
 if ($GLOBALPIMForEntraRolesChecked) {
     $PimforEntraRoles = Invoke-CheckPIM -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllGroupsDetails $AllGroupsDetails -Users $Users -TenantRoleAssignments $TenantRoleAssignments -AllCaps $AllCaps @optionalParamsOutput
 } else {
@@ -436,10 +444,30 @@ if ($GLOBALPIMForEntraRolesChecked) {
     $PimforEntraRoles = @{}
 }
 
-write-host "`n********************************** [14/15] Enumerating Security Findings **********************************"
+write-host "`n********************************** [14/16] Enumerating PIM for Groups Settings **********************************"
+if ($TenantReports.PimForGroups) {
+    $PimforGroups = Invoke-CheckPIMGroups -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllGroupsDetails $AllGroupsDetails -AllCaps $AllCaps @optionalParamsOutput
+} else {
+    if (-not $GLOBALPimForGroupsChecked) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$GLOBALPimForGroupsPolicySettingsSkipReason)) {
+            Write-Host "[!] $GLOBALPimForGroupsPolicySettingsSkipReason Skipping PIM for Groups settings report..."
+        } else {
+            Write-Host "[!] PIM for Groups was not assessed. Skipping PIM for Groups settings report..."
+        }
+    } elseif (-not $GLOBALPimForGroupsPolicySettingsSupported) {
+        Write-Host "[!] $GLOBALPimForGroupsPolicySettingsSkipReason Skipping PIM for Groups settings report..."
+    } elseif ($null -eq $GLOBALPimForGroupsResources -or @($GLOBALPimForGroupsResources).Count -eq 0) {
+        Write-Host "[!] No PIM-enabled groups found. Skipping PIM for Groups settings report..."
+    } else {
+        Write-Host "[!] PIM for Groups settings report is not available. Skipping..."
+    }
+    $PimforGroups = @{}
+}
+
+write-host "`n********************************** [15/16] Enumerating Security Findings **********************************"
 $SecurityFindings = Invoke-CheckTenant -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -EnterpriseApps $EnterpriseApps -AppRegistrations $AppRegistrations -ManagedIdentities $ManagedIdentities -AllCaps $AllCaps -PimforEntraRoles $PimforEntraRoles -AllGroupsDetails $AllGroupsDetails -Users $Users -Devices $Devices -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -AgentIdentityBlueprints $AgentIdentityBlueprints -AgentIdentities $AgentIdentities
 
-write-host "`n********************************** [15/15] Generating Summary Report **********************************"
+write-host "`n********************************** [16/16] Generating Summary Report **********************************"
 # Show assessment summary and generate summary HTML report
 Export-Summary -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TenantDomains $TenantDomains -Users $Users
 
@@ -466,6 +494,7 @@ if ($DebugObjectDump) {
         Devices                               = $Devices
         AdminUnitWithMembers                  = $AdminUnitWithMembers
         PimforEntraRoles                      = $PimforEntraRoles
+        PimforGroups                          = $PimforGroups
         EnterpriseApps                        = $EnterpriseApps
         AppRegistrations                      = $AppRegistrations
         ManagedIdentities                     = $ManagedIdentities

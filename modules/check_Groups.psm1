@@ -51,7 +51,6 @@ function Invoke-CheckGroups {
         }
     }   
 
-
     #Function to create transitive members
     function Get-TransitiveMembers {
         param (
@@ -434,6 +433,7 @@ function Invoke-CheckGroups {
 
     Write-Host "[*] Getting all group memberships"
     $GroupMembers = @{}
+    $DirectActiveMemberCountById = @{}
     $BatchSize = 10000
     $ChunkCount = [math]::Ceiling($GroupsTotalCount / $BatchSize)
     
@@ -458,8 +458,11 @@ function Invoke-CheckGroups {
 
         # Store results
         foreach ($item in $Response) {
-            if ($item.response.value) {
-                $GroupMembers[$item.id] = @($item.response.value)
+            $groupResponseId = [string]$item.id
+            $directMembers = @($item.response.value)
+            $DirectActiveMemberCountById[$groupResponseId] = $directMembers.Count
+            if ($directMembers.Count -gt 0) {
+                $GroupMembers[$groupResponseId] = $directMembers
             }
         }
     }
@@ -508,9 +511,13 @@ function Invoke-CheckGroups {
     # Send Batch request and create a hashtable
     $RawResponse = (Send-GraphBatchRequest -AccessToken $GLOBALmsGraphAccessToken.access_token -Requests $Requests -BetaAPI  -UserAgent $($GlobalAuditSummary.UserAgent.Name) -QueryParameters @{'$select' = 'id,userType,onPremisesSyncEnabled'})
     $GroupOwnersRaw = @{}
+    $DirectActiveOwnerCountById = @{}
     foreach ($item in $RawResponse) {
-        if ($item.response.value -and $item.response.value.Count -gt 0) {
-            $GroupOwnersRaw[$item.id] = $item.response.value
+        $groupResponseId = [string]$item.id
+        $directOwners = @($item.response.value)
+        $DirectActiveOwnerCountById[$groupResponseId] = $directOwners.Count
+        if ($directOwners.Count -gt 0) {
+            $GroupOwnersRaw[$groupResponseId] = $directOwners
         }
     }
 
@@ -663,6 +670,9 @@ function Invoke-CheckGroups {
         $owneruser     = [System.Collections.Generic.List[psobject]]::new()
         $ownersp       = [System.Collections.Generic.List[psobject]]::new()
         $baseOwnerUserDetails = [System.Collections.Generic.List[psobject]]::new()
+        $groupIdKey = [string]$group.Id
+        $DirectActiveMemberCount = if ($null -ne $DirectActiveMemberCountById -and $DirectActiveMemberCountById.ContainsKey($groupIdKey)) { [int]$DirectActiveMemberCountById[$groupIdKey] } else { 0 }
+        $DirectActiveOwnerCount = if ($null -ne $DirectActiveOwnerCountById -and $DirectActiveOwnerCountById.ContainsKey($groupIdKey)) { [int]$DirectActiveOwnerCountById[$groupIdKey] } else { 0 }
 
         # Process group members
         if ($TransitiveMembersRaw.ContainsKey($group.Id)) {
@@ -1352,6 +1362,8 @@ function Invoke-CheckGroups {
             MemberSpDetails = $memberSpDetails
             Devices = $memberdevices.count
             DevicesDetails = $memberdevices
+            DirectActiveMembers = $DirectActiveMemberCount
+            DirectActiveOwners = $DirectActiveOwnerCount
             DirectOwners = @($owneruser).count + @($ownersp).count + @($OwnerGroup).count
             NestedOwners = 0 #Will be adjusted in port-processing
             OwnerUserDetails = $owneruser
@@ -2644,6 +2656,8 @@ $headerHtml = @"
             Warnings = $group.Warnings
             EntraRolePrivilegedCount = $group.EntraRolePrivilegedCount
             InheritedHighValue = $group.InheritedHighValue
+            DirectActiveMembers = $group.DirectActiveMembers
+            DirectActiveOwners = $group.DirectActiveOwners
             DirectOwners = $group.DirectOwners
             NestedOwners = $group.NestedOwners
         }
