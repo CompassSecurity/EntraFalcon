@@ -6451,6 +6451,7 @@ $global:GLOBALEntraRoleRating = @{
     "158c047a-c907-4556-b7ef-446551a6b5f7" = 0 #Cloud Application Administrator
     "194ae4cb-b126-40b2-bd5b-6091b380977d" = 0 #Security Administrator
     "db506228-d27e-4b7d-95e5-295956d6615f" = 1 #Agent ID Administrator
+    "d2562ede-74db-457e-a7b6-544e236ebb61" = 1 #AI Administrator
     "d29b2b05-8046-44ba-8758-1e26182fcf32" = 1 #Directory Synchronization Accounts
     "a92aed5d-d78a-4d16-b381-09adb37eb3b0" = 1 #On Premises Directory Sync Account
     "b1be1c3e-b65d-4f19-8427-f6fa0d97feb9" = 1 #Conditional Access Administrator
