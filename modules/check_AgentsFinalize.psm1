@@ -1240,6 +1240,7 @@ Execution Warnings = $($WarningList -join ' / ')
                         Enabled = $agentIdentity.Enabled
                         Impact = $agentIdentity.Impact
                         Risk = $agentIdentity.Risk
+                        Warnings = $agentIdentity.Warnings
                         ParentPrincipalId = $principal.Id
                         ParentPrincipalDisplayName = $principal.DisplayName
                     }
