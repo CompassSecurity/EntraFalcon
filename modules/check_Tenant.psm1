@@ -3295,7 +3295,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         foreach ($entry in $AllGroupsDetails.GetEnumerator()) {
             $group = $entry.Value
             if (-not $group) { continue }
-            if ("$($group.Type)" -eq "M365 Group" -and "$($group.Visibility)" -eq "Public") {
+            if ("$($group.Type)" -eq "M365 Group" -and "$($group.Visibility)" -eq "Public" -and -not $group.Dynamic) {
                 $publicM365Groups.Add([pscustomobject]@{
                     Id = $entry.Key
                     Group = $group
