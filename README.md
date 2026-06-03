@@ -235,7 +235,6 @@ This also skips the standalone `PIM (Groups)` settings report.
 - Click 🔄 **Reset View** to reset the view to the default.
 - Click on object names to jump to detailed information, even in other reports.
 - When using internal navigation, press the browser’s back button to return.
-- Browser search can locate content even within collapsed *Details* sections.
 - Some table header fields display helper text on mouse hover.
 - Sort data by clicking a table header.
 

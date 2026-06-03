@@ -3703,7 +3703,6 @@ $global:GLOBALJavaScript_Nav = @'
                         <li>Click on object names to jump to detailed information, even across reports.<br>
                         Links look like this: <a href="#" onclick="return false;" style="pointer-events: none;">Example Link</a></li>
                         <li>When navigating within the report, use the browser's back button to return.</li>
-                        <li>Browser search can locate content even within collapsed <em>details</em> sections.</li>
                         <li>Some table header fields display helper text on mouse hover.</li>
                         <li>Sort data by clicking any table header.
                     </ul>
