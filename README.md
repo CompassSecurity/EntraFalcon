@@ -93,7 +93,7 @@ Use `-AuthFlow` to select the authentication flow.
 | BroCi with Token            | Yes     | Yes   | 0                  | Low         | `-AuthFlow BroCiToken -BroCiToken "<refresh_token>"` | Refresh token must be obtained manually (e.g., from browser dev tools or another auth tool). Supports all enumerations. |
 
 
-#### Use BroCi flow (default, Beta / Windows only)
+#### Use BroCi flow (default / Windows only)
 BroCi uses alternate first-party applications and requires only one interactive sign-in.  
 It is further useful, when the *Azure Active Directory PowerShell* client requires assignment and must be avoided.
 
@@ -278,8 +278,8 @@ For Azure roles, this categorization is less precise, as the actual impact depen
 <details>
 <summary>Entra ID Roles</summary>
 
-| Role Name                                      | Tier-Level | GUID                                   |
-|------------------------------------------------|------------|----------------------------------------|
+| Role Name                                     | Tier-Level | GUID                                   |
+|-----------------------------------------------|------------|----------------------------------------|
 | Global Administrator                          | 0          | 62e90394-69f5-4237-9190-012177145e10   |
 | Partner Tier2 Support                         | 0          | e00e864a-17c5-4a4b-9c06-f5b95a8d5bd8   |
 | Privileged Authentication Administrator       | 0          | 7be44c8a-adaf-4e2a-84d6-ab2649e08a13   |
@@ -291,6 +291,7 @@ For Azure roles, this categorization is less precise, as the actual impact depen
 | Cloud Application Administrator               | 0          | 158c047a-c907-4556-b7ef-446551a6b5f7   |
 | Security Administrator                        | 0          | 194ae4cb-b126-40b2-bd5b-6091b380977d   |
 | Agent ID Administrator                        | 1          | db506228-d27e-4b7d-95e5-295956d6615f   |
+| AI Administrator                              | 1          | d2562ede-74db-457e-a7b6-544e236ebb61   |
 | Conditional Access Administrator              | 1          | b1be1c3e-b65d-4f19-8427-f6fa0d97feb9   |
 | Authentication Administrator                  | 1          | c4e39bd9-1100-46d3-8c65-fb160da0071f   |
 | Azure DevOps Administrator                    | 1          | e3973bdf-4987-49ae-837a-ba8e231c7286   |
