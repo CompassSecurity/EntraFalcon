@@ -1813,17 +1813,17 @@ body.dark-mode .summary-kpi-card {
 
 $OutputCLI = @"
 Execution Information:
-    - Tenant Name:    $($GlobalAuditSummary.Tenant.Name)
-    - Tenant ID:      $($GlobalAuditSummary.Tenant.ID)
-    - Tenant License: $($GlobalAuditSummary.TenantLicense.Name)
-    - On-premises Sync:      $onPremisesSyncStatus
-    - Last On-premises Sync: $onPremisesLastSyncDisplay
-    - Subscriptions:  $SubscriptionCount
-    - Start:          $executionStartDisplay
-    - End:            $executionEndDisplay
-    - EntraFalcon:    $($GlobalAuditSummary.EntraFalcon.Version)
-    - PowerShell:     $powerShellDisplay
-    - UserAgent:      $($GlobalAuditSummary.UserAgent.Name)
+    - Tenant Name:       $($GlobalAuditSummary.Tenant.Name)
+    - Tenant ID:         $($GlobalAuditSummary.Tenant.ID)
+    - Tenant License:    $($GlobalAuditSummary.TenantLicense.Name)
+    - On-premises Sync:  $onPremisesSyncStatus
+    - Last Sync:         $onPremisesLastSyncDisplay
+    - Subscriptions:     $SubscriptionCount
+    - Start:             $executionStartDisplay
+    - End:               $executionEndDisplay
+    - EntraFalcon:       $($GlobalAuditSummary.EntraFalcon.Version)
+    - PowerShell:        $powerShellDisplay
+    - UserAgent:         $($GlobalAuditSummary.UserAgent.Name)
 
 Enhanced Checks:
     - Enumerate Azure IAM:                  $GLOBALAzurePsChecks
