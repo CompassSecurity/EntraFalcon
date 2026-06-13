@@ -40,12 +40,34 @@
     - `ManualCode`: Auth Code + Manual Code flow (non-BroCi)
     - `BroCiManualCode`: BroCi + Manual Code flow
     - `BroCiToken`: BroCi flow using a supplied refresh token (`-BroCiToken`)
+    - `ServicePrincipal`: Client Credentials flow using a custom app registration (`-SPClientId` + secret or certificate)
 
     .PARAMETER BroCiToken
     Optional Bring Your Own BroCi refresh token.
     Required when using `-AuthFlow BroCiToken`.
     The provided token must be a valid refresh token for the Azure Portal client (c44b4083-3bb0-49c1-b47d-974e53cbdf3c).
     Treat this value as sensitive secret material.
+
+    .PARAMETER SPClientId
+    Client ID of the app registration to use with `-AuthFlow ServicePrincipal`.
+
+    .PARAMETER SPClientSecret
+    Client secret for the app registration. Used with `-AuthFlow ServicePrincipal`.
+
+    .PARAMETER SPCertificatePath
+    Path to a PFX/P12 certificate file for client assertion. Used with `-AuthFlow ServicePrincipal`.
+
+    .PARAMETER SPCertificatePassword
+    Optional password (`SecureString`) for the PFX certificate specified by `-SPCertificatePath`. Use `Read-Host -AsSecureString` to create the value.
+
+    .PARAMETER SPCertificatePemPath
+    Path to a PEM certificate file. Used together with `-SPPrivateKeyPemPath` for `-AuthFlow ServicePrincipal`. Requires PowerShell 7+.
+
+    .PARAMETER SPPrivateKeyPemPath
+    Path to a PEM private key file. Used together with `-SPCertificatePemPath` for `-AuthFlow ServicePrincipal`. Requires PowerShell 7+.
+
+    .PARAMETER SPPrivateKeyPemPassword
+    Optional password (`SecureString`) for the encrypted PEM private key specified by `-SPPrivateKeyPemPath`. Use `Read-Host -AsSecureString` to create the value. Requires PowerShell 7+.
 
     .PARAMETER SkipPimForGroups
     Skips the enumeration of PIM for Groups, avoiding the need for a secondary authentication flow.
@@ -80,7 +102,7 @@
 [CmdletBinding()]
 Param (
     [Parameter(Mandatory = $false)]
-    [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken")]
+    [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken", "ServicePrincipal")]
     [string]$AuthFlow = "BroCi",
 
     [Parameter(Mandatory = $false)]
@@ -125,7 +147,29 @@ Param (
     [switch]$ExportCapUncoveredUsers = $false,
 
     [Parameter(Mandatory = $false)]
-    [string]$BroCiToken
+    [string]$BroCiToken,
+
+    # ServicePrincipal credential params
+    [Parameter(Mandatory = $false)]
+    [string]$SPClientId,
+
+    [Parameter(Mandatory = $false)]
+    [string]$SPClientSecret,
+
+    [Parameter(Mandatory = $false)]
+    [string]$SPCertificatePath,
+
+    [Parameter(Mandatory = $false)]
+    [System.Security.SecureString]$SPCertificatePassword,
+
+    [Parameter(Mandatory = $false)]
+    [string]$SPCertificatePemPath,
+
+    [Parameter(Mandatory = $false)]
+    [string]$SPPrivateKeyPemPath,
+
+    [Parameter(Mandatory = $false)]
+    [System.Security.SecureString]$SPPrivateKeyPemPassword
 )
 
 #Constants
@@ -162,6 +206,14 @@ if ($AuthFlow -eq "BroCiToken" -and [string]::IsNullOrWhiteSpace($BroCiToken)) {
     Write-Error "Invalid parameter combination: -AuthFlow BroCiToken requires -BroCiToken." -ErrorAction Stop
 }
 
+if ($AuthFlow -eq "ServicePrincipal" -and [string]::IsNullOrWhiteSpace($SPClientId)) {
+    Write-Error "Invalid parameter combination: -AuthFlow ServicePrincipal requires -SPClientId." -ErrorAction Stop
+}
+
+if ($AuthFlow -eq "ServicePrincipal" -and [string]::IsNullOrWhiteSpace($Tenant)) {
+    Write-Error "ServicePrincipal flow requires a tenant. Use -Tenant." -ErrorAction Stop
+}
+
 # Check non-Windows auth flow compatibility (Linux/macOS)
 if (-not (Test-NonWindowsAuthFlowCompatibility -AuthFlow $AuthFlow -ReadmePath (Join-Path $ScriptRoot 'README.md'))) {
     return
@@ -177,13 +229,25 @@ if (-not [string]::IsNullOrWhiteSpace($BroCiToken)) {
     # Access tokens (JWT) typically start with 'ey'
     if ($BroCiToken.StartsWith("ey")) {
         Write-Error "Invalid -BroCiToken: access token (JWT) detected. A refresh token is required." -ErrorAction Stop
-    }    
+    }
 
     # Must look like a refresh token (Azure refresh tokens usually start with "1.")
     if (-not $BroCiToken.StartsWith("1.")) {
         Write-Error "Invalid -BroCiToken: expected a refresh token starting with '1.'." -ErrorAction Stop
     }
     $GLOBALAuthMethods.BroCiToken = $BroCiToken
+}
+
+if ($AuthFlow -eq "ServicePrincipal") {
+    $GLOBALAuthMethods.SPClientId = $SPClientId
+    if (-not [string]::IsNullOrWhiteSpace($SPClientSecret))    { $GLOBALAuthMethods.SPClientSecret        = $SPClientSecret }
+    if (-not [string]::IsNullOrWhiteSpace($SPCertificatePath)) { $GLOBALAuthMethods.SPCertificatePath     = $SPCertificatePath }
+    if ($SPCertificatePassword)                                 { $GLOBALAuthMethods.SPCertificatePassword = $SPCertificatePassword }
+    if (-not [string]::IsNullOrWhiteSpace($SPCertificatePemPath)) {
+        $GLOBALAuthMethods.SPCertificatePemPath = $SPCertificatePemPath
+        $GLOBALAuthMethods.SPPrivateKeyPemPath  = $SPPrivateKeyPemPath
+    }
+    if ($SPPrivateKeyPemPassword) { $GLOBALAuthMethods.SPPrivateKeyPemPassword = $SPPrivateKeyPemPassword }
 }
 
 
@@ -314,8 +378,8 @@ $global:GLOBALSecurityFindingsAccessContext = @{
 
 # Authentication for Security Findings
 $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains $AuthFlow
-if ($isBroCiFlow) {
-    Write-Log -Level Verbose -Message "[SecurityFindings] BroCi flow detected. Reusing existing Graph token for special policy endpoints."
+if ($isBroCiFlow -or $AuthFlow -eq "ServicePrincipal") {
+    Write-Log -Level Verbose -Message "[SecurityFindings] BroCi/ServicePrincipal flow detected. Reusing existing Graph token for special policy endpoints."
 } elseif ($AuthFlow -eq "DeviceCode") {
     $global:GLOBALSecurityFindingsAccessContext.TokenSource = "Unavailable"
     $global:GLOBALSecurityFindingsAccessContext.IsAvailable = $false

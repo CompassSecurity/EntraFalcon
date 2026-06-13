@@ -91,6 +91,7 @@ Use `-AuthFlow` to select the authentication flow.
 | Auth Code + Manual Code Flow| Yes     | Yes   | 4                  | Low-Normal  | `-AuthFlow ManualCode`               | Authentication can be completed on a different device or browser session. Does not generate the standalone `PIM (Groups)` settings report. |
 | BroCi + Manual Code Flow    | Yes     | Yes   | 1                  | Low         | `-AuthFlow BroCiManualCode`          | Authorization code must be manually extracted from browser developer tools. Supports all enumerations.|
 | BroCi with Token            | Yes     | Yes   | 0                  | Low         | `-AuthFlow BroCiToken -BroCiToken "<refresh_token>"` | Refresh token must be obtained manually (e.g., from browser dev tools or another auth tool). Supports all enumerations. |
+| Service Principal           | Yes     | Yes   | 0                  | Low        | `-AuthFlow ServicePrincipal -SPClientId "<appId>" -Tenant "<tenantId>" ...` | App-only OAuth2 client credentials flow. Requires a custom app registration with sufficient Graph API permissions. Supports all enumerations. |
 
 
 #### Use BroCi flow (default / Windows only)
@@ -156,6 +157,51 @@ Example: Obtaining the refresh token from the browser
 ```
 
 
+#### Service Principal
+Authenticates as a registered application using the OAuth2 client credentials grant — no user interaction required.  
+Useful for automated executions.  
+Requires a custom Entra app registration with `Application`-type Graph API permissions (see below).
+
+**With client secret:**
+```powershell
+.\run_EntraFalcon.ps1 -AuthFlow ServicePrincipal -Tenant "mysecuretenant.ch" -SPClientId "<AppId>" -SPClientSecret "<Secret>"
+```
+
+**With PFX certificate:**
+```powershell
+.\run_EntraFalcon.ps1 -AuthFlow ServicePrincipal -Tenant "mysecuretenant.ch" -SPClientId "<AppId>" -SPCertificatePath "C:\certs\app.pfx"
+```
+For a password-protected PFX, add `-SPCertificatePassword (Read-Host -Prompt "Certificate password" -AsSecureString)`.
+
+**With PEM certificate + private key (PowerShell 7+ only):**
+```powershell
+.\run_EntraFalcon.ps1 -AuthFlow ServicePrincipal -Tenant "mysecuretenant.ch" -SPClientId "<AppId>" -SPCertificatePemPath "C:\certs\cert.pem" -SPPrivateKeyPemPath "C:\certs\key.pem"
+```
+For an encrypted private key, add `-SPPrivateKeyPemPassword (Read-Host -Prompt "Private key password" -AsSecureString)`.
+
+##### Required App Registration Permissions
+Grant the following **Application** permissions (not Delegated) on the app registration and admin-consent them:
+
+| Permission | Type |
+|---|---|
+| `AdministrativeUnit.Read.All` | Application |
+| `AgentIdentity.Read.All` | Application |
+| `AgentIdentityBlueprint.Read.All` | Application |
+| `AgentIdentityBlueprintPrincipal.Read.All` | Application |
+| `Application.Read.All` | Application |
+| `AuditLog.Read.All` | Application |
+| `Device.Read.All` | Application |
+| `Group.Read.All` | Application |
+| `Organization.Read.All` | Application |
+| `Policy.Read.All` | Application |
+| `PrivilegedAccess.Read.AzureADGroup` | Application |
+| `RoleManagement.Read.Directory` | Application |
+| `RoleManagementPolicy.Read.AzureADGroup` | Application |
+| `User.Read.All` | Application |
+
+In addition, assign the **Azure Reader** role on the root management group (or every relevant subscription) and optionally the **Global Reader** role to the service principal in Entra ID (required for per-user MFA status).
+
+
 ### Other Parameters
 
 #### Include Microsoft-Owned Enterprise Apps
@@ -181,8 +227,15 @@ This also skips the standalone `PIM (Groups)` settings report.
 | **LimitResults**       | Limits the number of groups and users in the report (after sorting by risk). Useful for large tenants.                           | -                                                 |
 | **LogLevel**           | Controls runtime cli logging verbosity. Supported values: `Off` (default), `Verbose`, `Debug`, `Trace`.                          | `Off`                                             |
 | **ApiTop**             | Sets the max number of objects returned from the API. Lower values reduce timeout risk (HTTP 504), but increase request count.   | `999` (Valid range: 5–999)                        |
-| **AuthFlow**           | Preferred auth-flow selector. Values: `BroCi` (default), `AuthCode`, `DeviceCode`, `ManualCode`, `BroCiManualCode`, `BroCiToken`. | `BroCi`                                         |
+| **AuthFlow**           | Preferred auth-flow selector. Values: `BroCi` (default), `AuthCode`, `DeviceCode`, `ManualCode`, `BroCiManualCode`, `BroCiToken`, `ServicePrincipal`. | `BroCi`                                         |
 | **BroCiToken**         | Azure Portal **refresh token** for `AuthFlow BroCiToken`.                                                                          | -                                                 |
+| **SPClientId**         | Application (client) ID of the service principal. Required for `-AuthFlow ServicePrincipal`.                                      | -                                                 |
+| **SPClientSecret**     | Client secret for the service principal. Used with `-AuthFlow ServicePrincipal`.                                                  | -                                                 |
+| **SPCertificatePath**  | Path to a PFX/P12 certificate file for service principal authentication.                                                          | -                                                 |
+| **SPCertificatePassword** | Password (`SecureString`) for the PFX certificate specified by `-SPCertificatePath`.                                          | -                                                 |
+| **SPCertificatePemPath** | Path to a PEM certificate file. Used together with `-SPPrivateKeyPemPath`.                                                      | -                                                 |
+| **SPPrivateKeyPemPath** | Path to the PEM private key file matching `-SPCertificatePemPath`.                                                               | -                                                 |
+| **SPPrivateKeyPemPassword** | Password (`SecureString`) for the PEM private key specified by `-SPPrivateKeyPemPath`.                                     | -                                                 |
 | **Csv**                | Enables writing CSV report files in addition to TXT/HTML report files.                                                             | `false`                                           |
 | **ExportCapUncoveredUsers** | For each enabled Conditional Access policy with user targeting, exports a CSV listing users **not** covered by that policy. Files are written to a `ConditionalAccessPolicies_UncoveredUsers` subfolder in the output directory. | `false` |
 | **DebugObjectDump**    | Exports final in-memory report objects as CLIXML to `Debug_ObjectDump` for troubleshooting and testing. | `false`                                      |

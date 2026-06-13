@@ -541,8 +541,8 @@ function Invoke-CheckTenant {
     }
     $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains $effectiveAuthFlow
 
-    if ($isBroCiFlow) {
-        # BroCi can reuse the primary Graph token for these endpoints.
+    if ($isBroCiFlow -or $effectiveAuthFlow -eq "ServicePrincipal") {
+        # BroCi and ServicePrincipal flows can use the primary Graph token for these endpoints.
         $specialDataAccessToken = $GLOBALMsGraphAccessToken.access_token
     } elseif ($effectiveAuthFlow -eq "DeviceCode") {
         $specialDataUnavailabilityReason = "DeviceCode flow does not support these endpoints."

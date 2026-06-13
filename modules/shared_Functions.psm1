@@ -5538,7 +5538,7 @@ function Test-NonWindowsAuthFlowCompatibility {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
-        [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken")]
+        [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken", "ServicePrincipal")]
         [string]$AuthFlow = "BroCi",
 
         [Parameter(Mandatory = $false)]
@@ -5550,7 +5550,7 @@ function Test-NonWindowsAuthFlowCompatibility {
         return $true
     }
 
-    $nonWindowsSupportedFlows = @("DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken")
+    $nonWindowsSupportedFlows = @("DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken", "ServicePrincipal")
     if ($nonWindowsSupportedFlows -contains $AuthFlow) {
         return $true
     }
@@ -5562,6 +5562,7 @@ function Test-NonWindowsAuthFlowCompatibility {
         "ManualCode" = "Auth Code + Manual Code Flow"
         "BroCiManualCode" = "BroCi + Manual Code Flow"
         "BroCiToken" = "BroCi with Token"
+        "ServicePrincipal" = "Client Credentials (App Only)"
     }
 
     $flowHint = @{
@@ -5571,6 +5572,7 @@ function Test-NonWindowsAuthFlowCompatibility {
         "ManualCode" = "-AuthFlow ManualCode"
         "BroCiManualCode" = "-AuthFlow BroCiManualCode"
         "BroCiToken" = '-AuthFlow BroCiToken -BroCiToken "<refresh_token>"'
+        "ServicePrincipal" = '-AuthFlow ServicePrincipal -SPClientId "<id>" -SPClientSecret "<secret>"'
     }
 
     $selectedDisplay = if ($flowDisplay.ContainsKey($AuthFlow)) { $flowDisplay[$AuthFlow] } else { $AuthFlow }
@@ -6338,7 +6340,8 @@ function checkSubscriptionNative {
 #Function to perform MSGraph authentication using EntraTokenAid
 function AuthenticationMSGraph {
     if (-not (invoke-EntraFalconAuth -Action Auth -Purpose MainAuth @GLOBALAuthMethods)) {
-        throw "[!] Authentication failed for MainAuth"
+        Write-Log -Level Debug -Message "Authentication failed for MainAuth."
+        return $false
     }
 
     if (AuthCheckMSGraph) {
@@ -6421,7 +6424,7 @@ function Invoke-CheckTokenExpiration ($Object) {
     #write-host "[*] Checking access token expiration... $($Object.Target)"
     $validForMinutes = [Math]::Ceiling((NEW-TIMESPAN -Start (Get-Date) -End $Object.Expiration_time).TotalMinutes)
 
-    #Check if the token is valid for more than 15 minutes
+    #Check if the token is valid for more than 30 minutes
     if ($validForMinutes -ge 30) {
         #write-host "[+] Token is still valid for $validForMinutes minutes"
         $result = $true
@@ -7808,20 +7811,23 @@ function Get-PimforGroupsAssignments {
     if ($GLOBALAuthMethods -and $GLOBALAuthMethods.ContainsKey("AuthFlow")) {
         $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains [string]$GLOBALAuthMethods.AuthFlow
     }
-    $global:GLOBALPimForGroupsPolicySettingsSupported = $isBroCiFlow
-    $global:GLOBALPimForGroupsPolicySettingsSkipReason = if ($isBroCiFlow) {
+    $isServicePrincipalFlow = ([string]$GLOBALAuthMethods.AuthFlow -eq "ServicePrincipal")
+    $global:GLOBALPimForGroupsPolicySettingsSupported = $isBroCiFlow -or $isServicePrincipalFlow
+    $global:GLOBALPimForGroupsPolicySettingsSkipReason = if ($isBroCiFlow -or $isServicePrincipalFlow) {
         $null
     } else {
         "PIM for Groups settings report requires BroCi authentication because non-BroCi flows do not have the required pre-consented permissions."
     }
     
-    Write-Host "[*] Trigger interactive authentication for PIM for Groups assessment (skip with -SkipPimForGroups)"
+    Write-Host "[*] Authentication for PIM for Groups assessment (skip with -SkipPimForGroups)"
     if (-not (invoke-EntraFalconAuth -Action Auth -Purpose PimforGroup @GLOBALAuthMethods)) {
         throw "[!] Authentication failed for PimforGroup"
     }
 
+    # /me is not available for app-only tokens. using /organization as a connectivity check instead
+    $authCheckUri = if ($GLOBALAuthMethods.AuthFlow -eq "ServicePrincipal") { '/organization?$select=id' } else { '/me?$select=id' }
     try {
-        $AuthCheck = Send-GraphRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Method GET -Uri '/me?$select=id' -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name) -erroraction Stop
+        $AuthCheck = Send-GraphRequest -AccessToken $GLOBALPimForGroupAccessToken.access_token -Method GET -Uri $authCheckUri -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name) -erroraction Stop
     } catch {
         write-host "[!] Auth error: $($_.Exception.Message -split '\n')"
         $ResultAuthCheck = $false
@@ -8651,7 +8657,7 @@ function invoke-EntraFalconAuth {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
-        [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken")]
+        [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken", "ServicePrincipal")]
         [string]$AuthFlow = "BroCi",
 
         # Action
@@ -8664,9 +8670,31 @@ function invoke-EntraFalconAuth {
         [ValidateSet("MainAuth", "PimforEntra", "PimforGroup", "Azure", "SecurityFindings")]
         [string]$Purpose,
 
-        #BrociToken
+        # BroCiToken
         [Parameter(Mandatory = $false)]
-        [string]$BroCiToken
+        [string]$BroCiToken,
+
+        # ServicePrincipal credential params
+        [Parameter(Mandatory = $false)]
+        [string]$SPClientId,
+
+        [Parameter(Mandatory = $false)]
+        [string]$SPClientSecret,
+
+        [Parameter(Mandatory = $false)]
+        [string]$SPCertificatePath,
+
+        [Parameter(Mandatory = $false)]
+        [System.Security.SecureString]$SPCertificatePassword,
+
+        [Parameter(Mandatory = $false)]
+        [string]$SPCertificatePemPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$SPPrivateKeyPemPath,
+
+        [Parameter(Mandatory = $false)]
+        [System.Security.SecureString]$SPPrivateKeyPemPassword
 
     )
 
@@ -8678,12 +8706,19 @@ function invoke-EntraFalconAuth {
     if ($AuthFlow -ne "BroCiToken" -and -not [string]::IsNullOrWhiteSpace($BroCiToken)) {
         throw "Invalid parameter combination: -BroCiToken can only be used with -AuthFlow BroCiToken."
     }
+    if ($AuthFlow -eq "ServicePrincipal" -and [string]::IsNullOrWhiteSpace($SPClientId)) {
+        throw "Invalid parameter combination: -AuthFlow ServicePrincipal requires -SPClientId."
+    }
+    if ($AuthFlow -eq "ServicePrincipal" -and [string]::IsNullOrWhiteSpace($GLOBALAuthParameters['Tenant'])) {
+        throw "ServicePrincipal flow requires a tenant. Use -Tenant."
+    }
 
     $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains $AuthFlow
     $authMethodKey = switch ($AuthFlow) {
         "DeviceCode" { "DeviceCode" }
         "ManualCode" { "ManualCode" }
         "BroCiManualCode" { "ManualCode" }
+        "ServicePrincipal" { "ServicePrincipal" }
         default { "AuthCode" }
     }
 
@@ -8716,7 +8751,7 @@ function invoke-EntraFalconAuth {
             [ValidateSet("MainAuth", "PimforEntra", "PimforGroup", "Azure", "SecurityFindings")]
             [string]$Purpose,
 
-            [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken")]
+            [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken", "ServicePrincipal")]
             [string]$AuthFlow
         )
 
@@ -8728,6 +8763,34 @@ function invoke-EntraFalconAuth {
                 return "[*] Refreshing $Purpose access token ($AuthFlow)"
             }
         }
+    }
+
+    # Builds the Invoke-ClientCredential parameter hashtable from whichever SP* credential params were supplied.
+    $InvokeCC = {
+        param([string]$Api = "graph.microsoft.com")
+        $ccParams = @{
+            ClientId          = $SPClientId
+            TenantId          = $GLOBALAuthParameters['Tenant']
+            Api               = $Api
+            DisableJwtParsing = $true
+            Silent            = ((Get-LogLevel) -eq "Off")
+        }
+        if ($SPClientSecret) {
+            $ccParams['ClientSecret'] = $SPClientSecret
+        } elseif ($SPCertificatePath) {
+            $ccParams['CertificatePath'] = $SPCertificatePath
+            if ($SPCertificatePassword) { $ccParams['CertificatePassword'] = $SPCertificatePassword }
+        } elseif ($SPCertificatePemPath) {
+            $ccParams['CertificatePemPath']  = $SPCertificatePemPath
+            $ccParams['PrivateKeyPemPath']   = $SPPrivateKeyPemPath
+            if ($SPPrivateKeyPemPassword) { $ccParams['PrivateKeyPemPassword'] = $SPPrivateKeyPemPassword }
+        }
+        $token = Invoke-ClientCredential @ccParams
+        if (-not $token -or [string]::IsNullOrWhiteSpace($token.access_token)) {
+            throw "Service principal authentication did not return an access token. Check tenant, client ID, credential, and admin-consented application permissions."
+        }
+
+        return $token
     }
 
     # --------------------------
@@ -8750,6 +8813,10 @@ function invoke-EntraFalconAuth {
                     ManualCode = {
                         $tokens = Invoke-Auth -DisableJwtParsing -ManualCode @GLOBALAuthParameters
                         $global:GLOBALMsGraphAccessToken = $tokens
+                        $true
+                    }
+                    ServicePrincipal = {
+                        $global:GLOBALMsGraphAccessToken = & $InvokeCC
                         $true
                     }
                 }
@@ -8776,6 +8843,10 @@ function invoke-EntraFalconAuth {
                         $global:GLOBALPimForGroupAccessToken = $tokens
                         $true
                     }
+                    ServicePrincipal = {
+                        $global:GLOBALPimForGroupAccessToken = & $InvokeCC
+                        $true
+                    }
                 }
 
                 Azure = @{
@@ -8784,6 +8855,10 @@ function invoke-EntraFalconAuth {
                                                 -Api management.azure.com `
                                                 -DisableJwtParsing @GLOBALAuthParameters
                         $global:GLOBALArmAccessToken = $tokens
+                        $true
+                    }
+                    ServicePrincipal = {
+                        $global:GLOBALArmAccessToken = & $InvokeCC -Api "management.azure.com"
                         $true
                     }
                 }
@@ -8810,8 +8885,12 @@ function invoke-EntraFalconAuth {
                         $global:GLOBALPIMsGraphAccessToken = $tokens
                         $true
                     }
+                    ServicePrincipal = {
+                        $global:GLOBALPIMsGraphAccessToken = & $InvokeCC
+                        $true
+                    }
                 }
-                
+
                 SecurityFindings = @{
                     AuthCode = {
                         $tokens = Invoke-Auth -ClientID '80ccca67-54bd-44ab-8625-4b79c4dc7775' `
@@ -8947,6 +9026,10 @@ function invoke-EntraFalconAuth {
                         $global:GLOBALMsGraphAccessToken = $tokens
                         $true
                     }
+                    ServicePrincipal = {
+                        $global:GLOBALMsGraphAccessToken = & $InvokeCC
+                        $true
+                    }
                 }
                 PimforEntra = @{
                     Any = {
@@ -8954,6 +9037,10 @@ function invoke-EntraFalconAuth {
                                                 -ClientId "51f81489-12ee-4a9e-aaae-a2591f45987d" `
                                                 -DisableJwtParsing @GLOBALAuthParameters
                         $global:GLOBALPIMsGraphAccessToken = $tokens
+                        $true
+                    }
+                    ServicePrincipal = {
+                        $global:GLOBALPIMsGraphAccessToken = & $InvokeCC
                         $true
                     }
                 }
@@ -9011,7 +9098,10 @@ function invoke-EntraFalconAuth {
             $plan = Get-Plan -Table $Routes -Keys @($Action, $broKey, $Purpose, "Any")
         }
 
-        # If action is Refresh, authmethod isn't relevant: fall back to 'Any'
+        # For Refresh, try the exact authMethodKey first (e.g. ServicePrincipal), then fall back to Any
+        if (-not $plan -and $Action -eq 'Refresh') {
+            $plan = Get-Plan -Table $Routes -Keys @($Action, $broKey, $Purpose, $authMethodKey)
+        }
         if (-not $plan -and $Action -eq 'Refresh') {
             $plan = Get-Plan -Table $Routes -Keys @($Action, $broKey, $Purpose, 'Any')
         }
@@ -9030,7 +9120,19 @@ function invoke-EntraFalconAuth {
         & $plan
     }
     catch {
+        $errorMessage = $_.Exception.Message
         Write-Host "[!] Authentication flow failed for $Purpose" -ForegroundColor Red
+
+        if (-not [string]::IsNullOrWhiteSpace($errorMessage)) {
+            Write-Host "[!] $errorMessage" -ForegroundColor Red
+        }
+
+        $debugDetails = [System.Collections.Generic.List[string]]::new()
+        $debugDetails.Add("Authentication failure context: Action=$Action; Purpose=$Purpose; AuthFlow=$AuthFlow")
+        if ($_.Exception) {
+            $debugDetails.Add("ExceptionType=$($_.Exception.GetType().FullName)")
+        }
+        Write-Log -Level Debug -Message ($debugDetails -join [Environment]::NewLine)
         return $false
     }
 }
