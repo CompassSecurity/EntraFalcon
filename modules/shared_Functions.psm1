@@ -5591,6 +5591,446 @@ function Test-NonWindowsAuthFlowCompatibility {
     return $false
 }
 
+function Export-EntraFalconSecurityFindingsJson {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputFolder,
+
+        [Parameter(Mandatory = $true)]
+        [string]$StartTimestamp,
+
+        [Parameter(Mandatory = $true)]
+        [object]$CurrentTenant,
+
+        [Parameter(Mandatory = $true)]
+        [object]$SecurityFindings
+    )
+
+    function ConvertTo-FindingsExportText {
+        param(
+            [object]$Value,
+            [string]$Fallback = ""
+        )
+
+        $text = if ($null -eq $Value) { "" } else { [string]$Value }
+        $text = $text.Trim()
+        if ($text) { return $text }
+        return $Fallback
+    }
+
+    function ConvertTo-FindingsExportFilePart {
+        param(
+            [object]$Value,
+            [string]$Fallback
+        )
+
+        $text = ConvertTo-FindingsExportText -Value $Value -Fallback $Fallback
+        $text = $text -replace '[<>:"/\\|?*\x00-\x1F]', '_'
+        $text = $text -replace '\s+', '_'
+        $text = $text -replace '_+', '_'
+        $text = $text.Trim('_')
+        if ([string]::IsNullOrWhiteSpace($text)) { return $Fallback }
+        return $text
+    }
+
+    function ConvertFrom-FindingsExportHtml {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return "" }
+
+        $html = [string]$Value
+        if ([string]::IsNullOrWhiteSpace($html)) { return "" }
+
+        $normalized = $html `
+            -replace '\r\n?', "`n" `
+            -replace '<\s*br\s*/?>', "`n" `
+            -replace '<\s*/p\s*>', "`n`n" `
+            -replace '<\s*p[^>]*>', "" `
+            -replace '<\s*li[^>]*>', "- " `
+            -replace '<\s*/li\s*>', "`n" `
+            -replace '<\s*/(?:ul|ol)\s*>', "`n" `
+            -replace '<\s*(?:ul|ol)[^>]*>', "" `
+            -replace '<\s*/div\s*>', "`n" `
+            -replace '<\s*div[^>]*>', ""
+
+        $text = $normalized -replace '<[^>]+>', ""
+        $text = [System.Net.WebUtility]::HtmlDecode($text)
+        $text = $text `
+            -replace ([string][char]0x00A0), " " `
+            -replace "[ `t]+`n", "`n" `
+            -replace "`n[ `t]+", "`n" `
+            -replace "`n{3,}", "`n`n"
+
+        return $text.Trim()
+    }
+
+    function Split-FindingsExportMultiValue {
+        param(
+            [string]$Key,
+            [object]$Value
+        )
+
+        $text = (ConvertTo-FindingsExportText -Value $Value) -replace '\r\n?', "`n"
+        $text = $text.Trim()
+        if (-not $text) { return @() }
+
+        $lineParts = @($text -split "`n+" | ForEach-Object {
+            ($_ -replace '^\s*-\s*', '').Trim()
+        } | Where-Object { $_ })
+        if ($lineParts.Count -gt 1) { return $lineParts }
+
+        $keyHint = [regex]::IsMatch((ConvertTo-FindingsExportText -Value $Key), 'owner|owners|member|members|role|roles|permission|permissions|group|groups|warning|warnings|api permissions', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+        if ($keyHint -and $text.Contains(';')) {
+            $semicolonParts = @($text -split '\s*;\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($semicolonParts.Count -gt 1) { return $semicolonParts }
+        }
+
+        if ($keyHint -and $text.Contains(',') -and -not $text.Contains(':')) {
+            $commaParts = @($text -split '\s*,\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($commaParts.Count -gt 1) { return $commaParts }
+        }
+
+        return @($text)
+    }
+
+    function Get-FindingsExportPropertyNames {
+        param([object]$Object)
+
+        if ($null -eq $Object) { return @() }
+        if ($Object -is [System.Collections.IDictionary]) { return @($Object.Keys | ForEach-Object { [string]$_ }) }
+        return @($Object.PSObject.Properties | ForEach-Object { $_.Name })
+    }
+
+    function Get-FindingsExportPropertyValue {
+        param(
+            [object]$Object,
+            [string]$Name
+        )
+
+        if ($null -eq $Object -or [string]::IsNullOrWhiteSpace($Name)) { return $null }
+        if ($Object -is [System.Collections.IDictionary]) {
+            if ($Object.Contains($Name)) { return $Object[$Name] }
+            return $null
+        }
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property) { return $null }
+        return $property.Value
+    }
+
+    function Test-FindingsExportObjectValue {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return $false }
+        if ($Value -is [string]) { return $false }
+        if ($Value -is [System.Collections.IDictionary]) { return $true }
+        if ($Value -is [System.ValueType]) { return $false }
+        if ($Value -is [System.Collections.IEnumerable]) { return $false }
+        return ($null -ne $Value.PSObject -and $Value.PSObject.Properties.Count -gt 0)
+    }
+
+    function ConvertTo-FindingsExportJsonString {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return "" }
+        return ($Value | ConvertTo-Json -Depth 20 -Compress)
+    }
+
+    function ConvertTo-FindingsExportScalarValue {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return $null }
+        if ($Value -is [byte] -or
+            $Value -is [sbyte] -or
+            $Value -is [int16] -or
+            $Value -is [uint16] -or
+            $Value -is [int] -or
+            $Value -is [uint32] -or
+            $Value -is [long] -or
+            $Value -is [uint64]) {
+            return $Value
+        }
+        if ($Value -is [float] -or $Value -is [double] -or $Value -is [decimal]) {
+            $number = [decimal]$Value
+            if ($number -ge [decimal][long]::MinValue -and $number -le [decimal][long]::MaxValue -and [decimal]::Truncate($number) -eq $number) {
+                return [long]$number
+            }
+            return $Value
+        }
+        return $Value
+    }
+
+    function ConvertTo-FindingsExportAffectedObject {
+        param([object]$Object)
+
+        if (-not (Test-FindingsExportObjectValue -Value $Object)) { return $Object }
+
+        $clean = [ordered]@{}
+        foreach ($key in Get-FindingsExportPropertyNames -Object $Object) {
+            if (-not $key -or $key[0] -eq '_') { continue }
+
+            $value = Get-FindingsExportPropertyValue -Object $Object -Name $key
+
+            if ($key -eq "Warnings") {
+                if ($null -eq $value) {
+                    $clean[$key] = ""
+                } elseif ($value -is [string]) {
+                    $clean[$key] = ConvertFrom-FindingsExportHtml -Value $value
+                } elseif ($value -is [System.Collections.IEnumerable] -and -not ($value -is [System.Collections.IDictionary])) {
+                    $warningParts = New-Object System.Collections.Generic.List[string]
+                    foreach ($entry in @($value)) {
+                        if ($null -eq $entry) { continue }
+                        if ($entry -is [string]) {
+                            $warningParts.Add((ConvertFrom-FindingsExportHtml -Value $entry))
+                        } elseif (Test-FindingsExportObjectValue -Value $entry) {
+                            $warningParts.Add((ConvertTo-FindingsExportJsonString -Value (ConvertTo-FindingsExportAffectedObject -Object $entry)))
+                        } else {
+                            $warningParts.Add([string]$entry)
+                        }
+                    }
+                    $clean[$key] = ($warningParts -join " / ")
+                } elseif (Test-FindingsExportObjectValue -Value $value) {
+                    $clean[$key] = ConvertTo-FindingsExportJsonString -Value (ConvertTo-FindingsExportAffectedObject -Object $value)
+                } else {
+                    $clean[$key] = [string]$value
+                }
+                continue
+            }
+
+            if ($null -eq $value) {
+                $clean[$key] = ""
+            } elseif ($value -is [string]) {
+                $plainText = ConvertFrom-FindingsExportHtml -Value $value
+                $split = @(Split-FindingsExportMultiValue -Key $key -Value $plainText)
+                $clean[$key] = if ($split.Count -gt 1) { $split } elseif ($split.Count -eq 1) { $split[0] } else { "" }
+            } elseif ($value -is [System.Collections.IEnumerable] -and -not ($value -is [System.Collections.IDictionary])) {
+                $entries = @($value)
+                if ($entries.Count -eq 0) {
+                    $clean[$key] = @()
+                    continue
+                }
+
+                $objectEntries = @($entries | Where-Object { Test-FindingsExportObjectValue -Value $_ })
+                if ($objectEntries.Count -eq $entries.Count) {
+                    $clean[$key] = @($objectEntries | ForEach-Object { ConvertTo-FindingsExportAffectedObject -Object $_ })
+                    continue
+                }
+
+                $scalarEntries = New-Object System.Collections.Generic.List[object]
+                foreach ($entry in $entries) {
+                    if ($null -eq $entry) { continue }
+                    if ($entry -is [string]) {
+                        foreach ($part in @(Split-FindingsExportMultiValue -Key $key -Value (ConvertFrom-FindingsExportHtml -Value $entry))) {
+                            $scalarEntries.Add($part)
+                        }
+                    } elseif (Test-FindingsExportObjectValue -Value $entry) {
+                        $scalarEntries.Add((ConvertTo-FindingsExportJsonString -Value (ConvertTo-FindingsExportAffectedObject -Object $entry)))
+                    } else {
+                        $scalarEntries.Add([string]$entry)
+                    }
+                }
+                $clean[$key] = if ($scalarEntries.Count -gt 1) { @($scalarEntries) } elseif ($scalarEntries.Count -eq 1) { $scalarEntries[0] } else { "" }
+            } elseif (Test-FindingsExportObjectValue -Value $value) {
+                $clean[$key] = ConvertTo-FindingsExportAffectedObject -Object $value
+            } else {
+                $clean[$key] = ConvertTo-FindingsExportScalarValue -Value $value
+            }
+        }
+
+        return [pscustomobject]$clean
+    }
+
+    function Get-FindingsExportAffectedSortKey {
+        param(
+            [object[]]$Objects,
+            [string]$RequestedSortKey
+        )
+
+        $allColumns = New-Object System.Collections.Generic.List[string]
+        $seenColumns = @{}
+
+        foreach ($object in @($Objects)) {
+            foreach ($column in Get-FindingsExportPropertyNames -Object $object) {
+                if (-not $column -or $seenColumns.ContainsKey($column)) { continue }
+                $seenColumns[$column] = $true
+                $allColumns.Add($column)
+            }
+        }
+
+        $visibleColumns = @($allColumns | Where-Object { $_ -and $_[0] -ne '_' })
+        $sortKey = ""
+        if (-not [string]::IsNullOrWhiteSpace($RequestedSortKey)) {
+            $desired = $RequestedSortKey.ToLowerInvariant()
+            $sortKey = [string](@($allColumns | Where-Object { $_.ToLowerInvariant() -eq $desired } | Select-Object -First 1))
+            if (-not $sortKey) {
+                $sortKey = [string](@($allColumns | Where-Object { $_.ToLowerInvariant().Contains($desired) } | Select-Object -First 1))
+            }
+        }
+        if (-not $sortKey -and $visibleColumns.Count -gt 0) { $sortKey = [string]$visibleColumns[0] }
+        return $sortKey
+    }
+
+    function Compare-FindingsExportAffectedObject {
+        param(
+            [object]$A,
+            [object]$B,
+            [string]$SortKey,
+            [int]$SortDirection
+        )
+
+        $av = (ConvertFrom-FindingsExportHtml -Value (ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $A -Name $SortKey))).Trim()
+        $bv = (ConvertFrom-FindingsExportHtml -Value (ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $B -Name $SortKey))).Trim()
+        $aMissing = ($av -eq "" -or $av -eq "?")
+        $bMissing = ($bv -eq "" -or $bv -eq "?")
+        if ($aMissing -and -not $bMissing) { return 1 }
+        if (-not $aMissing -and $bMissing) { return -1 }
+
+        $aNumber = 0.0
+        $bNumber = 0.0
+        $aIsNumber = [regex]::IsMatch($av, '^-?\d+(\.\d+)?$')
+        $bIsNumber = [regex]::IsMatch($bv, '^-?\d+(\.\d+)?$')
+        if ($aIsNumber -and $bIsNumber) {
+            $aNumber = [double]::Parse($av, [System.Globalization.CultureInfo]::InvariantCulture)
+            $bNumber = [double]::Parse($bv, [System.Globalization.CultureInfo]::InvariantCulture)
+            if ($aNumber -lt $bNumber) { return (-1 * $SortDirection) }
+            if ($aNumber -gt $bNumber) { return (1 * $SortDirection) }
+            return 0
+        }
+
+        $textCompare = [string]::Compare($av.ToLowerInvariant(), $bv.ToLowerInvariant(), [System.StringComparison]::Ordinal)
+        if ($textCompare -lt 0) { return (-1 * $SortDirection) }
+        if ($textCompare -gt 0) { return (1 * $SortDirection) }
+        return 0
+    }
+
+    function Sort-FindingsExportAffectedObjects {
+        param(
+            [object[]]$Objects,
+            [string]$SortKey,
+            [object]$SortDirection
+        )
+
+        $list = [System.Collections.Generic.List[object]]::new()
+        foreach ($object in @($Objects)) {
+            if ($null -ne $object) { $list.Add($object) }
+        }
+        if ($list.Count -eq 0) { return ,@() }
+        if ($list.Count -eq 1) { return ,@($list[0]) }
+
+        $direction = 1
+        if ($SortDirection -is [string]) {
+            if ($SortDirection.ToLowerInvariant() -eq "desc") { $direction = -1 }
+        } elseif ($SortDirection -eq -1) {
+            $direction = -1
+        }
+
+        $resolvedSortKey = Get-FindingsExportAffectedSortKey -Objects @($list) -RequestedSortKey $SortKey
+        if ([string]::IsNullOrWhiteSpace($resolvedSortKey)) { return @($list) }
+
+        $indexedList = [System.Collections.Generic.List[object]]::new()
+        for ($i = 0; $i -lt $list.Count; $i++) {
+            $indexedList.Add([pscustomobject]@{
+                Index = $i
+                Value = $list[$i]
+            })
+        }
+
+        $indexedList.Sort([System.Comparison[object]]{
+            param($a, $b)
+            $result = Compare-FindingsExportAffectedObject -A $a.Value -B $b.Value -SortKey $resolvedSortKey -SortDirection $direction
+            if ($result -ne 0) { return $result }
+            return ($a.Index - $b.Index)
+        })
+
+        return ,@($indexedList | ForEach-Object { $_.Value })
+    }
+
+    function Normalize-FindingsExportSeverity {
+        param([object]$Value)
+
+        $number = 0.0
+        if (-not [double]::TryParse([string]$Value, [System.Globalization.NumberStyles]::Any, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+            return 0
+        }
+        if ($number -lt 0 -or $number -gt 4) { return 0 }
+        return [int][math]::Floor($number)
+    }
+
+    function Normalize-FindingsExportStatus {
+        param([object]$Value)
+
+        $status = (ConvertTo-FindingsExportText -Value $Value).ToLowerInvariant()
+        if ($status -eq "vulnerable") { return "Vulnerable" }
+        if ($status -eq "skipped") { return "Skipped" }
+        return "NotVulnerable"
+    }
+
+    function ConvertTo-FindingsExportFinding {
+        param([object]$Finding)
+
+        $confidence = Get-FindingsExportPropertyValue -Object $Finding -Name "Confidence"
+        if ([string]::IsNullOrWhiteSpace([string]$confidence)) {
+            $confidence = Get-FindingsExportPropertyValue -Object $Finding -Name "Certainty"
+        }
+
+        $rawAffectedObjects = Get-FindingsExportPropertyValue -Object $Finding -Name "AffectedObjects"
+        $affectedObjects = if ($null -eq $rawAffectedObjects) {
+            @()
+        } elseif (Test-FindingsExportObjectValue -Value $rawAffectedObjects) {
+            @($rawAffectedObjects)
+        } elseif ($rawAffectedObjects -is [System.Collections.IEnumerable] -and -not ($rawAffectedObjects -is [string]) -and -not ($rawAffectedObjects -is [System.Collections.IDictionary])) {
+            @($rawAffectedObjects)
+        } else {
+            @()
+        }
+
+        $affectedSortKey = ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "AffectedSortKey")
+        $affectedSortDir = ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "AffectedSortDir")
+        $sortedAffectedObjects = Sort-FindingsExportAffectedObjects -Objects $affectedObjects -SortKey $affectedSortKey -SortDirection $affectedSortDir
+
+        return [pscustomobject][ordered]@{
+            FindingId        = ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "FindingId")
+            Title            = ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Title") -Fallback "Untitled finding"
+            Category         = ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Category") -Fallback "Uncategorized"
+            Severity         = Normalize-FindingsExportSeverity -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Severity")
+            Description      = ConvertFrom-FindingsExportHtml -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Description")
+            Threat           = ConvertFrom-FindingsExportHtml -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Threat")
+            Status           = Normalize-FindingsExportStatus -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Status")
+            Remediation      = ConvertFrom-FindingsExportHtml -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "Remediation")
+            Confidence       = ConvertTo-FindingsExportText -Value $confidence -Fallback "Inconclusive"
+            AffectedObjects  = @(@($sortedAffectedObjects) | Where-Object { $null -ne $_ } | ForEach-Object { ConvertTo-FindingsExportAffectedObject -Object $_ })
+            RelatedReportUrl = ConvertTo-FindingsExportText -Value (Get-FindingsExportPropertyValue -Object $Finding -Name "RelatedReportUrl")
+            AffectedSortKey  = $affectedSortKey
+            AffectedSortDir  = $affectedSortDir
+            Tags             = @()
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $OutputFolder)) {
+        $null = New-Item -Path $OutputFolder -ItemType Directory -Force
+    }
+    $resolvedOutputFolder = (Resolve-Path -LiteralPath $OutputFolder).ProviderPath
+
+    $tenantLabel = if ($CurrentTenant.PSObject.Properties["DisplayName"]) { $CurrentTenant.DisplayName } elseif ($CurrentTenant.PSObject.Properties["FileSafeDisplayName"]) { $CurrentTenant.FileSafeDisplayName } else { "tenant" }
+    $tenantToken = ConvertTo-FindingsExportFilePart -Value $tenantLabel -Fallback "tenant"
+    $timestampToken = ConvertTo-FindingsExportFilePart -Value $StartTimestamp -Fallback "timestamp"
+    $exportPath = Join-Path $resolvedOutputFolder "tenant_findings_all_$($timestampToken)_$($tenantToken).json"
+
+    $findingsArray = @($SecurityFindings)
+    $plainFindings = @($findingsArray | ForEach-Object { ConvertTo-FindingsExportFinding -Finding $_ })
+    $json = ConvertTo-Json -InputObject $plainFindings -Depth 30
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($exportPath, $json, $utf8NoBom)
+
+    try {
+        return (Resolve-Path -LiteralPath $exportPath).Path
+    } catch {
+        return $exportPath
+    }
+}
+
 function Export-EntraFalconDebugObjectDump {
     [CmdletBinding()]
     param(
@@ -9253,4 +9693,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,start-CleanUp,Format-ReportSection,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,start-CleanUp,Format-ReportSection,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp

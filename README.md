@@ -238,6 +238,7 @@ This also skips the standalone `PIM (Groups)` settings report.
 | **SPPrivateKeyPemPassword** | Password (`SecureString`) for the PEM private key specified by `-SPPrivateKeyPemPath`.                                     | -                                                 |
 | **Csv**                | Enables writing CSV report files in addition to TXT/HTML report files.                                                             | `false`                                           |
 | **ExportCapUncoveredUsers** | For each enabled Conditional Access policy with user targeting, exports a CSV listing users **not** covered by that policy. Files are written to a `ConditionalAccessPolicies_UncoveredUsers` subfolder in the output directory. | `false` |
+| **ExportFindingsJson** | Exports all Security Findings as JSON at the end of the run. | `false` |
 | **DebugObjectDump**    | Exports final in-memory report objects as CLIXML to `Debug_ObjectDump` for troubleshooting and testing. | `false`                                      |
 
 

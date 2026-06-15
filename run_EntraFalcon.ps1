@@ -93,6 +93,10 @@
     Enables CSV report generation for enumeration modules.
     By default, reports are written as HTML and TXT only.
 
+    .PARAMETER ExportFindingsJson
+    Exports the complete Security Findings report as JSON at the end of the run.
+    The output matches the JSON (All) export from the interactive Security Findings report.
+
     .NOTES
     Author: Christian Feuchter, Compass Security Switzerland AG, https://www.compass-security.com/
     Source: https://github.com/CompassSecurity/EntraFalcon 
@@ -145,6 +149,9 @@ Param (
 
     [Parameter(Mandatory=$false)]
     [switch]$ExportCapUncoveredUsers = $false,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$ExportFindingsJson = $false,
 
     [Parameter(Mandatory = $false)]
     [string]$BroCiToken,
@@ -569,6 +576,13 @@ if ($DebugObjectDump) {
     }
 
     Export-EntraFalconDebugObjectDump @debugContext
+}
+
+if ($ExportFindingsJson) {
+    $findingsJsonPath = Export-EntraFalconSecurityFindingsJson -OutputFolder $OutputFolder -StartTimestamp $StartTimestamp -CurrentTenant $CurrentTenant -SecurityFindings $SecurityFindings
+    if (-not [string]::IsNullOrWhiteSpace($findingsJsonPath)) {
+        Write-Host "[+] Security findings JSON exported to $findingsJsonPath"
+    }
 }
 
 # Remove global variables
