@@ -337,6 +337,8 @@ function Invoke-CheckAppRegistrations {
         $AppRolesDetails = @()
         $AppCredentials = @()
         $SPObjectID = @()
+        $RelatedEnterpriseApplicationDetails = @()
+        $RelatedEnterpriseApplicationDisplayName = $null
         $ApiDelegatedCount = 0
         $AppHomePage = $null
         $Listfindings = ""
@@ -695,6 +697,12 @@ function Invoke-CheckAppRegistrations {
             $ImpactScore += $MatchingEnterpriseApp.Data.Impact
             $SPObjectID = $MatchingEnterpriseApp.ObjectId
             $ApiDelegatedCount = $MatchingEnterpriseApp.Data.ApiDelegated
+            $RelatedEnterpriseApplicationDisplayName = $MatchingEnterpriseApp.Data.DisplayName
+            $RelatedEnterpriseApplicationDetails = [pscustomobject]@{
+                DisplayName = "<a href=EnterpriseApps_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($SPObjectID)>$($MatchingEnterpriseApp.Data.DisplayName)</a>"
+                Impact = [math]::Round($MatchingEnterpriseApp.Data.Impact)
+                Warnings = if ([string]::IsNullOrWhiteSpace($MatchingEnterpriseApp.Data.Warnings)) { "-" } else { $MatchingEnterpriseApp.Data.Warnings }
+            }
         }
 
         # Experimental collect app authentication properties after delegated API lookup
@@ -743,6 +751,8 @@ function Invoke-CheckAppRegistrations {
             CreationDate = $item.createdDateTime
             CreationInDays = $CreationInDays
             SPObjectId = $SPObjectID
+            RelatedEnterpriseApplicationDetails = $RelatedEnterpriseApplicationDetails
+            RelatedEnterpriseApplicationDisplayName = $RelatedEnterpriseApplicationDisplayName
             AppRolesDetails = $AppRolesDetails
             AppRoles = ($AppRolesDetails | Measure-Object).Count
             CloudAppAdmins = ($CloudAppAdminCurrentApp | Measure-Object).Count + ($CloudAppAdminTenantDetails | Measure-Object).Count
@@ -799,14 +809,13 @@ function Invoke-CheckAppRegistrations {
             "App Client-ID" = $($item.AppId)
             "App Object-ID" = $($item.Id)
             "CreationDate" = $($item.CreationDate)
-            "Enterprise App Link" = "<a href=EnterpriseApps_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($item.SPObjectId)>$($item.DisplayName)</a>"
             "Enabled" = $($item.Enabled)
             "SignInAudience" = $($item.SignInAudience)
             "RiskScore" = $($item.Risk)
         }
 
         #Build dynamic TXT report property list
-        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","Enabled","SignInAudience","FederatedCreds","RiskScore")
+        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","Enabled","SignInAudience","RiskScore")
 
         if ($null -ne $item.AppHomePage) {
             $ReportingAppRegInfo | Add-Member -NotePropertyName URL -NotePropertyValue $item.AppHomePage
@@ -819,6 +828,20 @@ function Invoke-CheckAppRegistrations {
         }
 
         [void]$DetailTxtBuilder.AppendLine(($ReportingAppRegInfo | select-object $TxtReportProps | Out-String))
+
+        ############### Related Enterprise Application
+        if (($item.RelatedEnterpriseApplicationDetails | Measure-Object).Count -ge 1) {
+            $ReportingRelatedEnterpriseApplication = [pscustomobject]@{
+                DisplayName = $item.RelatedEnterpriseApplicationDisplayName
+                Impact = $item.RelatedEnterpriseApplicationDetails.Impact
+                Warnings = $item.RelatedEnterpriseApplicationDetails.Warnings
+            }
+
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================")
+            [void]$DetailTxtBuilder.AppendLine("Related Enterprise Application")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingRelatedEnterpriseApplication | Format-Table DisplayName,Impact,Warnings | Out-String))
+        }
 
         ############### App Registration Credentials
         if ($($item.AppCredentialsDetails | Measure-Object).count -ge 1) {
@@ -1072,6 +1095,7 @@ function Invoke-CheckAppRegistrations {
             "Object Name"     = $item.DisplayName
             "Object ID"       = $item.Id
             "General Information"    = $ReportingAppRegInfo
+            "Related Enterprise Application" = $item.RelatedEnterpriseApplicationDetails
             "App Credentials"    = $ReportingCredentials
             "Federated Identity Credentials" = $ReportingFederatedCreds
             "App Instance Property Lock (AppLock)"    = $ReportingAppLock
