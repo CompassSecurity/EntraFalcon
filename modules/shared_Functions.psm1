@@ -1448,10 +1448,16 @@ $global:GLOBALJavaScript_Table = @'
                 }
             },
             "RoleAz": {
+                laptop: {
+                    maxWidth: 1600,
+                    columns: [
+                        "Scope", "Role", "RoleTier", "Conditions", "AssignmentType", "ActivatedViaPIM", "PrincipalType", "Principal"
+                    ]
+                },
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "Scope", "Role", "RoleTier", "Conditions", "AssignmentType", "ActivatedViaPIM", "Expires", "PrincipalType", "Principal"
+                        "Scope", "Role", "RoleTier", "AssignmentType", "PrincipalType", "Principal"
                     ]
                 }
             },
