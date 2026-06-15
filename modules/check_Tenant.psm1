@@ -585,7 +585,7 @@ function Invoke-CheckTenant {
     #region Constants And Finding Definitions
     $Title = "SecurityFindings"
     $ReportKey = "SecurityFindings"
-    $ReportName = "Security Findings (BETA)"
+    $ReportName = "Security Findings"
     $ReportId = "SecurityFindings_$StartTimestamp_$($CurrentTenant.DisplayName)"
     $DeviceSettingsRequireMFAJoinKnown = $false
     $DeviceSettingsRequireMFAJoin = $false
