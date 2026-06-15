@@ -3672,48 +3672,29 @@ $global:GLOBALJavaScript_Nav = @'
                 if (!document.getElementById("helpModalOverlay")) {
                     var modalOverlay = document.createElement("div");
                     modalOverlay.id = "helpModalOverlay";
-                    modalOverlay.style.position = "fixed";
-                    modalOverlay.style.top = "0";
-                    modalOverlay.style.left = "0";
-                    modalOverlay.style.width = "100vw";
-                    modalOverlay.style.height = "100vh";
-                    modalOverlay.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
-                    modalOverlay.style.display = "none";
-                    modalOverlay.style.zIndex = "9999";
-                    modalOverlay.style.justifyContent = "center";
-                    modalOverlay.style.alignItems = "center";
+                    modalOverlay.className = "help-modal-overlay";
 
                     var modalContent = document.createElement("div");
                     modalContent.id = "helpModalContent";
-                    modalContent.style.background = "var(--nav-link-bg)";
-                    modalContent.style.color = "var(--nav-link-text)";
-                    modalContent.style.padding = "24px";
-                    modalContent.style.borderRadius = "12px";
-                    modalContent.style.maxWidth = "800px";
-                    modalContent.style.width = "90%";
-                    modalContent.style.boxShadow = "0 8px 16px rgba(0,0,0,0.4)";
-                    modalContent.style.fontSize = "15px";
-                    modalContent.style.lineHeight = "1.6";
-                    modalContent.style.position = "relative";
+                    modalContent.className = "help-modal-content";
 
-                    // Paste your existing help HTML here unchanged:
                     modalContent.innerHTML = `
-                    <h2 style="margin-top: 0;">How to Use This Report</h2>
+                    <h2>How to Use This Report</h2>
                     <strong>General</strong>
-                    <ul style="margin-top: 6px;">
-                        <li>Click the \u2699\uFE0F <strong>Columns</strong> button to show or hide specific columns.
+                    <ul>
+                        <li>Click the \u2699\uFE0F <strong>Columns</strong> button to show or hide specific columns.</li>
                         <li>Click \u{1F4BE} <strong>Export CSV</strong> to download the currently visible data as a CSV file.</li>
                         <li>Click \u{1F441} <strong>Share View</strong> to copy filters, sorting, and column selection as a shareable link.</li>
                         <li>Click \uD83E\uDDF0 <strong>Preset Views</strong> to apply preconfigured filters and column selections.</li>
                         <li>Click \uD83D\uDD01 <strong>Reset View</strong> to reset the view to the default.</li>
                         <li>Click on object names to jump to detailed information, even across reports.<br>
-                        Links look like this: <a href="#" onclick="return false;" style="pointer-events: none;">Example Link</a></li>
+                        Links look like this: <a href="#" class="help-example-link" onclick="return false;">Example Link</a></li>
                         <li>When navigating within the report, use the browser's back button to return.</li>
                         <li>Some table header fields display helper text on mouse hover.</li>
-                        <li>Sort data by clicking any table header.
+                        <li>Sort data by clicking any table header.</li>
                     </ul>
                     <strong>Filtering</strong>
-                    <ul style="margin-top: 6px;">
+                    <ul>
                         <li>If no operator is specified, filtering defaults to <em>contains</em>.</li>
                         <li>Use <code>=</code> for an exact match.</li>
                         <li>Use <code>^</code> for <em>starts with</em> (e.g., <code>^Mallory</code>).</li>
@@ -3727,7 +3708,7 @@ $global:GLOBALJavaScript_Nav = @'
                         <li>The <strong>DisplayName</strong> column includes the object's ID (hidden), allowing filtering by ID.</li>
                     </ul>
                     <strong>Rating</strong>
-                    <ul style="margin-top: 6px;">
+                    <ul>
                         <li><strong>Impact</strong>: Represents the amount or severity of permission the object has.</li>
                         <li><strong>Likelihood</strong>: Represents how easily the object can be influenced or how strongly it is protected.</li>
                         <li><strong>Risk</strong>: Calculated as: <em>Impact x Likelihood = Risk</em>.</li>
@@ -3740,7 +3721,7 @@ $global:GLOBALJavaScript_Nav = @'
                         </li> 
                     </ul>
                     \u{1F4D6} More information in the <a href="https://github.com/CompassSecurity/EntraFalcon">GitHub README</a><br>
-                        <button id="closeHelpModal" style="margin-top: 16px; padding: 6px 12px; font-size: 14px; border-radius: 4px; border: 1px solid #aaa; cursor: pointer;">\u2716 Close</button>
+                    <button id="closeHelpModal" class="help-modal-close" type="button">\u2716 Close</button>
                     `;
 
                     modalOverlay.appendChild(modalContent);
@@ -3748,21 +3729,21 @@ $global:GLOBALJavaScript_Nav = @'
 
                     modalOverlay.addEventListener("click", function (e) {
                         if (e.target === modalOverlay || e.target.id === "closeHelpModal") {
-                            modalOverlay.style.display = "none";
+                            modalOverlay.classList.remove("show");
                         }
                     });
 
                     document.addEventListener("keydown", function (e) {
-                        var isVisible = modalOverlay.style.display === "flex";
+                        var isVisible = modalOverlay.classList.contains("show");
                         if (e.key === "Escape" && isVisible) {
-                            modalOverlay.style.display = "none";
+                            modalOverlay.classList.remove("show");
                         }
                     });
                 }
 
                 helpBtn.addEventListener("click", function () {
                     var overlay = document.getElementById("helpModalOverlay");
-                    if (overlay) overlay.style.display = "flex";
+                    if (overlay) overlay.classList.add("show");
                 });
             }
         }
@@ -4420,6 +4401,67 @@ $global:GLOBALCss = @"
         border-radius: 4px;
         font-family: Consolas, monospace;
         font-size: 90%;
+    }
+
+    .help-modal-overlay {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.6);
+        display: none;
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+        padding: 24px;
+        box-sizing: border-box;
+    }
+
+    .help-modal-overlay.show {
+        display: flex;
+    }
+
+    .help-modal-content {
+        background: var(--nav-link-bg);
+        color: var(--nav-link-text);
+        padding: 24px;
+        border-radius: 12px;
+        max-width: 800px;
+        width: min(90vw, 800px);
+        max-height: calc(100vh - 48px);
+        overflow-y: auto;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+        font-size: 15px;
+        line-height: 1.6;
+        position: relative;
+        box-sizing: border-box;
+    }
+
+    @supports (height: 100dvh) {
+        .help-modal-content {
+            max-height: calc(100dvh - 48px);
+        }
+    }
+
+    .help-modal-content h2 {
+        margin-top: 0;
+    }
+
+    .help-modal-content ul {
+        margin-top: 6px;
+    }
+
+    .help-example-link {
+        pointer-events: none;
+    }
+
+    .help-modal-close {
+        margin-top: 16px;
+        padding: 6px 12px;
+        font-size: 14px;
+        border-radius: 4px;
+        border: 1px solid #aaa;
+        cursor: pointer;
     }
 
     .preset-modal {
