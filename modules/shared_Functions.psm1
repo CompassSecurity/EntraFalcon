@@ -8166,8 +8166,8 @@ function Initialize-TenantReportTabs {
         @{ Prop = 'AgentIdentityBlueprints';   Key = 'AgentIdentityBlueprints'; Title = 'Agent Blueprints'; File = "AgentIdentityBlueprints_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'AgentIdentityBlueprintsPrincipals'; Key = 'AgentIdentityBlueprintsPrincipals'; Title = 'Agent Blueprint Principals'; File = "AgentIdentityBlueprintsPrincipals_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'AgentIdentities';           Key = 'AgentIdentities'; Title = 'Agent Identities';     File = "AgentIdentities_${StartTimestamp}_${tenantNameEscaped}.html" }
-        @{ Prop = 'EntraRoles';                Key = 'RoleEntra';  Title = 'Role Assignments (Entra)';  File = "Role_Assignments_Entra_${StartTimestamp}_${tenantNameEscaped}.html" }
-        @{ Prop = 'AzureRoles';                Key = 'RoleAz';     Title = 'Role Assignments (Azure)';  File = "Role_Assignments_Azure_${StartTimestamp}_${tenantNameEscaped}.html" }
+        @{ Prop = 'EntraRoles';                Key = 'RoleEntra';  Title = 'Roles (Entra)';  File = "Role_Assignments_Entra_${StartTimestamp}_${tenantNameEscaped}.html" }
+        @{ Prop = 'AzureRoles';                Key = 'RoleAz';     Title = 'Roles (Azure)';  File = "Role_Assignments_Azure_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForEntra';               Key = 'PIM';        Title = 'PIM (Entra)';                File = "PIM_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForGroups';              Key = 'PIMGroups';  Title = 'PIM (Groups)';               File = "PIM_Groups_${StartTimestamp}_${tenantNameEscaped}.html" }
     )
