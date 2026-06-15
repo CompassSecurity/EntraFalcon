@@ -5322,6 +5322,53 @@ $global:GLOBALCss = @"
     }
     .section-sep{ display:none; }
 
+    @media (min-width: 901px) and (max-width: 1600px) {
+        .tabstrip-inner {
+            flex-wrap: wrap;
+            align-content: center;
+            gap: 3px;
+            padding: 4px 8px;
+            overflow-x: visible;
+            overflow-y: visible;
+            white-space: normal;
+            scrollbar-width: none;
+        }
+
+        .tabstrip-inner::-webkit-scrollbar {
+            display: none;
+        }
+
+        .report-tab {
+            min-height: 26px;
+            padding: 0 7px;
+            font-size: 11.5px;
+            border-radius: 7px;
+        }
+
+        .section-strip-inner {
+            flex-wrap: wrap;
+            align-content: center;
+            gap: 4px;
+            padding: 4px 8px;
+            overflow-x: visible;
+            overflow-y: visible;
+            white-space: normal;
+            scrollbar-width: none;
+        }
+
+        .section-strip-inner::-webkit-scrollbar {
+            display: none;
+        }
+
+        .section-link {
+            min-height: 22px;
+            padding: 0 7px;
+            font-size: 11px;
+            border-radius: 7px;
+            white-space: nowrap;
+        }
+    }
+
 
     /* Make native form popups prefer the active color scheme */
     body.dark-mode {
