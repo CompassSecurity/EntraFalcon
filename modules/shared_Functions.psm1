@@ -7109,6 +7109,7 @@ $global:GLOBALApiPermissionCategorizationList= @{
     "6e85d483-7092-4375-babe-0a94a8213a58" = "High" #UserAuthMethod-Phone.ReadWrite.All
     "4869299f-18c3-40c8-98f2-222657e67db1" = "High" #UserAuthMethod-QR.ReadWrite.All
     "627169a8-8c15-451c-861a-5b80e383de5c" = "High" #UserAuthMethod-TAP.ReadWrite.All
+    "57f1cf28-c0c4-4ec3-9a30-19a2eaaf2f6e" = "Medium" #BitlockerKey.Read.All
     "741f803b-c850-494e-b5df-cde7c675a1ca" = "Medium" #User.ReadWrite.All
     "18a4783c-866b-4cc7-a460-3d5e5662c884" = "Medium" #Application.ReadWrite.OwnedBy
     "6b7d71aa-70aa-4810-a8d9-5d9fb2830017" = "Medium" #Chat.Read.All

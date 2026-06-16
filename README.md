@@ -468,6 +468,7 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | Calendars.ReadWrite                                         | Medium     | ef54d2bf-783f-4e0f-bca1-3210c0444d99   |
 | Mail.Read                                                   | Medium     | 810c84a8-4a9e-49e6-bf7d-12d183f40d01   |
 | Mail.ReadWrite                                              | Medium     | e2a3a72e-5f79-4c64-b1b1-878b674786c9   |
+| BitlockerKey.Read.All                                       | Medium     | 57f1cf28-c0c4-4ec3-9a30-19a2eaaf2f6e   |
 | Mail.Send                                                   | Medium     | b633e1c5-b582-4048-a93e-9f11b44c7e96   |
 | OnlineMeetings.ReadWrite.All                                | Medium     | b8bb2037-6e08-44ac-a4ea-4674e010e2a4   |
 | CustomSecAttributeAssignment.ReadWrite.All                  | Medium     | de89b5e4-5b8f-48eb-8925-29c2b33bd8bd   |
@@ -518,7 +519,6 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | Files.ReadWrite.All                                  | High     | 863451e7-0667-486c-a5d6-d135439485f0   |
 | DeviceLocalCredential.Read.All                       | High     | 9917900e-410b-4d15-846e-42a357488545   |
 | AdministrativeUnit.ReadWrite.All                     | High     | 7b8a2d34-6b3f-4542-a343-54651608ad81   |
-| Directory.AccessAsUser.All                           | High     | 0e263e50-5827-48a4-b97c-d940288653c7   |
 | User.ReadWrite.All                                   | Medium   | 204e0828-b5ca-4ad8-b9f3-f32a958e7cc4   |
 | Chat.ReadWrite.All                                   | Medium   | 7e9a077b-3711-42b9-b7cb-5fa5f3f7fea7   |
 | Mail.Read                                            | Medium   | 570282fd-fa5c-430d-a7fd-fc8dc98a9dca   |
