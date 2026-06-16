@@ -180,7 +180,7 @@ Param (
 )
 
 #Constants
-$EntraFalconVersion = "V20260608"
+$EntraFalconVersion = "V202606016"
 
 # Import shared functions
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
