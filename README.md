@@ -158,7 +158,7 @@ Example: Obtaining the refresh token from the browser
 
 
 #### Service Principal
-Authenticates as a registered application using the OAuth2 client credentials grant — no user interaction required.  
+Authenticates as a registered application using the OAuth2 client credentials grant — no user interaction required.
 Useful for automated executions.  
 Requires a custom Entra app registration with `Application`-type Graph API permissions (see below).
 
