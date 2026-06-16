@@ -345,8 +345,9 @@ function Invoke-CheckAppRegistrations {
         $DefaultRedirectUri = $item.DefaultRedirectUri
         $IsFallbackPublicClient = $item.isFallbackPublicClient
         $AllowPublicClientflows = $item.web.implicitGrantSettings.enableAccessTokenIssuance
+        $WebImplicitAccessTokenIssuance = $item.Web.implicitGrantSettings.enableAccessTokenIssuance
+        $WebImplicitIdTokenIssuance = $item.Web.implicitGrantSettings.enableIdTokenIssuance
         $SpaRedirectUris = $item.Spa.RedirectUris -join ", "
-        $WebOauth2AllowImplicitFlow = $item.Web.Oauth2AllowImplicitFlow -join ", "
         $WebRedirectUris = $item.Web.RedirectUris -join ", "
         $WindowsRedirectUris = $item.Windows.RedirectUris -join ", "
         $PublicClientRedirectUris = $item.PublicClient.RedirectUris -join ", "
@@ -711,7 +712,8 @@ function Invoke-CheckAppRegistrations {
             ApiDelegated = $ApiDelegatedCount
             IsFallbackPublicClient = $IsFallbackPublicClient
             AllowPublicClientflows = $AllowPublicClientflows
-            WebOauth2AllowImplicitFlow = $WebOauth2AllowImplicitFlow
+            WebImplicitAccessTokenIssuance = $WebImplicitAccessTokenIssuance
+            WebImplicitIdTokenIssuance = $WebImplicitIdTokenIssuance
             DefaultRedirectUri = $DefaultRedirectUri
             PublicClientRedirectUris = $PublicClientRedirectUris
             SpaRedirectUris = $SpaRedirectUris
@@ -1072,7 +1074,7 @@ function Invoke-CheckAppRegistrations {
             }
         }
 
-        ############### AppLock
+        ############### AppRoles
         if ($($item.AppRolesDetails | Measure-Object).count -ge 1) {
             $ReportingAppRoles = foreach ($object in $($item.AppRolesDetails)) {
                 [pscustomobject]@{
