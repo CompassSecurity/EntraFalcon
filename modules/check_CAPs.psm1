@@ -2803,6 +2803,7 @@ $MissingPolicies
         $HtmlSessionControls = @()
         $HtmlGrantControls = @()
         $EffectiveTargeting = @()
+        $EffectiveTargetingNotes = ""
         $MissingRoles = @()
         $ScopedRoles = @()
  
@@ -2837,8 +2838,9 @@ $MissingPolicies
         [void]$DetailTxtBuilder.AppendLine(($ReportingCapInfo | Format-List | Out-String))
 
 
-        if ($policy.EffectiveTargeting.Count -ge 1) {
+        if ($policy.TargetType -eq "Users" -and $policy.EffectiveTargeting.Count -ge 1) {
             $EffectiveTargeting = @($policy.EffectiveTargeting)
+            $EffectiveTargetingNotes = $policy.EffectiveTargetingNotes
             $EffectiveTargetingLayout = Get-CapEffectiveTargetingDetailLayout -EffectiveTargeting $EffectiveTargeting
             [void]$DetailTxtBuilder.AppendLine("Effective Targeting (Users)")
             [void]$DetailTxtBuilder.AppendLine("--------------------------------")
@@ -2850,9 +2852,9 @@ $MissingPolicies
                 [void]$DetailTxtBuilder.AppendLine("Eligible But Not Currently Effective")
                 [void]$DetailTxtBuilder.AppendLine(($EffectiveTargetingLayout.EligibleRows | Format-Table -Property Metric,Included,Excluded | Out-String))
             }
-            if (-not [string]::IsNullOrEmpty($policy.EffectiveTargetingNotes)) {
+            if (-not [string]::IsNullOrEmpty($EffectiveTargetingNotes)) {
                 [void]$DetailTxtBuilder.AppendLine("Notes")
-                foreach ($noteLine in ($policy.EffectiveTargetingNotes -split "`r?`n")) {
+                foreach ($noteLine in ($EffectiveTargetingNotes -split "`r?`n")) {
                     if ([string]::IsNullOrWhiteSpace($noteLine)) { continue }
                     [void]$DetailTxtBuilder.AppendLine($noteLine.Trim())
                 }
@@ -2959,7 +2961,7 @@ $MissingPolicies
             "Object ID"                                 = $item.Id
             "General Information"                       = $ReportingCapInfo
             "Effective Targeting (Users)"               = $EffectiveTargeting
-            "Effective Targeting (Users) Notes"         = $policy.EffectiveTargetingNotes
+            "Effective Targeting (Users) Notes"         = $EffectiveTargetingNotes
             "Missing Roles With Assignments"            = $MissingRoles
             "Targeted Roles With Scoped Assignments"    = $ScopedRoles
             "Conditions"                                = $HtmlConditions
