@@ -68,6 +68,64 @@ function Invoke-CheckCaps {
         return $false
     }
 
+    function Test-CapSelectorHasConfiguredValue {
+        param (
+            [Parameter(Mandatory=$false)]$InputObject,
+            [Parameter(Mandatory=$true)][string]$PropertyName
+        )
+
+        if ($null -eq $InputObject) {
+            return $false
+        }
+
+        $property = $InputObject.PSObject.Properties[$PropertyName]
+        if ($null -eq $property) {
+            return $false
+        }
+
+        foreach ($value in @($property.Value)) {
+            if ($null -eq $value) { continue }
+            $valueString = ([string]$value).Trim()
+            if ([string]::IsNullOrWhiteSpace($valueString)) { continue }
+            if ($valueString -eq "None") { continue }
+            return $true
+        }
+
+        return $false
+    }
+
+    function Get-CapTargetType {
+        param (
+            [Parameter(Mandatory=$true)]$Policy
+        )
+
+        $conditions = $Policy.Conditions
+        $agents = $conditions.Agents
+        $clientApplications = $conditions.ClientApplications
+
+        if (
+            (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName "IncludeAgentUsers") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName "ExcludeAgentUsers") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName "AgentFilter") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "IncludeAgentIdServicePrincipals") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "ExcludeAgentIdServicePrincipals") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $conditions -PropertyName "AgentIdRiskLevels")
+        ) {
+            return "Agents"
+        }
+
+        if (
+            (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "IncludeServicePrincipals") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "ExcludeServicePrincipals") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "ServicePrincipalFilter") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $conditions -PropertyName "ServicePrincipalRiskLevels")
+        ) {
+            return "Workloads"
+        }
+
+        return "Users"
+    }
+        
     # Normalize direct include/exclude user selectors into count and user-id metrics.
     function Get-ExplicitUserMetrics {
         param (
@@ -2562,12 +2620,14 @@ function Invoke-CheckCaps {
             Add-UniqueStringItems -Target $PolicyWarningParts -Items @($combinedAssuranceWarning)
         }
         $WarningPolicy = (Get-DeduplicatedWarningItems -Items @($PolicyWarningParts)) -join " / "
+        $TargetType = Get-CapTargetType -Policy $policy
 
 
         $ConditionalAccessPolicies.Add([PSCustomObject]@{
             Id = $policy.Id
             DisplayName = $policy.DisplayName
             DisplayNameLink = "<a href=#$($policy.id)>$($policy.DisplayName)</a>"
+            TargetType = $TargetType
             Description = $policy.Description
             CreatedDateTime = $policy.CreatedDateTime
             ModifiedDateTime = $policy.ModifiedDateTime
@@ -2734,7 +2794,7 @@ $MissingPolicies
     $DetailTxtBuilder = [System.Text.StringBuilder]::new()
     $AppendixNetworkLocations = ""
     #Define output of the main table
-    $tableOutput = $ConditionalAccessPolicies | select-object DisplayName,DisplayNameLink,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,IncUsersViaGroups,ExcUsers,ExcUsersViaGroups,IncGroups,ExcGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
+    $tableOutput = $ConditionalAccessPolicies | select-object DisplayName,DisplayNameLink,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,IncUsersViaGroups,ExcUsers,ExcUsersViaGroups,IncGroups,ExcGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
 
     #Build the detail section of the report
     foreach ($item in $AllPolicies) {
@@ -2748,9 +2808,12 @@ $MissingPolicies
  
         [void]$DetailTxtBuilder.AppendLine("############################################################################################################################################")
 
+        $policy = $ConditionalAccessPolicies | Where-Object { $item.Id -eq $_.Id }
+
         $ReportingCapInfo = [pscustomobject]@{
             "Policy Name" = $($item.DisplayName)
             "ID" = $($item.Id)
+            "Target Type" = $($policy.TargetType)
             "State" = $($item.State)
         }
         
@@ -2774,7 +2837,6 @@ $MissingPolicies
         [void]$DetailTxtBuilder.AppendLine(($ReportingCapInfo | Format-List | Out-String))
 
 
-        $policy = $ConditionalAccessPolicies | where-object { $item.Id -eq $_.id}
         if ($policy.EffectiveTargeting.Count -ge 1) {
             $EffectiveTargeting = @($policy.EffectiveTargeting)
             $EffectiveTargetingLayout = Get-CapEffectiveTargetingDetailLayout -EffectiveTargeting $EffectiveTargeting
@@ -2913,7 +2975,7 @@ $MissingPolicies
     write-host ""
 
     if ($AllPoliciesCount -gt 0) {
-    $mainTable = $tableOutput | select-object -Property @{Label="DisplayName"; Expression={$_.DisplayNameLink}},UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Label="DisplayName"; Expression={$_.DisplayNameLink}},TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
         $mainTableJson  = $mainTable | ConvertTo-Json -Depth 10 -Compress       
     } else {
         #Define an empty JSON object to make the HTML report loading
@@ -2998,9 +3060,9 @@ $headerHtml = @"
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt"
     if ($AllPoliciesCount -gt 0 -and $Csv) { 
-        $tableOutput | select-object DisplayName,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+        $tableOutput | select-object DisplayName,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
     }
-    $tableOutput | format-table -Property DisplayName,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+    $tableOutput | format-table -Property DisplayName,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Warnings.count -ge 1) {$Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append}
     $DetailOutputTxt | Out-File -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
 
