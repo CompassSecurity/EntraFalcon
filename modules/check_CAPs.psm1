@@ -125,6 +125,78 @@ function Invoke-CheckCaps {
 
         return "Users"
     }
+
+    function Test-CapLegacyGuestsOrExternalUsersSelector {
+        param (
+            [Parameter(Mandatory=$false)][Object[]]$UserIds
+        )
+
+        foreach ($userId in @($UserIds)) {
+            if ($null -eq $userId) { continue }
+            if ("$userId".Trim().Equals("GuestsOrExternalUsers", [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        }
+
+        return $false
+    }
+
+    function Remove-CapLegacyGuestsOrExternalUsersSelector {
+        param (
+            [Parameter(Mandatory=$false)][Object[]]$UserIds
+        )
+
+        return @(
+            foreach ($userId in @($UserIds)) {
+                if ($null -eq $userId) { continue }
+                if ("$userId".Trim().Equals("GuestsOrExternalUsers", [System.StringComparison]::OrdinalIgnoreCase)) {
+                    continue
+                }
+                $userId
+            }
+        )
+    }
+
+    function Get-CapExternalSelector {
+        param (
+            [Parameter(Mandatory=$false)]$StructuredSelector,
+            [Parameter(Mandatory=$false)][Object[]]$UserIds
+        )
+
+        if (-not (Test-CapLegacyGuestsOrExternalUsersSelector -UserIds $UserIds)) {
+            return $StructuredSelector
+        }
+
+        $legacyExternalUserTypes = "internalGuest,b2bCollaborationGuest,b2bCollaborationMember,b2bDirectConnectUser,otherExternalUser,serviceProvider"
+        $existingExternalUserTypes = ""
+        $externalTenants = $null
+
+        if ($null -ne $StructuredSelector) {
+            if ($StructuredSelector.PSObject.Properties.Name -contains 'GuestOrExternalUserTypes') {
+                $existingExternalUserTypes = [string]$StructuredSelector.GuestOrExternalUserTypes
+            }
+            if ($StructuredSelector.PSObject.Properties.Name -contains 'ExternalTenants') {
+                $externalTenants = $StructuredSelector.ExternalTenants
+            }
+        }
+
+        $externalUserTypes = @(
+            ($existingExternalUserTypes, $legacyExternalUserTypes -join ",") -split "," |
+            ForEach-Object { "$_".Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique
+        )
+
+        $selector = [ordered]@{
+            GuestOrExternalUserTypes = ($externalUserTypes -join ",")
+            LegacyGuestsOrExternalUsersSelector = $true
+        }
+        if ($null -ne $externalTenants) {
+            $selector.ExternalTenants = $externalTenants
+        }
+
+        return [pscustomobject]$selector
+    }
         
     # Normalize direct include/exclude user selectors into count and user-id metrics.
     function Get-ExplicitUserMetrics {
@@ -361,6 +433,7 @@ function Invoke-CheckCaps {
 
         $guestOrExternalUserTypes = ""
         $externalTenants = $null
+        $legacyGuestsOrExternalUsersSelector = $false
 
         if ($null -ne $ExternalSelector) {
             if ($ExternalSelector.PSObject.Properties.Name -contains 'GuestOrExternalUserTypes') {
@@ -368,6 +441,9 @@ function Invoke-CheckCaps {
             }
             if ($ExternalSelector.PSObject.Properties.Name -contains 'ExternalTenants') {
                 $externalTenants = $ExternalSelector.ExternalTenants
+            }
+            if ($ExternalSelector.PSObject.Properties.Name -contains 'LegacyGuestsOrExternalUsersSelector') {
+                $legacyGuestsOrExternalUsersSelector = [bool]$ExternalSelector.LegacyGuestsOrExternalUsersSelector
             }
         }
 
@@ -403,6 +479,7 @@ function Invoke-CheckCaps {
             TenantMembers              = $tenantMembers
             TenantMembersCount         = $tenantMembers.Count
             HasEnumeratedTenants       = $hasEnumeratedTenants
+            IsLegacyGuestsOrExternalUsersSelector = $legacyGuestsOrExternalUsersSelector
             RequiresVisualApproximation = (($unknownTypes.Count -gt 0) -or $hasEnumeratedTenants)
         }
     }
@@ -1660,17 +1737,22 @@ function Invoke-CheckCaps {
         ###################### Handling special Values like "All" etc.
         if ($policy.State -eq "enabledForReportingButNotEnforced") {$policy.State = "report-only"}
 
-        if ($policy.Conditions.Users.IncludeUsers -contains "All") {
+        $NormalizedIncludeUsers = Remove-CapLegacyGuestsOrExternalUsersSelector -UserIds $policy.Conditions.Users.IncludeUsers
+        $NormalizedExcludeUsers = Remove-CapLegacyGuestsOrExternalUsersSelector -UserIds $policy.Conditions.Users.ExcludeUsers
+        $IncludedExternalSelector = Get-CapExternalSelector -StructuredSelector $policy.Conditions.Users.IncludeGuestsOrExternalUsers -UserIds $policy.Conditions.Users.IncludeUsers
+        $ExcludedExternalSelector = Get-CapExternalSelector -StructuredSelector $policy.Conditions.Users.ExcludeGuestsOrExternalUsers -UserIds $policy.Conditions.Users.ExcludeUsers
+
+        if ($NormalizedIncludeUsers -contains "All") {
             $IncludedUserCount = "All"
         } else {
-            $IncludedUserCount = $policy.Conditions.Users.IncludeUsers.count
+            $IncludedUserCount = $NormalizedIncludeUsers.Count
         }
-        if ($policy.Conditions.Users.IncludeUsers -contains "None") {
+        if ($NormalizedIncludeUsers -contains "None") {
             $IncludedUserCount = 0
         }
 
-        $IncludedDirectUserMetrics = Get-ExplicitUserMetrics -UserIds $policy.Conditions.Users.IncludeUsers
-        $ExcludedDirectUserMetrics = Get-ExplicitUserMetrics -UserIds $policy.Conditions.Users.ExcludeUsers
+        $IncludedDirectUserMetrics = Get-ExplicitUserMetrics -UserIds $NormalizedIncludeUsers
+        $ExcludedDirectUserMetrics = Get-ExplicitUserMetrics -UserIds $NormalizedExcludeUsers
         $IncludedGroupUserMetrics = Get-UsersThroughGroupsMetrics -GroupIds $policy.Conditions.Users.IncludeGroups
         $ExcludedGroupUserMetrics = Get-UsersThroughGroupsMetrics -GroupIds $policy.Conditions.Users.ExcludeGroups
         $IncludedRoleUserMetrics = Get-UsersThroughRolesMetrics -RoleIds $policy.Conditions.Users.IncludeRoles -RoleUsersLookup $ActiveRoleUsersImpactLookup
@@ -1704,8 +1786,8 @@ function Invoke-CheckCaps {
         # External-user selectors are category-based. Only b2bCollaborationGuest is approximated
         # by matching already-loaded guest users in the tenant. Some external-user types and
         # tenant-specific selections cannot be resolved to concrete users and are only marked visually.
-        $IncludedExternalTargetingResolution = Get-ExternalTargetingResolution -ExternalSelector $policy.Conditions.Users.IncludeGuestsOrExternalUsers
-        $ExcludedExternalTargetingResolution = Get-ExternalTargetingResolution -ExternalSelector $policy.Conditions.Users.ExcludeGuestsOrExternalUsers
+        $IncludedExternalTargetingResolution = Get-ExternalTargetingResolution -ExternalSelector $IncludedExternalSelector
+        $ExcludedExternalTargetingResolution = Get-ExternalTargetingResolution -ExternalSelector $ExcludedExternalSelector
 
         $IncludedExternalUsers = $IncludedExternalTargetingResolution.GuestOrExternalUserTypes
         if ([string]::IsNullOrEmpty($IncludedExternalUsers)) {
@@ -1768,6 +1850,9 @@ function Invoke-CheckCaps {
         }
         if ($IncludedExternalTargetingResolution.HasEnumeratedTenants -or $ExcludedExternalTargetingResolution.HasEnumeratedTenants) {
             [void]$EffectiveTargetingNotesList.Add("Approximate count: external-tenant selections with membershipKind 'enumerated' cannot be resolved to concrete guest users.")
+        }
+        if ($IncludedExternalTargetingResolution.IsLegacyGuestsOrExternalUsersSelector -or $ExcludedExternalTargetingResolution.IsLegacyGuestsOrExternalUsersSelector) {
+            [void]$EffectiveTargetingNotesList.Add("Legacy selector GuestsOrExternalUsers was normalized to the structured external-user categories for coverage calculations.")
         }
         if ($IncPotentialUsersViaGroups -gt 0 -or $ExcPotentialUsersViaGroups -gt 0) {
             [void]$EffectiveTargetingNotesList.Add("PotentialUsersViaGroups are eligible users to targeted groups and are not included in EffectiveUsers or UserCoverage.")
@@ -1892,7 +1977,7 @@ function Invoke-CheckCaps {
         $UncoveredUsers = [Math]::Max(($TotalUsersCount - $NetEffectiveUsers), 0)
         $TotalDisplayApproximate = ($IncludedDisplayApproximate -or $ExcludedDisplayApproximate -or $NetEffectiveUsersRequiresApproximation)
         $UserCoverageDisplay = Format-ApproximateDisplayValue -Value $UserCoverage -Approximate $TotalDisplayApproximate
-        Write-Log -Level Debug -Message "CAP targeting summary for '$($policy.DisplayName)' [$($policy.Id)]: Included(direct=$IncludedUserCount, groups=$IncUsersViaGroups, roles=$IncUsersViaRoles, externalUsers=$IncUsersViaExternalCategories, effective=$IncludedEffectiveUsersCount) Excluded(direct=$($policy.Conditions.Users.ExcludeUsers.Count), groups=$ExcUsersViaGroups, roles=$ExcUsersViaRoles, externalUsers=$ExcUsersViaExternalCategories, effective=$ExcludedEffectiveUsersCount) NetEffective=$NetEffectiveUsers Uncovered=$UncoveredUsers UserCoverage=$UserCoverageValue Potential(groups=$IncPotentialUsersViaGroups/$ExcPotentialUsersViaGroups, roles=$IncPotentialUsersViaRoles/$ExcPotentialUsersViaRoles)"
+        Write-Log -Level Debug -Message "CAP targeting summary for '$($policy.DisplayName)' [$($policy.Id)]: Included(direct=$IncludedUserCount, groups=$IncUsersViaGroups, roles=$IncUsersViaRoles, externalUsers=$IncUsersViaExternalCategories, effective=$IncludedEffectiveUsersCount) Excluded(direct=$($NormalizedExcludeUsers.Count), groups=$ExcUsersViaGroups, roles=$ExcUsersViaRoles, externalUsers=$ExcUsersViaExternalCategories, effective=$ExcludedEffectiveUsersCount) NetEffective=$NetEffectiveUsers Uncovered=$UncoveredUsers UserCoverage=$UserCoverageValue Potential(groups=$IncPotentialUsersViaGroups/$ExcPotentialUsersViaGroups, roles=$IncPotentialUsersViaRoles/$ExcPotentialUsersViaRoles)"
         $EffectiveTargeting += [pscustomobject]@{
             Scope             = "Total"
             DirectUsers       = "-"
@@ -2641,7 +2726,7 @@ function Invoke-CheckCaps {
             IncPotentialUsersViaRoles = $IncPotentialUsersViaRoles
             IncUsersViaExternalCategories = $IncUsersViaExternalCategories
             IncExternals = $IncludedExternalUsersCount
-            ExcUsers = $policy.Conditions.Users.ExcludeUsers.count
+            ExcUsers = $NormalizedExcludeUsers.Count
             ExcUsersViaGroups = $ExcUsersViaGroups
             ExcPotentialUsersViaGroups = $ExcPotentialUsersViaGroups
             ExcGroups = $policy.Conditions.Users.ExcludeGroups.count
