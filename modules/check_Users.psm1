@@ -223,12 +223,12 @@ function Invoke-CheckUsers {
     write-host "[*] Get all users"
     if ($PermissionUserSignInActivity) {
         $QueryParameters = @{
-            '$select' = "Id,DisplayName,UserPrincipalName,AccountEnabled,UserType,AssignedLicenses,OtherMails,OnPremisesSyncEnabled,SignInActivity,CreatedDateTime,JobTitle,Department,perUserMfaState"
+            '$select' = "Id,DisplayName,UserPrincipalName,AccountEnabled,UserType,AssignedLicenses,OtherMails,OnPremisesSyncEnabled,OnPremisesSamAccountName,SignInActivity,CreatedDateTime,JobTitle,Department,perUserMfaState"
             '$top' = $ApiTop
         }
     } else {
         $QueryParameters = @{
-            '$select' = "Id,DisplayName,UserPrincipalName,AccountEnabled,UserType,AssignedLicenses,OtherMails,OnPremisesSyncEnabled,CreatedDateTime,JobTitle,Department,perUserMfaState"
+            '$select' = "Id,DisplayName,UserPrincipalName,AccountEnabled,UserType,AssignedLicenses,OtherMails,OnPremisesSyncEnabled,OnPremisesSamAccountName,CreatedDateTime,JobTitle,Department,perUserMfaState"
             '$top' = $ApiTop
         } 
     }
@@ -1060,6 +1060,8 @@ function Invoke-CheckUsers {
         }
         
         
+        $OnPremisesSamAccountName = if ([string]::IsNullOrWhiteSpace($item.OnPremisesSamAccountName)) { "-" } else { $item.OnPremisesSamAccountName }
+
         #Calc risk
         $Risk = [math]::Round(($Impact * $Likelihood))
 
@@ -1075,6 +1077,7 @@ function Invoke-CheckUsers {
             Licenses = $($item.AssignedLicenses).count
             LicenseStatus = $LicenseStatus
             OnPrem = $OnPrem
+            OnPremisesSamAccountName = $OnPremisesSamAccountName
             Department = $item.Department
             JobTitle = $item.JobTitle
             OtherMails = $item.OtherMails
@@ -1489,6 +1492,10 @@ function Write-EntraFalconUsersReport {
         }
         if ("$($item.ForeignAgent)" -ne "-") {
             $ReportingUserInfo | Add-Member -NotePropertyName "Foreign Agent" -NotePropertyValue $item.ForeignAgent
+        }
+        $hasOnPremName = -not [string]::IsNullOrWhiteSpace($item.OnPremisesSamAccountName) -and "$($item.OnPremisesSamAccountName)" -ne "-"
+        if ($item.OnPrem -eq $true -or $hasOnPremName) {
+            $ReportingUserInfo | Add-Member -NotePropertyName "On-Prem Name" -NotePropertyValue $item.OnPremisesSamAccountName
         }
         #Add sign-in info to the list if it's not shown in a dedicated table
         if ($null -ne $item.Department) {
