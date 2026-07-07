@@ -3895,6 +3895,7 @@ $global:GLOBALJavaScript_Nav = @'
                         <li>When navigating within the report, use the browser's back button to return.</li>
                         <li>Some table header fields display helper text on mouse hover.</li>
                         <li>Sort data by clicking any table header.</li>
+                        <li>Alt+click a main table column header to quickly hide that column.</li>
                     </ul>
                     <strong>Filtering</strong>
                     <ul>
