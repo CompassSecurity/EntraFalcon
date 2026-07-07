@@ -1823,81 +1823,136 @@ $global:GLOBALJavaScript_Table = @'
 
 
             const columnSelector = document.createElement("div");
-            const exportBtn = document.createElement("button");
+            const exportSelector = document.createElement("div");
             const infoBox = document.createElement("div");
 
-            exportBtn.textContent = "\u{1F4BE} Export CSV";
-            exportBtn.style.margin = "10px 0";
             infoBox.style.margin = "10px 0";
 
-            exportBtn.onclick = () => {
-            const csvRows = [];
-            const visibleColumns = getVisibleColumns();
-            const special = isRoleAssignmentsReport(window.__reportManifest);
+            function getExportBaseName() {
+                return decodeURIComponent(window.location.pathname
+                    .split("/")
+                    .pop()
+                    .replace(/\.[^/.]+$/, "")) || "export";
+            }
 
-            // ---------------------------
-            // RoleAssignmentReports: just visible columns
-            // ---------------------------
-            if (special) {
-                csvRows.push(visibleColumns.join(","));
+            function escapeDelimitedValue(value, delimiter, forceQuote) {
+                let text = String(value ?? "");
+                if (delimiter === "\t") {
+                    text = text.replace(/\t/g, " ");
+                }
 
-                filteredData.forEach(row => {
-                const line = [];
+                if (forceQuote || text.includes('"') || text.includes("\r") || text.includes("\n") || text.includes(delimiter)) {
+                    return `"${text.replace(/"/g, '""')}"`;
+                }
 
-                visibleColumns.forEach(col => {
-                    let val = row[col];
+                return text;
+            }
 
-                    // Make Principal human-readable
-                    if (col.toLowerCase() === "principal") {
-                    val = stripHtmlToText(val);
-                    }
+            function toDelimitedText(headers, rows, delimiter, quoteAllValues) {
+                const lines = [
+                    headers.map(value => escapeDelimitedValue(value, delimiter, false)).join(delimiter)
+                ];
 
-                    line.push(`"${String(val ?? "").replace(/"/g, '""')}"`);
+                rows.forEach(row => {
+                    lines.push(headers.map(header => escapeDelimitedValue(row[header], delimiter, quoteAllValues)).join(delimiter));
                 });
 
-                csvRows.push(line.join(","));
+                return lines.join("\n");
+            }
+
+            function downloadText(content, fileName, mimeType) {
+                const blob = new Blob([content], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = fileName;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+
+            function copyTextToClipboard(content, successMessage) {
+                navigator.clipboard.writeText(content).then(() => {
+                    showToast(successMessage);
+                }).catch(err => {
+                    console.error("Clipboard write failed", err);
+                    showToast("\u{26A0} Failed to copy to clipboard", 4000);
                 });
             }
-            // ---------------------------
-            // NORMAL REPORTS: add ID + DisplayName from FIRST COLUMN LINK
-            // ---------------------------
-            else {
+
+            function getDownloadTableData() {
+                const visibleColumns = getVisibleColumns();
+                const special = isRoleAssignmentsReport(window.__reportManifest);
+
+                if (special) {
+                    return {
+                        headers: visibleColumns,
+                        rows: filteredData.map(row => {
+                            const output = {};
+                            visibleColumns.forEach(col => {
+                                const val = col.toLowerCase() === "principal" ? stripHtmlToText(row[col]) : row[col];
+                                output[col] = val ?? "";
+                            });
+                            return output;
+                        })
+                    };
+                }
+
                 const linkColumn = columns[0];
                 const restVisible = visibleColumns.filter(c => c !== linkColumn);
+                const headers = ["ID", "DisplayName", ...restVisible];
 
-                csvRows.push(["ID", "DisplayName", ...restVisible].join(","));
-
-                filteredData.forEach(row => {
-                const line = [];
-
-                const { id, text } = extractAnchorIdAndText(row[linkColumn]);
-                line.push(`"${String(id).replace(/"/g, '""')}"`);
-                line.push(`"${String(text).replace(/"/g, '""')}"`);
-
-                restVisible.forEach(col => {
-                    const val = row[col];
-                    line.push(`"${String(val ?? "").replace(/"/g, '""')}"`);
-                });
-
-                csvRows.push(line.join(","));
-                });
+                return {
+                    headers: headers,
+                    rows: filteredData.map(row => {
+                        const output = {};
+                        const link = extractAnchorIdAndText(row[linkColumn]);
+                        output.ID = link.id;
+                        output.DisplayName = link.text;
+                        restVisible.forEach(col => {
+                            output[col] = row[col] ?? "";
+                        });
+                        return output;
+                    })
+                };
             }
 
-            // download
-            const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
+            function getClipboardTableData() {
+                const visibleColumns = getVisibleColumns();
+                return {
+                    headers: visibleColumns,
+                    rows: filteredData.map(row => {
+                        const output = {};
+                        visibleColumns.forEach(col => {
+                            output[col] = stripHtmlToText(row[col]);
+                        });
+                        return output;
+                    })
+                };
+            }
 
-            const baseName = decodeURIComponent(window.location.pathname
-                .split("/")
-                .pop()
-                .replace(/\.[^/.]+$/, "")) || "export";
+            function downloadCsv() {
+                const tableData = getDownloadTableData();
+                const csv = toDelimitedText(tableData.headers, tableData.rows, ",", true);
+                downloadText(csv, `${getExportBaseName()}_table_export.csv`, "text/csv;charset=utf-8");
+                showToast("CSV downloaded");
+            }
 
-            a.download = `${baseName}_table_export.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            };
+            function downloadJson() {
+                const tableData = getDownloadTableData();
+                const json = JSON.stringify(tableData.rows, null, 2);
+                downloadText(json, `${getExportBaseName()}_table_export.json`, "application/json;charset=utf-8");
+                showToast("JSON downloaded");
+            }
+
+            function copyDelimited(delimiter, successMessage, quoteAllValues) {
+                const tableData = getClipboardTableData();
+                copyTextToClipboard(toDelimitedText(tableData.headers, tableData.rows, delimiter, quoteAllValues), successMessage);
+            }
+
+            function copyJson() {
+                const tableData = getClipboardTableData();
+                copyTextToClipboard(JSON.stringify(tableData.rows, null, 2), "JSON copied");
+            }
 
 
 
@@ -2105,6 +2160,56 @@ $global:GLOBALJavaScript_Table = @'
             });
         }
 
+        function createExportMenu() {
+            const wrapperDiv = document.createElement("div");
+            wrapperDiv.className = "export-menu-wrapper";
+
+            const toggleButton = document.createElement("button");
+            toggleButton.type = "button";
+            toggleButton.className = "export-menu-button";
+            toggleButton.textContent = "\u{1F4BE} Export \u25BC";
+            toggleButton.title = "Download or copy filtered rows using the currently visible columns.";
+            wrapperDiv.appendChild(toggleButton);
+
+            const menu = document.createElement("div");
+            menu.className = "export-menu";
+
+            const actions = [
+                { label: "Download CSV", handler: downloadCsv },
+                { label: "Download JSON", handler: downloadJson },
+                { label: "Copy CSV", handler: () => copyDelimited(",", "CSV copied", true) },
+                { label: "Copy TSV", handler: () => copyDelimited("\t", "TSV copied", false) },
+                { label: "Copy JSON", handler: copyJson }
+            ];
+
+            actions.forEach(action => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = action.label;
+                button.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    wrapperDiv.classList.remove("show");
+                    action.handler();
+                });
+                menu.appendChild(button);
+            });
+
+            wrapperDiv.appendChild(menu);
+            exportSelector.innerHTML = "";
+            exportSelector.appendChild(wrapperDiv);
+
+            toggleButton.addEventListener("click", (event) => {
+                event.stopPropagation();
+                wrapperDiv.classList.toggle("show");
+            });
+
+            document.addEventListener("click", (event) => {
+                if (!wrapperDiv.contains(event.target)) {
+                    wrapperDiv.classList.remove("show");
+                }
+            });
+        }
+
         // Top toolbar
         function createToolbar() {
             const toolbar = document.createElement("div");
@@ -2125,8 +2230,8 @@ $global:GLOBALJavaScript_Table = @'
             columnWrapper.appendChild(columnSelector);
             leftSection.appendChild(columnWrapper);
 
-            // Export button
-            leftSection.appendChild(exportBtn);
+            // Export menu
+            leftSection.appendChild(exportSelector);
             const shareBtn = document.createElement("button");
             shareBtn.textContent = "\u{1F441} Share View";
             shareBtn.style.margin = "10px 0px";
@@ -2730,6 +2835,7 @@ $global:GLOBALJavaScript_Table = @'
  
         // Init
         createColumnSelector();
+        createExportMenu();
         createToolbar();
         createPresetFilterModal(manifest);
 
@@ -3886,7 +3992,7 @@ $global:GLOBALJavaScript_Nav = @'
                     <strong>General</strong>
                     <ul>
                         <li>Click the \u2699\uFE0F <strong>Columns</strong> button to show or hide specific columns.</li>
-                        <li>Click \u{1F4BE} <strong>Export CSV</strong> to download the currently visible data as a CSV file.</li>
+                        <li>Click \u{1F4BE} <strong>Export</strong> to download CSV/JSON or copy CSV/TSV/JSON the currently visible data.</li>
                         <li>Click \u{1F441} <strong>Share View</strong> to copy filters, sorting, and column selection as a shareable link.</li>
                         <li>Click \uD83E\uDDF0 <strong>Preset Views</strong> to apply preconfigured filters and column selections.</li>
                         <li>Click \uD83D\uDD01 <strong>Reset View</strong> to reset the view to the default.</li>
@@ -4402,20 +4508,23 @@ $global:GLOBALCss = @"
         white-space: nowrap;
         margin-left: auto;
     }
-    .column-toggle-wrapper {
+    .column-toggle-wrapper,
+    .export-menu-wrapper {
         position: relative;
         display: inline-block;
         margin: 0;
     }
 
-    .column-toggle-button {
+    .column-toggle-button,
+    .export-menu-button {
         padding: 6px 10px;
         font-size: 14px;
         cursor: pointer;
         border-radius: 4px;
     }
 
-    .column-toggle-menu {
+    .column-toggle-menu,
+    .export-menu {
         display: none;
         position: absolute;
         top: 110%;
@@ -4427,7 +4536,8 @@ $global:GLOBALCss = @"
         min-width: 150px;
     }
 
-    .column-toggle-wrapper.show .column-toggle-menu {
+    .column-toggle-wrapper.show .column-toggle-menu,
+    .export-menu-wrapper.show .export-menu {
         display: block;
     }
 
@@ -4436,6 +4546,19 @@ $global:GLOBALCss = @"
         white-space: nowrap;
         margin: 4px 0;
         font-size: 13px;
+    }
+
+    .export-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        white-space: nowrap;
+        margin: 0;
+        border-radius: 4px;
+    }
+
+    .export-menu button + button {
+        margin-top: 4px;
     }
 
     details {
@@ -4820,20 +4943,24 @@ $global:GLOBALCss = @"
         text-decoration: underline;
     }
 
-    body.dark-mode .column-toggle-button {
+    body.dark-mode .column-toggle-button,
+    body.dark-mode .export-menu-button {
         background-color: #2a2a2a;
         color: #e0e0e0;
         border-color: #555;
     }
 
-    body.dark-mode .column-toggle-menu {
+    body.dark-mode .column-toggle-menu,
+    body.dark-mode .export-menu {
         background: #1e1e1e;
         color: #e0e0e0;
         border: 1px solid #555;
         box-shadow: 0 2px 8px rgba(255, 255, 255, 0.05);
     }
 
-    body.dark-mode .column-toggle-button:hover {
+    body.dark-mode .column-toggle-button:hover,
+    body.dark-mode .export-menu-button:hover,
+    body.dark-mode .export-menu button:hover {
         background-color: #3a3a3a;
     }
 
@@ -5016,11 +5143,14 @@ $global:GLOBALCss = @"
         border-color: #ccc;
     }
 
-    body.light-mode .column-toggle-button:hover {
+    body.light-mode .column-toggle-button:hover,
+    body.light-mode .export-menu-button:hover,
+    body.light-mode .export-menu button:hover {
         background-color: #e0e0e0;
     }
 
-    body.light-mode .column-toggle-menu {
+    body.light-mode .column-toggle-menu,
+    body.light-mode .export-menu {
         background: #fff;
         color: #000;
         border: 1px solid #ccc;

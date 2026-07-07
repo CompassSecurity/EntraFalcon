@@ -294,7 +294,7 @@ This also skips the standalone `PIM for Groups` settings report.
 
 ### **General**
 - Click the ⚙️ **Columns** button to show or hide specific columns.
-- Click 💾 **Export CSV** to download the currently visible data as a CSV file.
+- Click 💾 **Export** to download CSV/JSON or copy CSV/TSV/JSON the currently visible data.
 - Click 👁 **Share View** to copy filters, sorting, and column selection as a shareable link.
 - Click 🧰 **Preset Views** to apply preconfigured filters and column selections.
 - Click 🔄 **Reset View** to reset the view to the default.
