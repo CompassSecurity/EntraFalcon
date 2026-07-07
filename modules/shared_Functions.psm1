@@ -2263,9 +2263,28 @@ $global:GLOBALJavaScript_Table = @'
             html += '</tbody></table>';
             wrapper.innerHTML = html;
 
-            // Sorting
+            // Sorting and quick column hiding
             container.querySelectorAll("thead tr:first-child th").forEach(th => {
-                th.onclick = () => {
+                th.addEventListener("click", (event) => {
+                    if (event.altKey) {
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        const col = th.getAttribute("data-col");
+                        if (!col) return;
+
+                        if (getVisibleColumns().length <= 1) {
+                            showToast("Cannot hide the last visible column", 3000);
+                            return;
+                        }
+
+                        hiddenColumns.add(col);
+                        createColumnSelector();
+                        renderTable();
+                        showToast(`Column hidden: ${col}`, 2000);
+                        return;
+                    }
+
                     const col = th.getAttribute("data-col");
                     if (currentSort.column === col) {
                         currentSort.asc = !currentSort.asc;
@@ -2275,7 +2294,7 @@ $global:GLOBALJavaScript_Table = @'
                     }
                     sortData();
                     renderTable();
-                };
+                });
             });
 
             // Copy column buttons

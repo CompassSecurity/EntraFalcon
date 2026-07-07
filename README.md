@@ -302,6 +302,7 @@ This also skips the standalone `PIM for Groups` settings report.
 - When using internal navigation, press the browser’s back button to return.
 - Some table header fields display helper text on mouse hover.
 - Sort data by clicking a table header.
+- Alt+click a main table column header to quickly hide that column.
 
 ### **Filtering**
 - If no operator is specified, filtering defaults to *contains*.
