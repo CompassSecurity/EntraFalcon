@@ -32,6 +32,16 @@ function Invoke-CheckAgentsFinalize {
         return ($parts -join ' / ')
     }
 
+    function ConvertTo-AgentReportPlainText {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return "" }
+        $text = [string]$Value
+        if ([string]::IsNullOrWhiteSpace($text)) { return "" }
+        $text = [regex]::Replace($text, '<[^>]+>', '')
+        return [System.Net.WebUtility]::HtmlDecode($text)
+    }
+
     function Get-AgentUserLookup {
         param([hashtable]$Users)
 
@@ -1497,8 +1507,18 @@ Execution Warnings = $($WarningList -join ' / ')
             [void]$AgentIdentityTxt.AppendLine(($ReportingEffectiveAppPermissions | Format-Table -Wrap | Out-String -Width 320))
         }
         if (($ReportingEffectiveDelegatedPermissions | Measure-Object).Count -ge 1) {
+            $ReportingEffectiveDelegatedPermissionsTxt = @($ReportingEffectiveDelegatedPermissions | ForEach-Object {
+                [pscustomobject]@{
+                    ApiName     = $_.ApiName
+                    Permission  = $_.Permission
+                    Category    = $_.Category
+                    ConsentType = $_.ConsentType
+                    Principal   = ConvertTo-AgentReportPlainText $_.Principal
+                    Source      = $_.Source
+                }
+            })
             [void]$AgentIdentityTxt.AppendLine("Effective Delegated API Permissions")
-            [void]$AgentIdentityTxt.AppendLine(($ReportingEffectiveDelegatedPermissions | Select-Object ApiName,Permission,Category,ConsentType,Principal,Source | Format-Table -Wrap | Out-String -Width 320))
+            [void]$AgentIdentityTxt.AppendLine(($ReportingEffectiveDelegatedPermissionsTxt | Format-Table -Wrap | Out-String -Width 320))
         }
         Add-ObjectDetails -Collection $AgentIdentityDetails -ObjectName $item.DisplayName -ObjectId $item.Id -Sections ([ordered]@{
             "General Information" = [pscustomobject]@{
