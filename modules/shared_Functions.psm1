@@ -556,6 +556,140 @@ $global:GLOBALJavaScript_Table = @'
                     sort: { column: "Risk", direction: "desc" }
                 }
             ],
+            "Access Packages": [
+                {
+                    id: "PVAP-001",
+                    group: "Privileges",
+                    description: "Access package policies granting Tier-0 or Tier-1 resources",
+                    label: "Tier-0/1 Policies",
+                    filters: {
+                        EntraMaxTier: "or_Tier-0||Tier-1",
+                        AzureMaxTier: "or_Tier-0||Tier-1"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AllowedTargetScope", "SelfAdd", "OnBehalfAdd", "Approval", "Expiration", "AccessReview", "Impact", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-002",
+                    group: "Policy",
+                    description: "High-impact policies with broad self-request and no approval",
+                    label: "Broad Self-Add No Approval",
+                    filters: {
+                        BroadScope: "=true",
+                        SelfAdd: "=true",
+                        Approval: "=false",
+                        Impact: ">99"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AllowedTargetScope", "BroadScope", "SelfAdd", "Approval", "Expiration", "AccessReview", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-003",
+                    group: "Policy",
+                    description: "High-impact policies with dangerous auto-assignment rules",
+                    label: "Dangerous Auto-Assignment Rules",
+                    filters: {
+                        Warnings: "Dangerous auto-assignment rule",
+                        Impact: ">99"
+                    },
+                    columns: ["Policy", "Package", "AutoAssignment", "Resources", "EntraMaxTier", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-004",
+                    group: "Policy",
+                    description: "High-impact policies allowing broad non-user on-behalf assignment without approval",
+                    label: "Broad Non-User On-Behalf No Approval",
+                    filters: {
+                        OnBehalfAdd: "=true",
+                        Approval: "=false",
+                        AllowedTargetScope: "All Service Principals||All Agent Identities",
+                        Impact: ">99"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AllowedTargetScope", "OnBehalfAdd", "Approval", "Expiration", "AccessReview", "Assignments", "ServicePrincipals", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-005",
+                    group: "Assignments",
+                    description: "Policies with service principal assignments",
+                    label: "Service Principal Assignments",
+                    filters: {
+                        ServicePrincipals: ">0"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "ServicePrincipals", "Impact", "Risk", "Warnings"],
+                    sort: { column: "ServicePrincipals", direction: "desc" }
+                },
+                {
+                    id: "PVAP-006",
+                    group: "Assignments",
+                    description: "Policies with at least one assignment",
+                    label: "Policies With Assignments",
+                    filters: {
+                        Assignments: ">0"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "Users", "Guests", "ServicePrincipals", "Impact", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-007",
+                    group: "Controls",
+                    description: "High-impact policies without meaningful expiration or access reviews",
+                    label: "Persistent Access Without Review",
+                    filters: {
+                        Expiration: "=false",
+                        AccessReview: "=false",
+                        Impact: ">99"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "Expiration", "ExpirationDetails", "AccessReview", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-008",
+                    group: "Configuration",
+                    description: "Hidden access packages",
+                    label: "Hidden Packages",
+                    filters: {
+                        Hidden: "=true"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "Hidden", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "Impact", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-009",
+                    group: "Policy",
+                    description: "High-impact self-request policies without approval that target unprotected groups",
+                    label: "Unprotected Group Self-Request",
+                    filters: {
+                        Warnings: "Unprotected group can self-request without approval"
+                    },
+                    columns: ["Policy", "Package", "AllowedTargetScope", "SelfAdd", "Approval", "SpecificTargets", "Groups", "EntraMaxTier", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-010",
+                    group: "Policy",
+                    description: "Policies with explicit user or group targets",
+                    label: "Specific Targets",
+                    filters: {
+                        SpecificTargets: ">0"
+                    },
+                    columns: ["Policy", "Package", "AllowedTargetScope", "SpecificTargets", "SelfAdd", "Approval", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraMaxTier", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-011",
+                    group: "Privileges",
+                    description: "Policies granting application or delegated API permissions",
+                    label: "API Permissions",
+                    filters: {
+                        ApiApp: "or_>0",
+                        ApiDelegated: "or_>0"
+                    },
+                    columns: ["Policy", "Package", "Resources", "ApiApp", "ApiDelegated", "Applications", "AllowedTargetScope", "SelfAdd", "Approval", "Assignments", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                }
+            ],
             "App Registrations": [
                 {
                     id: "PVA-001",
@@ -1350,7 +1484,7 @@ $global:GLOBALJavaScript_Table = @'
                 laptop: {
                     maxWidth: 1600,
                     columns: [
-                        "DisplayName", "UserCoverage", "State", "IncResources", "ExcResources",
+                        "DisplayName", "TargetType", "UserCoverage", "State", "IncResources", "ExcResources",
                         "IncPlatforms", "ExcPlatforms",
                         "SignInRisk", "UserRisk", "IncNw", "ExcNw", "AuthFlow", "UserActions",
                         "GrantControls", "AuthStrength", "Warnings"
@@ -1359,7 +1493,7 @@ $global:GLOBALJavaScript_Table = @'
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "DisplayName", "UserCoverage", "State", "IncResources", "ExcResources",
+                        "DisplayName", "TargetType", "UserCoverage", "State", "IncResources", "ExcResources",
                         "SignInRisk", "UserRisk", "IncNw", "ExcNw", "AuthFlow", "UserActions",
                         "GrantControls", "AuthStrength", "Warnings"
                     ]
@@ -1404,6 +1538,27 @@ $global:GLOBALJavaScript_Table = @'
                         "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium",
                         "Impact", "Likelihood", "Risk", "Warnings"
+                    ]
+                }
+            },
+            "AccessPackages": {
+                laptop: {
+                    maxWidth: 1600,
+                    columns: [
+                        "Policy", "Package", "Resources",
+                        "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint",
+                        "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier",
+                        "AllowedTargetScope", "SelfAdd", "OnBehalfAdd", "Approval",
+                        "Impact", "Likelihood", "Risk", "Warnings"
+                    ]
+                },
+                compact: {
+                    maxWidth: 1200,
+                    columns: [
+                        "Policy", "Package", "Resources",
+                        "EntraMaxTier", "AzureMaxTier",
+                        "AllowedTargetScope", "SelfAdd", "OnBehalfAdd", "Approval",
+                        "Impact", "Risk", "Warnings"
                     ]
                 }
             },
@@ -1516,6 +1671,7 @@ $global:GLOBALJavaScript_Table = @'
             "EntraRoles": "Directly or indirectly assigned Entra ID roles",
             "SAML": "SAML as preferred SSO method",
             "CAPs": "Number of Conditional Access Policies the group is used in",
+            "APTarget": "Number of distinct Access Packages where this object is targeted directly, or through group membership",
             "AppLock": "App Instance Property Lock status",
             "DeviceReg": "Devices registered by the user",
             "DeviceOwn": "Devices owned by the user",
@@ -1542,6 +1698,19 @@ $global:GLOBALJavaScript_Table = @'
             "Activated": "Number of currently active role assignments activated via PIM",
             "AssignmentType": "Activated eligible assignments also appear as active",
             "Conditions": "Has additional conditions",
+            "TargetType": "Conditional Access target category: Users, Workloads, or Agents",
+            "Groups": "Access Package resources of type Group",
+            "Applications": "Access Package resources of type Application",
+            "ApiApp": "Access Package OAuth application permissions",
+            "ApiDelegated": "Access Package OAuth delegated permissions",
+            "SharePoint": "Access Package SharePoint resources",
+            "AllowedTargetScope": "Access Package policy target scope",
+            "BroadScope": "Access Package policy allows a broad target or requestor population",
+            "SelfAdd": "Targets can request access for themselves through this policy",
+            "OnBehalfAdd": "On-behalf requestors can request access for another target through this policy",
+            "AccessReview": "Access Package policy has access reviews enabled",
+            "ExpirationDetails": "Access Package policy expiration setting",
+            "Rule": "Access Package automatic assignment membership rule",
             "UserCoverage": "Percentage of tenant users covered by the policy after exclusions. External users are only approximated for b2bCollaborationGuest and do not include all types or tenant-specific selections.",
             "InheritableScopes": "Number of APIs for which the blueprint permits child agent identities to inherit delegated permission scopes",
             "InheritableRoles": "Number of APIs for which the blueprint permits child agent identities to inherit application role permissions",
@@ -1553,6 +1722,12 @@ $global:GLOBALJavaScript_Table = @'
             const manifestEl = document.getElementById("report-manifest");
             const manifest = manifestEl && manifestEl.textContent ? JSON.parse(manifestEl.textContent) : null;
             window.__reportManifest = manifest;        
+
+            if (manifest && manifest.currentReportKey === "AccessPackages") {
+                ["ExpirationDetails", "Catalog", "AccessReview"].forEach(col => {
+                    if (!defaultHidden.includes(col)) defaultHidden.push(col);
+                });
+            }
 
             const mainTableDataEl = document.getElementById("mainTableData");
             if (!mainTableDataEl) {
@@ -1772,6 +1947,7 @@ $global:GLOBALJavaScript_Table = @'
             if (key === "Groups") return "Groups";
             if (key === "EA") return "Enterprise Apps";
             if (key === "MI") return "Managed Identities";
+            if (key === "AccessPackages") return "Access Packages";
             if (key === "AR") return "App Registrations";
             if (key === "CAP") return "Conditional Access Policies";
             if (key === "PIM") return "PIM";
@@ -1787,6 +1963,7 @@ $global:GLOBALJavaScript_Table = @'
             if (lower.indexOf("groups") !== -1) return "Groups";
             if (lower.indexOf("enterprise") !== -1) return "Enterprise Apps";
             if (lower.indexOf("managed identit") !== -1) return "Managed Identities";
+            if (lower.indexOf("access package") !== -1) return "Access Packages";
             if (lower.indexOf("app registr") !== -1) return "App Registrations";
             if (lower.indexOf("conditional access") !== -1) return "Conditional Access Policies";
             if (lower.indexOf("pim") !== -1) return "PIM";
@@ -1816,9 +1993,15 @@ $global:GLOBALJavaScript_Table = @'
             if (cellValue == null) return { id: "", text: "" };
             const s = String(cellValue);
 
-            // Normal reports: <a href=#target>...</a>
-            const m = s.match(/<a\s+href=#([^\s>]+)[^>]*>(.*?)<\/a>/i);
-            if (m) return { id: m[1], text: stripHtmlToText(m[2]) };
+            // Normal reports: <a href=#target>...</a>. Some report rows use
+            // quoted href values or self-file links such as report.html#target.
+            const m = s.match(/<a\s+[^>]*href=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>(.*?)<\/a>/i);
+            if (m) {
+                const href = m[1] || m[2] || m[3] || "";
+                const hashIndex = href.indexOf("#");
+                const id = hashIndex >= 0 ? href.slice(hashIndex + 1) : "";
+                return { id: id, text: stripHtmlToText(m[4]) };
+            }
 
             // Fallback: treat as plain text
             return { id: "", text: stripHtmlToText(s) };
@@ -2065,6 +2248,7 @@ $global:GLOBALJavaScript_Table = @'
                         columnHeaderLower === "role" ||
                         columnHeaderLower === "principal" ||
                         columnHeaderLower === "scope" ||
+                        columnHeaderLower === "policy" ||
                         columnHeaderLower === "namelink" ||
                         columnHeaderLower === "apipermissiondescription" ||
                         columnHeaderLower.startsWith("upn") ||
@@ -2770,7 +2954,7 @@ $global:GLOBALJavaScript_Table = @'
                             detailsEl.appendChild(renderPreBlock(key, value));
                         }
                     } else if (typeof value === 'object') {
-                        if (key === "General Information") {
+                        if (key === "General Information" || key === "Policy Information") {
                             detailsEl.appendChild(renderVerticalTable(key, value));
                         } else {
                             detailsEl.appendChild(renderDetailsTable(key, [value]));
@@ -3163,10 +3347,10 @@ $global:GLOBALJavaScript_Table = @'
 
             const isDark = document.body.classList.contains("dark-mode");
 
-            const redIfTrueHeaders = new Set(['Foreign', 'ForeignAgent', 'Inactive', 'PIM', 'Dynamic', 'SecurityEnabled', 'OnPrem', 'Conditions', 'IsBuiltIn', 'IsPrivileged', 'SAML', 'Agent', 'ActivatedViaPIM']);
-            const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation']);
-            const redIfContent = new Set(['all', 'alltrusted', 'report-only', 'disabled', 'public', 'guest', 'customrole', 'active', 'tier-0', 'tier-1', 'tier-2']);
-            const redIfContentHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms', 'State', 'Visibility', 'UserType', 'RoleType', 'AssignmentType', 'EntraMaxTier', 'AzureMaxTier', 'PerUserMfa']);
+            const redIfTrueHeaders = new Set(['Foreign', 'ForeignAgent', 'Inactive', 'PIM', 'Dynamic', 'SecurityEnabled', 'OnPrem', 'Conditions', 'IsBuiltIn', 'IsPrivileged', 'SAML', 'Agent', 'ActivatedViaPIM', 'SelfAdd', 'AutoAssignment', 'Hidden', 'OnBehalfAdd', 'BroadScope']);
+            const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview']);
+            const redIfContent = new Set(['all', 'alltrusted', 'report-only', 'disabled', 'public', 'guest', 'customrole', 'active', 'tier-0', 'tier-1', 'tier-2', 'all users', 'all internal users', 'all service principals', 'all agent identities', 'all external users', 'all external orgs']);
+            const redIfContentHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms', 'State', 'Visibility', 'UserType', 'RoleType', 'AssignmentType', 'EntraMaxTier', 'AzureMaxTier', 'PerUserMfa', 'AllowedTargetScope']);
 
             const redColor = isDark ? "#800000" : "#FFB6C1";
             const greenColor = isDark ? "#005f00" : "#98FB98";
@@ -6214,6 +6398,12 @@ function Export-EntraFalconDebugObjectDump {
         [object]$AgentIdentityBlueprints,
 
         [Parameter(Mandatory = $false)]
+        [object]$RawAccessPackages,
+
+        [Parameter(Mandatory = $false)]
+        [object]$AccessPackages,
+
+        [Parameter(Mandatory = $false)]
         [object]$SecurityFindings
     )
 
@@ -6283,7 +6473,9 @@ function Export-EntraFalconDebugObjectDump {
             "23_AgentIdentities.clixml"                   = $AgentIdentities
             "24_AgentIdentityBlueprintsPrincipals.clixml" = $AgentIdentityBlueprintsPrincipals
             "25_AgentIdentityBlueprints.clixml"           = $AgentIdentityBlueprints
-            "26_SecurityFindings.clixml"                  = $SecurityFindings
+            "26_RawAccessPackages.clixml"                 = $RawAccessPackages
+            "27_AccessPackages.clixml"                    = $AccessPackages
+            "28_SecurityFindings.clixml"                  = $SecurityFindings
         }
 
         $summaryProperties = [ordered]@{
@@ -6384,6 +6576,19 @@ function AuthCheckMSGraph {
     }
     return $result
 }
+
+function ConvertTo-EntraFalconHtmlText {
+    param(
+        [Parameter(Mandatory = $false)]$Value,
+        [Parameter(Mandatory = $false)][string]$DefaultValue = ""
+    )
+
+    if ($null -eq $Value) { return $DefaultValue }
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $DefaultValue }
+    return [System.Net.WebUtility]::HtmlEncode($text)
+}
+
 #Return a tenant display name variant that is safe to use inside generated file names.
 function ConvertTo-EntraFalconFileNameToken {
     param(
@@ -8266,6 +8471,7 @@ function Initialize-TenantReportTabs {
         @{ Prop = 'AzureRoles';                Key = 'RoleAz';     Title = 'Roles (Azure)';  File = "Role_Assignments_Azure_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForEntra';               Key = 'PIM';        Title = 'PIM (Entra)';                File = "PIM_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForGroups';              Key = 'PIMGroups';  Title = 'PIM (Groups)';               File = "PIM_Groups_${StartTimestamp}_${tenantNameEscaped}.html" }
+        @{ Prop = 'AccessPackages';            Key = 'AccessPackages'; Title = 'Access Packages';       File = "AccessPackages_${StartTimestamp}_${tenantNameEscaped}.html" }
     )
 
     $tabs = New-Object System.Collections.Generic.List[object]
@@ -8710,6 +8916,39 @@ function Resolve-AppRoleAssignmentRecord {
     }
 }
 
+# Scores access granted through an application role assignment; this does not model ownership or control of the application object.
+function Get-AppRoleAssignmentImpact {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory = $false)][string]$RoleDisplayName = "",
+        [Parameter(Mandatory = $false)][string]$RoleDescription = "",
+        [Parameter(Mandatory = $false)][object]$IsEnabled = $true,
+        [Parameter(Mandatory = $false)][double]$AppImpact = 0,
+        [Parameter(Mandatory = $false)][int]$NormalImpact = 10,
+        [Parameter(Mandatory = $false)][int]$SensitiveImpact = 30,
+        [Parameter(Mandatory = $false)][int]$CriticalAppContextMaxImpact = 50
+    )
+
+    if ($null -ne $IsEnabled -and $IsEnabled -is [bool] -and -not [bool]$IsEnabled) {
+        return 0
+    }
+    if ($null -ne $IsEnabled -and "$IsEnabled".Trim().Length -gt 0 -and "$IsEnabled".Trim().ToLowerInvariant() -in @("false", "0", "no", "disabled")) {
+        return 0
+    }
+
+    $impact = $NormalImpact
+    $roleText = "$RoleDisplayName $RoleDescription"
+    if ($roleText -match "(?i)(^|[^a-z0-9])(admin(?:istrator)?|owner|manage(?:r)?|write|privileged|root)([^a-z0-9]|$)") {
+        $impact = [Math]::Max($impact, $SensitiveImpact)
+    }
+
+    if ($AppImpact -ge 100) {
+        $impact = [Math]::Max($impact, $CriticalAppContextMaxImpact)
+    }
+
+    return [Math]::Min($impact, $CriticalAppContextMaxImpact)
+}
+
 # Summarize API-permission counts and impact using the shared scoring model.
 function Get-ApiPermissionImpactSummary {
     [CmdletBinding()]
@@ -9015,6 +9254,7 @@ function start-InitTasks {
         AgentIdentities        = @{ Count = 0; Foreign = 0; Inactive = 0; TotalAgentUsers = 0; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0 } }
         AgentIdentityBlueprintsPrincipals = @{ Count = 0; Foreign = 0 }
         AgentIdentityBlueprints = @{ Count = 0; Credentials = @{ 'Secrets' = 0; 'Certificates' = 0; 'Federated Credentials' = 0; 'None' = 0 } }
+        AccessPackages         = @{ Count = 0; Policies = 0; Assignments = 0; ServicePrincipalAssignments = 0; HighImpact = 0 }
         AdministrativeUnits    = @{ Count = 0 }
         ConditionalAccess      = @{ Count = 0; Enabled = 0 }
         SecurityFindings       = @{ Vulnerable = 0; NotVulnerable = 0; Skipped = 0; Total = 0 }
@@ -9789,4 +10029,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,start-CleanUp,Format-ReportSection,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp

@@ -25,6 +25,7 @@ function Invoke-CheckGroups {
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
         [Parameter(Mandatory = $true)][int]$ApiTop,
         [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
+        [Parameter(Mandatory=$false)][hashtable]$AccessPackageGroupSpecificTargetIndex = @{},
         [Parameter(Mandatory=$false)][switch]$Csv = $false
     )
 
@@ -204,9 +205,10 @@ function Invoke-CheckGroups {
     $TokenCheckLimit = 5000  # Define recheck limit for token lifetime. In large environments the access token might expire during the test.
     $GroupScriptWarningList = [System.Collections.Generic.List[string]]::new()
     $NestedGroupsHighvalue = [System.Collections.Generic.List[object]]::new()
-	$AllGroupsDetails = [System.Collections.Generic.List[object]]::new()
+    $AllGroupsDetails = [System.Collections.Generic.List[object]]::new()
     $AllObjectDetailsHTML = [System.Collections.ArrayList]::new()
     $EscapedTenantName = $CurrentTenant.FileSafeDisplayNameEncoded
+    if ($null -eq $AccessPackageGroupSpecificTargetIndex) { $AccessPackageGroupSpecificTargetIndex = @{} }
 
     if (-not $GLOBALGraphExtendedChecks) {$GroupScriptWarningList.Add("Coverage gap: eligible role assignments not assessed; only active assignments are included.")}
 
@@ -216,7 +218,6 @@ function Invoke-CheckGroups {
         "Distribution"              = 0.5
         "SecurityEnabled"           = 2
         "AzureRole"                 = 100
-        "AppRole"                   = 10
         "CAP"                       = 50
     }
     $GroupLikelihoodScore = @{
@@ -1250,7 +1251,7 @@ function Invoke-CheckGroups {
 
         #Check app roles
         if ($AppRoleAssignments.count -ge 1) {
-            $ImpactScore += $GroupImpactScore["AppRole"]
+            $ImpactScore += Get-AppRoleAssignmentImpact
         }
 
         #SP as member
@@ -1289,10 +1290,6 @@ function Invoke-CheckGroups {
             $ImpactScore += $GroupImpactScore["SecurityEnabled"]
         }
         
-        
-        #Format warning messages
-        $Warnings = ($Warnings -join ' / ')
-
         #Creating HT to speed-up the post-processing part
         $PfGOwnedGroupsById = @{}
         $NestedInGroupsById = @{}
@@ -1321,6 +1318,19 @@ function Invoke-CheckGroups {
         # Keep full Impact/ImpactOrg for group reporting, and expose active-only inheritance score.
         $ImpactOrgActiveOnly = [math]::Round([math]::Max(0, $ImpactScore - $EligibleRoleImpactContribution))
 
+        $AccessPackageSpecificTargets = @()
+        $AccessPackageCount = 0
+        if ($AccessPackageGroupSpecificTargetIndex.ContainsKey([string]$group.Id)) {
+            $AccessPackageSpecificTargets = @($AccessPackageGroupSpecificTargetIndex[[string]$group.Id])
+            $AccessPackageCount = @($AccessPackageSpecificTargets | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.PackageId) } | Select-Object -ExpandProperty PackageId -Unique).Count
+            if (@($AccessPackageSpecificTargets | Where-Object { [bool]$_.SelfAdd -and -not [bool]$_.Approval -and [int]$_.Resources -gt 0 }).Count -gt 0) {
+                [void]$Warnings.Add("Access package self-request without approval")
+            }
+        }
+
+        #Format warning messages after all warning sources have been evaluated.
+        $Warnings = ($Warnings -join ' / ')
+
         # Create custom object
         $groupDetails = [PSCustomObject]@{ 
             Id = $group.Id 
@@ -1340,6 +1350,8 @@ function Invoke-CheckGroups {
             EntraRoleDetails = $roleDetails
             GroupCAPsDetails = $groupCAPs
             CAPs = $CAPCount
+            AccessPackages = $AccessPackageCount
+            AccessPackageSpecificTargets = $AccessPackageSpecificTargets
             AzureRoles = $AzureRoleCount
             AzureMaxTier = $AzureMaxTier
             AzureRoleDetails = $azureRoleDetails
@@ -1575,8 +1587,15 @@ function Invoke-CheckGroups {
 
     write-host "[*] Generating Details Section"
 
+    $GroupOverviewProperties = @("DisplayName","DisplayNameLink","Type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","CAPs")
+    $GroupOverviewProperties += @{Name = "APTarget"; Expression = { $_.AccessPackages }}
+    $GroupOverviewProperties += @("EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
+
+    $GroupOutputProperties = @("DisplayName","Type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","CAPs","APTarget","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
+    $GroupMainTableProperties = @(@{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},"type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","CAPs","APTarget","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
+
     #Define output of the main table
-    $tableOutput = $AllGroupsDetails | Sort-Object Risk -Descending | select-object DisplayName,DisplayNameLink,Type,SecurityEnabled,RoleAssignable,OnPrem,Dynamic,Visibility,Protected,PIM,AuUnits,DirectOwners,NestedOwners,OwnersSynced,Users,Guests,SPCount,Devices,NestedGroups,NestedInGroups,AppRoles,CAPs,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $AllGroupsDetails | Sort-Object Risk -Descending | Select-Object -Property $GroupOverviewProperties
     
     # Apply result limit for the main table
     if ($LimitResults -and $LimitResults -gt 0) {
@@ -1604,7 +1623,7 @@ function Invoke-CheckGroups {
     }
     $DynamicGroupsCount = $AppendixDynamic.count
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},type,SecurityEnabled,RoleAssignable,OnPrem,Dynamic,Visibility,Protected,PIM,AuUnits,DirectOwners,NestedOwners,OwnersSynced,Users,Guests,SPCount,Devices,NestedGroups,NestedInGroups,AppRoles,CAPs,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | Select-Object -Property $GroupMainTableProperties
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1641,7 +1660,7 @@ Execution Warnings = $($GroupScriptWarningList  -join ' / ')
 ************************************************************************************************************************
 "
 
-$tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPrem,Dynamic,Visibility,Protected,PIM,AuUnits,DirectOwners,NestedOwners,OwnersSynced,Users,Guests,SPCount,Devices,NestedGroups,NestedInGroups,AppRoles,CAPs,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+$tableOutput | Format-table -Property $GroupOutputProperties | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
 
 
     foreach ($item in $details) {
@@ -1656,6 +1675,7 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
         $ReportingRoles = [System.Collections.Generic.List[object]]::new()
         $ReportingAzureRoles = [System.Collections.Generic.List[object]]::new()
         $ReportingCAPs = [System.Collections.Generic.List[object]]::new()
+        $ReportingAccessPackageSpecificTargets = [System.Collections.Generic.List[object]]::new()
         $AppRoles = [System.Collections.Generic.List[object]]::new()
         $OwnerUser = [System.Collections.Generic.List[object]]::new()
         $OwnerGroups = [System.Collections.Generic.List[object]]::new()
@@ -1794,6 +1814,62 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
             -ColumnWidths @{ CAPName = [Math]::Min($CapNameLength, 120); Usage = 9; Status = 8}
         
             [void]$DetailTxtBuilder.AppendLine($formattedText)
+        }
+
+        ############### Access Package Policy Targets
+        if ($item.PSObject.Properties["AccessPackageSpecificTargets"] -and @($item.AccessPackageSpecificTargets).Count -ge 1) {
+            $AccessPackageSpecificTargetsRaw = [System.Collections.Generic.List[object]]::new()
+
+            foreach ($object in @($item.AccessPackageSpecificTargets)) {
+                $policyName = [string]$object.Policy
+                $packageName = [string]$object.Package
+                $policyAnchor = if (-not [string]::IsNullOrWhiteSpace([string]$object.PolicyId)) { "$($object.PackageId)_$($object.PolicyId)" } else { "" }
+                $policyLink = if (-not [string]::IsNullOrWhiteSpace($policyAnchor)) {
+                    "<a href=AccessPackages_$($StartTimestamp)_$($EscapedTenantName).html#$policyAnchor>$(ConvertTo-EntraFalconHtmlText $policyName)</a>"
+                } else {
+                    ConvertTo-EntraFalconHtmlText $policyName
+                }
+
+                [void]$AccessPackageSpecificTargetsRaw.Add([pscustomobject]@{
+                    Policy       = $policyName
+                    PolicyLink   = $policyLink
+                    Package      = $packageName
+                    SelfAdd      = [bool]$object.SelfAdd
+                    Approval     = [bool]$object.Approval
+                    Resources    = [int]$object.Resources
+                    Groups       = [int]$object.Groups
+                    Applications = [int]$object.Applications
+                    ApiApp       = [int]$object.ApiApp
+                    ApiDelegated = [int]$object.ApiDelegated
+                    SharePoint   = [int]$object.SharePoint
+                    DirectEntraRoles = [int]$object.EntraRoles
+                    DirectAzureRoles = [int]$object.AzureRoles
+                })
+            }
+
+            $formattedText = Format-ReportSection -Title "Access Package Policy Targets" `
+            -Objects $AccessPackageSpecificTargetsRaw `
+            -Properties @("Policy", "Package", "SelfAdd", "Approval", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "DirectEntraRoles", "DirectAzureRoles") `
+            -ColumnWidths @{ Policy = 50; Package = 50; SelfAdd = 8; Approval = 8; Resources = 9; Groups = 6; Applications = 12; ApiApp = 6; ApiDelegated = 12; SharePoint = 10; DirectEntraRoles = 16; DirectAzureRoles = 16 }
+
+            [void]$DetailTxtBuilder.AppendLine($formattedText)
+
+            foreach ($obj in $AccessPackageSpecificTargetsRaw) {
+                [void]$ReportingAccessPackageSpecificTargets.Add([pscustomobject]@{
+                    Policy       = $obj.PolicyLink
+                    Package      = ConvertTo-EntraFalconHtmlText $obj.Package
+                    SelfAdd      = $obj.SelfAdd
+                    Approval     = $obj.Approval
+                    Resources    = $obj.Resources
+                    Groups       = $obj.Groups
+                    Applications = $obj.Applications
+                    ApiApp       = $obj.ApiApp
+                    ApiDelegated = $obj.ApiDelegated
+                    SharePoint   = $obj.SharePoint
+                    DirectEntraRoles = $obj.DirectEntraRoles
+                    DirectAzureRoles = $obj.DirectAzureRoles
+                })
+            }
         }
 
         ############### App Roles
@@ -2333,6 +2409,7 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
                 $roleAssignable = if ($null -ne $groupDetails.RoleAssignable) { $groupDetails.RoleAssignable } else { $groupDetails.IsAssignableToRole }
                 $entraMaxTier = if ($null -ne $groupDetails.EntraMaxTier) { $groupDetails.EntraMaxTier } else { "-" }
                 $azureMaxTier = if ($null -ne $groupDetails.AzureMaxTier) { $groupDetails.AzureMaxTier } else { if ($GLOBALAzurePsChecks) { "-" } else { "?" } }
+                $apTarget = if ($null -ne $groupDetails -and $groupDetails.PSObject.Properties["AccessPackages"] -and $null -ne $groupDetails.AccessPackages) { $groupDetails.AccessPackages } else { 0 }
         
                 $rawObj = [pscustomobject]@{
                     AssignmentType     = $object.AssignmentType
@@ -2345,6 +2422,7 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
                     AzureRoles         = $object.AzureRoles
                     AzureMaxTier       = $azureMaxTier
                     CAPs               = $object.CAPs
+                    APTarget           = $apTarget
                 }
         
                 [void]$NestedInGroupsRaw.Add($rawObj)
@@ -2353,13 +2431,13 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
             # Build TXT
             $formattedText = Format-ReportSection -Title "Member Of: Nested in Groups (Transitive)" `
             -Objects $NestedInGroupsRaw `
-            -Properties @("AssignmentType", "Displayname", "SecurityEnabled", "IsAssignableToRole", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "CAPs") `
-            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($GroupNameLength, 60); SecurityEnabled = 16; IsAssignableToRole = 19; EntraRoles = 11; EntraMaxTier = 11; AzureRoles = 11; AzureMaxTier = 11; CAPs = 4 }
+            -Properties @("AssignmentType", "Displayname", "SecurityEnabled", "IsAssignableToRole", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "CAPs", "APTarget") `
+            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($GroupNameLength, 60); SecurityEnabled = 16; IsAssignableToRole = 19; EntraRoles = 11; EntraMaxTier = 11; AzureRoles = 11; AzureMaxTier = 11; CAPs = 4; APTarget = 8 }
             [void]$DetailTxtBuilder.AppendLine($formattedText)
         
             # Sort only for HTML
             $SortedNestedGroups = $NestedInGroupsRaw | Sort-Object {
-                if ($_.EntraRoles -or $_.AzureRoles -or $_.CAPs) { 0 } else { 1 }
+                if ($_.EntraRoles -or $_.AzureRoles -or $_.CAPs -or $_.APTarget) { 0 } else { 1 }
             }
         
             # Apply HTML limit
@@ -2381,6 +2459,7 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
                     AzureRoles         = $obj.AzureRoles
                     AzureMaxTier       = $obj.AzureMaxTier
                     CAPs               = $obj.CAPs
+                    APTarget           = $obj.APTarget
                 })
             }
         
@@ -2395,6 +2474,7 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
                     AzureRoles         = "-"
                     AzureMaxTier       = $(if ($GLOBALAzurePsChecks) { "-" } else { "?" })
                     CAPs               = "-"
+                    APTarget           = "-"
                 })
             }
         }
@@ -2462,6 +2542,7 @@ $tableOutput | Format-table DisplayName,type,SecurityEnabled,RoleAssignable,OnPr
             "Entra ID Roles" = $ReportingRoles
             "Azure Roles" = $ReportingAzureRoles
             "Conditional Access Policies" = $ReportingCAPs
+            "Access Package Policy Targets" = $ReportingAccessPackageSpecificTargets
             "Application Roles" = $AppRoles
             "Owners (User)" = $OwnerUser
             "Owners (Groups)" = $OwnerGroups
@@ -2569,7 +2650,7 @@ $headerHtml = @"
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Csv) {
-        $tableOutput | select-object DisplayName,type,SecurityEnabled,RoleAssignable,OnPrem,Dynamic,Visibility,Protected,PIM,AuUnits,DirectOwners,NestedOwners,OwnersSynced,Users,Guests,SPCount,Devices,NestedGroups,NestedInGroups,AppRoles,CAPs,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+        $tableOutput | Select-Object -Property $GroupOutputProperties | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
     }
 
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
@@ -2625,7 +2706,7 @@ $headerHtml = @"
     $AllGroupsDetailsHT = @{}
 
     foreach ($group in $AllGroupsDetails) {
-        $AllGroupsDetailsHT[$group.Id] = [PSCustomObject]@{
+        $groupLookupObject = [PSCustomObject]@{
             DisplayName   = $group.DisplayName
             Type = $group.Type
             Visibility = $group.Visibility
@@ -2660,7 +2741,10 @@ $headerHtml = @"
             DirectActiveOwners = $group.DirectActiveOwners
             DirectOwners = $group.DirectOwners
             NestedOwners = $group.NestedOwners
+            AccessPackages = $group.AccessPackages
+            AccessPackageSpecificTargets = $group.AccessPackageSpecificTargets
         }
+        $AllGroupsDetailsHT[$group.Id] = $groupLookupObject
     }
        
     Remove-Variable Report

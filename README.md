@@ -40,10 +40,11 @@ Findings are presented in interactive HTML reports to support efficient explorat
     - Agent identity blueprints (BETA)
     - PIM assignments:
         - PIM for Entra Roles
-        - PIM for Entra Groups
+        - PIM for Groups
         - PIM for Azure Roles
     - Entra Role Assignments
     - Azure Role Assignments
+    - Access Packages
     - Conditional Access Policies
     - Administrative Units
     - PIM settings:
@@ -77,26 +78,36 @@ Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process
 ```
 
 ### Run EntraFalcon
-EntraFalcon includes built-in support for Entra ID authentication.  
-Multiple authentication flows are available to support different environments and restrictions.  
-Depending on the selected flow, this requires multiple interactive authentications.  
+EntraFalcon includes built-in support for Entra ID authentication. Use `-AuthFlow` to select the authentication flow.
 
-Use `-AuthFlow` to select the authentication flow.  
+For normal assessments, use one of the full-coverage flows:
 
-| Auth Flow                    | Windows | Linux/macOS | Interactive Logins | Convenience | Parameter(s)                         | Notes |
-|-----------------------------|---------|-------|--------------------|-------------|--------------------------------------|-------|
-| BroCi                       | Yes     | No    | 1                  | High        | `-AuthFlow BroCi` *(default)*        | Avoids reliance on legacy clients such as *Azure Active Directory PowerShell*. Supports all enumerations. |
-| Auth Code Flow              | Yes     | No    | 4                  | Normal      | `-AuthFlow AuthCode`                 | Standard non-BroCi auth code flow. Does not generate the standalone `PIM (Groups)` settings report. |
-| Device Code Flow            | Yes     | Yes   | 3                  | Normal      | `-AuthFlow DeviceCode`               | Authentication can be completed on another device, but two Security Findings checks run with reduced depth. Does not generate the standalone `PIM (Groups)` settings report. |
-| Auth Code + Manual Code Flow| Yes     | Yes   | 4                  | Low-Normal  | `-AuthFlow ManualCode`               | Authentication can be completed on a different device or browser session. Does not generate the standalone `PIM (Groups)` settings report. |
-| BroCi + Manual Code Flow    | Yes     | Yes   | 1                  | Low         | `-AuthFlow BroCiManualCode`          | Authorization code must be manually extracted from browser developer tools. Supports all enumerations.|
-| BroCi with Token            | Yes     | Yes   | 0                  | Low         | `-AuthFlow BroCiToken -BroCiToken "<refresh_token>"` | Refresh token must be obtained manually (e.g., from browser dev tools or another auth tool). Supports all enumerations. |
-| Service Principal           | Yes     | Yes   | 0                  | Low        | `-AuthFlow ServicePrincipal -SPClientId "<appId>" -Tenant "<tenantId>" ...` | App-only OAuth2 client credentials flow. Requires a custom app registration with sufficient Graph API permissions. Supports all enumerations. |
+| Recommended Flow | Best For | Platform | Coverage |
+|-|-|-|-|
+| `BroCi` *(default)* | Interactive Windows runs | Windows | Full |
+| `BroCiManualCode` | Authentication in another browser | Windows, Linux, macOS | Full |
+| `BroCiToken` | Existing Azure Portal refresh token | Windows, Linux, macOS | Full |
+| `ServicePrincipal` | Automation / CI | Windows, Linux, macOS | Full |
+
+`BroCi` uses one interactive login. `BroCiToken` and `ServicePrincipal` use none. Fallback user flows may require multiple interactive logins because separate resource tokens are requested.
+
+<details>
+<summary>Fallback Authentication Flows</summary>
+
+Due to the lack of pre-consented first-party applications, the fallback flows cannot perform the full enumeration (`PIM for Groups`, `Access Packages`). Therefore, they currently remain fallback options only.
+
+| Flow | Use Only When | Platform | Limitations |
+|-|-|-|-|
+| `AuthCode` | Legacy compatibility is required | Windows | Partial coverage. No standalone `PIM for Groups` or `Access Packages` report. |
+| `DeviceCode` | Browser-based authentication is not possible | Windows, Linux, macOS | Partial coverage. No standalone `PIM for Groups` or `Access Packages` report. Some Security Findings checks run with reduced depth. |
+| `ManualCode` | Authentication must be completed through a separate browser session | Windows, Linux, macOS | Partial coverage. No standalone `PIM for Groups` or `Access Packages` report. |
+
+</details>
 
 
-#### Use BroCi flow (default / Windows only)
+#### Recommended: BroCi Flow (default / Windows only)
 BroCi uses alternate first-party applications and requires only one interactive sign-in.  
-It is further useful, when the *Azure Active Directory PowerShell* client requires assignment and must be avoided.
+It is useful when the *Azure Active Directory PowerShell* client requires assignment and must be avoided.
 
 ```powershell
 .\run_EntraFalcon.ps1
@@ -107,33 +118,7 @@ Explicit BroCi selection:
 .\run_EntraFalcon.ps1 -AuthFlow BroCi
 ```
 
-#### Auth Code Flow (Windows only)
-
-```powershell
-.\run_EntraFalcon.ps1 -AuthFlow AuthCode
-```
-
-#### Device Code Flow
-It is often restricted by Conditional Access in hardened environments.  
-With `DeviceCode`, two Security Findings checks run with reduced depth (`CAP-004` and `CAP-005`).
-
-```powershell
-.\run_EntraFalcon.ps1 -AuthFlow DeviceCode
-```
-
-#### Use Auth Code + Manual Code Flow Authentication
-
-```powershell
-.\run_EntraFalcon.ps1 -AuthFlow ManualCode
-```
-1. The script copies the authentication URL to the clipboard.
-2. Paste the URL into a browser (optionally on another device for SSO support).
-3. Complete authentication.
-4. Copy the final redirect URL from the browser address bar (containing the authorization code) to the clipboard.
-5. Press Enter to continue; the script reads the code from the clipboard and completes token acquisition.
-
-
-#### BroCi + Manual Code Flow 
+#### Recommended: BroCi + Manual Code Flow 
 ```powershell
 .\run_EntraFalcon.ps1 -AuthFlow BroCiManualCode
 ```
@@ -145,21 +130,21 @@ With `DeviceCode`, two Security Findings checks run with reduced depth (`CAP-004
 6. Press Enter to continue; the script reads the code from the clipboard and completes token acquisition.
 
 
-#### BroCi with Token
+#### Recommended: BroCi with Token
 If a valid Azure Portal refresh token is already available (client c44b4083-3bb0-49c1-b47d-974e53cbdf3c), it can be used directly.
 Example: Obtaining the refresh token from the browser
 1. Open the browser developer tools and, in the Network tab, enable Preserve log.
 2. Authenticate at https://entra.microsoft.com.
-3. Search the network log for brk_client_id=c44b4083-3bb0-49c1-b47d-974e53cbdf3c and extract the refresh token from the response.
+3. Search the network log for `brk_client_id=c44b4083-3bb0-49c1-b47d-974e53cbdf3c` and extract the refresh token from the response.
 
 ```powershell
 .\run_EntraFalcon.ps1 -AuthFlow BroCiToken -BroCiToken "1.XXXXXXXXXXX"
 ```
 
 
-#### Service Principal
+#### Recommended: Service Principal
 Authenticates as a registered application using the OAuth2 client credentials grant — no user interaction required.
-Useful for automated executions.  
+Useful for repeated automated executions.  
 Requires a custom Entra app registration with `Application`-type Graph API permissions (see below).
 
 **With client secret:**
@@ -191,6 +176,7 @@ Grant the following **Application** permissions (not Delegated) on the app regis
 | `Application.Read.All` | Application |
 | `AuditLog.Read.All` | Application |
 | `Device.Read.All` | Application |
+| `EntitlementManagement.Read.All` | Application |
 | `Group.Read.All` | Application |
 | `Organization.Read.All` | Application |
 | `Policy.Read.All` | Application |
@@ -200,6 +186,31 @@ Grant the following **Application** permissions (not Delegated) on the app regis
 | `User.Read.All` | Application |
 
 In addition, assign the **Azure Reader** role on the root management group (or every relevant subscription) and optionally the **Global Reader** role to the service principal in Entra ID (required for per-user MFA status).
+
+#### Fallback: Auth Code Flow (Windows only)
+
+```powershell
+.\run_EntraFalcon.ps1 -AuthFlow AuthCode
+```
+
+#### Fallback: Device Code Flow
+It is often restricted by Conditional Access in hardened environments.  
+With `DeviceCode`, two Security Findings checks run with reduced depth (`CAP-004` and `CAP-005`).
+
+```powershell
+.\run_EntraFalcon.ps1 -AuthFlow DeviceCode
+```
+
+#### Fallback: Auth Code + Manual Code Flow
+
+```powershell
+.\run_EntraFalcon.ps1 -AuthFlow ManualCode
+```
+1. The script copies the authentication URL to the clipboard.
+2. Paste the URL into a browser (optionally on another device for SSO support).
+3. Complete authentication.
+4. Copy the final redirect URL from the browser address bar (containing the authorization code) to the clipboard.
+5. Press Enter to continue; the script reads the code from the clipboard and completes token acquisition.
 
 
 ### Other Parameters
@@ -211,8 +222,8 @@ By default, official Microsoft enterprise applications are excluded from the ass
 ```
 
 #### Skip PIM for Groups Assessment
-Use the `-SkipPimForGroups` switch to skip PIM-for-Groups precollection and enrichment.  
-This also skips the standalone `PIM (Groups)` settings report.
+Use the `-SkipPimForGroups` switch to skip PIM for Groups precollection and enrichment.  
+This also skips the standalone `PIM for Groups` settings report.
 ```powershell
 .\run_EntraFalcon.ps1 -SkipPimForGroups
 ```
@@ -670,6 +681,19 @@ The following table roughly summarizes the checks performed, along with their im
 |AgentIdentityBlueprint|Federated credentials|Yes|No|
 |AgentIdentityBlueprint|Secrets / certificates|Yes|Yes|
 |AgentIdentityBlueprint|Owners / sponsors|Yes|(Yes)|
+|AccessPackages|Granted Entra roles|Yes|No|
+|AccessPackages|Granted Azure roles|Yes|No|
+|AccessPackages|Granted groups|Yes|No|
+|AccessPackages|Granted application roles|Yes|No|
+|AccessPackages|Granted API permissions (Application)|Yes|No|
+|AccessPackages|Granted API permissions (Delegated)|Yes|No|
+|AccessPackages|Granted SharePoint access|Yes|No|
+|AccessPackages|Broad self-request without approval|Yes|Yes|
+|AccessPackages|Persistent access without expiration or access review|No|No|
+|AccessPackages|Dangerous auto-assignment rules|Yes|Yes|
+|AccessPackages|Self-request through unprotected group targets|Yes|Yes|
+|AccessPackages|Broad non-user on-behalf assignment without approval|Yes|No|
+|AccessPackages|Service principal assignments|Yes|No|
 |CAP|No or misconfigured policy for legacy authentication|-|Yes|
 |CAP|No or misconfigured policy for blocking device code flow|-|Yes|
 |CAP|No or misconfigured policy for limiting the registrations of security information|-|Yes|

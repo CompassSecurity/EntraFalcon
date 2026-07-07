@@ -180,7 +180,7 @@ Param (
 )
 
 #Constants
-$EntraFalconVersion = "V20260616"
+$EntraFalconVersion = "V20260707_PRE"
 
 # Import shared functions
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -194,6 +194,7 @@ Import-Module (Join-Path $ScriptRoot 'modules\check_Users.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_ManagedIdentities.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_Roles.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_CAPs.psm1') -Force
+Import-Module (Join-Path $ScriptRoot 'modules\check_AccessPackages.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphBatchRequest.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphRequest.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\export_Summary.psm1') -Force
@@ -351,6 +352,14 @@ if (-not (Test-Path -Path $OutputFolder)) {
     }
 }
 
+$RawAccessPackages = Get-AccessPackagesRawData -AuthFlow $AuthFlow -ApiTop $ApiTop
+$AccessPackageGroupSpecificTargetIndex = @{}
+$AccessPackageUserSpecificTargetIndex = @{}
+if ($RawAccessPackages.IsAvailable -and -not $RawAccessPackages.IsSkipped) {
+    $AccessPackageGroupSpecificTargetIndex = New-AccessPackageGroupSpecificTargetIndex -RawAccessPackages $RawAccessPackages
+    $AccessPackageUserSpecificTargetIndex = New-AccessPackageUserSpecificTargetIndex -RawAccessPackages $RawAccessPackages
+}
+
 $AdminUnitWithMembers = Get-AdministrativeUnitsWithMembers
 $Caps = Get-ConditionalAccessPolicies
 # Get PIM eligible role assignments
@@ -427,6 +436,7 @@ $TenantReports = [pscustomobject]@{
     AgentIdentities           = $false
     AgentIdentityBlueprintsPrincipals = $false
     AgentIdentityBlueprints   = $false
+    AccessPackages            = $false
     ConditionalAccessPolicies = $false
     EntraRoles                = $true
     AzureRoles                = $false
@@ -447,6 +457,7 @@ if (-not $GLOBALAzurePsChecks) {
 $TenantReports.ConditionalAccessPolicies = ($null -ne $Caps -and $Caps.Count -gt 0)
 $TenantReports.PimForEntra               = ($null -ne $TenantPimRoleAssignments -and $TenantPimRoleAssignments.Count -gt 0)
 $TenantReports.PimForGroups              = ($GLOBALPimForGroupsChecked -and $GLOBALPimForGroupsPolicySettingsSupported -and $null -ne $GLOBALPimForGroupsResources -and @($GLOBALPimForGroupsResources).Count -gt 0)
+$TenantReports.AccessPackages            = ($RawAccessPackages.IsAvailable -and $null -ne $RawAccessPackages.Packages -and @($RawAccessPackages.Packages).Count -gt 0)
 $TenantReports.AzureRoles                = ($null -ne $AzureIAMAssignments -and $AzureIAMAssignments.Count -gt 0)
 $TenantReports.Groups           = $ReportsBasedOnObjects.Groups
 $TenantReports.AppRegistrations = $ReportsBasedOnObjects.AppRegistrations
@@ -467,47 +478,47 @@ Write-Log -Level Debug -Message ("Reports:{0}" -f $TenantReportsText)
 $ServicePrincipalSignInActivityLookup = Get-ServicePrincipalSignInActivityLookup -ApiTop $ApiTop
 
 # Main enumeration
-write-host "`n********************************** [1/15] Enumerating Groups **********************************"
-$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop @optionalParamsUserandGroup @optionalParamsOutput
+write-host "`n********************************** [1/17] Enumerating Groups **********************************"
+$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex @optionalParamsUserandGroup @optionalParamsOutput
 
-write-host "`n********************************** [2/15] Enumerating Enterprise Apps **********************************"
+write-host "`n********************************** [2/17] Enumerating Enterprise Apps **********************************"
 $AppRoleReferenceCache = @{}
 $EnterpriseApps = Invoke-CheckEnterpriseApps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup -AppRoleReferenceCacheOut ([ref]$AppRoleReferenceCache) @optionalParamsET @optionalParamsOutput
 
-write-host "`n********************************** [3/15] Enumerating Managed Identities **********************************"
+write-host "`n********************************** [3/17] Enumerating Managed Identities **********************************"
 $ManagedIdentities = Invoke-CheckManagedIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AgentObjectBasics $AgentObjectBasics -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -ApiTop $ApiTop @optionalParamsOutput
 
-write-host "`n********************************** [4/15] Enumerating App Registrations **********************************"
+write-host "`n********************************** [4/17] Enumerating App Registrations **********************************"
 $AppRegistrations = Invoke-CheckAppRegistrations -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AgentObjectBasics $AgentObjectBasics -TenantRoleAssignments $TenantRoleAssignments -OutputFolder $OutputFolder @optionalParamsOutput
 
-write-host "`n********************************** [5/15] Enumerating Agent Identities **********************************"
+write-host "`n********************************** [5/17] Enumerating Agent Identities **********************************"
 $AgentIdentities = Invoke-AgentIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -AllUsersBasicHT $AllUsersBasicHT -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup @optionalParamsET
 
-write-host "`n********************************** [6/15] Enumerating Agent Identity Blueprint Principals **********************************"
+write-host "`n********************************** [6/17] Enumerating Agent Identity Blueprint Principals **********************************"
 $AgentIdentityBlueprintsPrincipals = Invoke-AgentIdentityBlueprintsPrincipals -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -AgentIdentities $AgentIdentities -AllUsersBasicHT $AllUsersBasicHT -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup @optionalParamsET
 
-write-host "`n********************************** [7/15] Enumerating Agent Identity Blueprints **********************************"
+write-host "`n********************************** [7/17] Enumerating Agent Identity Blueprints **********************************"
 $AgentIdentityBlueprints = Invoke-AgentIdentityBlueprints -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AppRoleReferenceCache $AppRoleReferenceCache -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals
 
-write-host "`n********************************** [8/15] Enumerating Users **********************************"
+write-host "`n********************************** [8/17] Enumerating Users **********************************"
 $UserReportState = $null
-$Users = Invoke-CheckUsers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -UserAuthMethodsTable $UserAuthMethodsTable -Devices $Devices -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -ApiTop $ApiTop -ReportStateOut ([ref]$UserReportState) @optionalParamsUserandGroup @optionalParamsOutput
+$Users = Invoke-CheckUsers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -UserAuthMethodsTable $UserAuthMethodsTable -Devices $Devices -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -ApiTop $ApiTop -AccessPackageUserSpecificTargetIndex $AccessPackageUserSpecificTargetIndex -ReportStateOut ([ref]$UserReportState) @optionalParamsUserandGroup @optionalParamsOutput
 
-write-host "`n********************************** [9/15] Finalizing Agent Objects **********************************"
+write-host "`n********************************** [9/17] Finalizing Agent Objects **********************************"
 Invoke-CheckAgentsFinalize -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -Users $Users -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -AgentIdentityBlueprints $AgentIdentityBlueprints @optionalParamsOutput
 
-write-host "`n********************************** [10/15] Finalizing Users Report **********************************"
+write-host "`n********************************** [10/17] Finalizing Users Report **********************************"
 Write-Host "[*] Applying finalized Agent Identity Blueprint ownership impact to Users"
 Update-EntraFalconUserBlueprintOwnershipImpact -Users $Users -AgentIdentityBlueprints $AgentIdentityBlueprints
 Write-EntraFalconUsersReport -UserReportState $UserReportState -Users $Users
 
-write-host "`n********************************** [11/15] Generating Role Assignments **********************************"
+write-host "`n********************************** [11/17] Generating Role Assignments **********************************"
 Invoke-CheckRoles -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -Users $Users -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder @optionalParamsOutput
 
-write-host "`n********************************** [12/15] Enumerating Conditional Access Policies **********************************"
+write-host "`n********************************** [12/17] Enumerating Conditional Access Policies **********************************"
 $AllCaps = Invoke-CheckCaps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AllGroupsDetails $AllGroupsDetails -Users $Users -OutputFolder $OutputFolder -TenantRoleAssignments $TenantRoleAssignments @optionalParamsOutput @optionalParamsCap
 
-write-host "`n********************************** [13/16] Enumerating PIM Role Settings **********************************"
+write-host "`n********************************** [13/17] Enumerating PIM Role Settings **********************************"
 if ($GLOBALPIMForEntraRolesChecked) {
     $PimforEntraRoles = Invoke-CheckPIM -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllGroupsDetails $AllGroupsDetails -Users $Users -TenantRoleAssignments $TenantRoleAssignments -AllCaps $AllCaps @optionalParamsOutput
 } else {
@@ -515,7 +526,7 @@ if ($GLOBALPIMForEntraRolesChecked) {
     $PimforEntraRoles = @{}
 }
 
-write-host "`n********************************** [14/16] Enumerating PIM for Groups Settings **********************************"
+write-host "`n********************************** [14/17] Enumerating PIM for Groups Settings **********************************"
 if ($TenantReports.PimForGroups) {
     $PimforGroups = Invoke-CheckPIMGroups -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllGroupsDetails $AllGroupsDetails -AllCaps $AllCaps @optionalParamsOutput
 } else {
@@ -535,10 +546,27 @@ if ($TenantReports.PimForGroups) {
     $PimforGroups = @{}
 }
 
-write-host "`n********************************** [15/16] Enumerating Security Findings **********************************"
-$SecurityFindings = Invoke-CheckTenant -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -EnterpriseApps $EnterpriseApps -AppRegistrations $AppRegistrations -ManagedIdentities $ManagedIdentities -AllCaps $AllCaps -PimforEntraRoles $PimforEntraRoles -AllGroupsDetails $AllGroupsDetails -Users $Users -Devices $Devices -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -AgentIdentityBlueprints $AgentIdentityBlueprints -AgentIdentities $AgentIdentities
+write-host "`n********************************** [15/17] Enumerating Access Packages **********************************"
+if ($TenantReports.AccessPackages) {
+    $AccessPackages = Invoke-CheckAccessPackages -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -RawAccessPackages $RawAccessPackages -AllUsersBasicHT $AllUsersBasicHT -AllGroupsDetails $AllGroupsDetails -TenantRoleAssignments $TenantRoleAssignments -AppRoleReferenceCache $AppRoleReferenceCache -EnterpriseApps $EnterpriseApps -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals @optionalParamsOutput
+} else {
+    if ($RawAccessPackages.Warnings) {
+        foreach ($accessPackageWarning in @($RawAccessPackages.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$accessPackageWarning)) {
+                Write-Host "[!] $accessPackageWarning"
+            }
+        }
+    } else {
+        Write-Host "[*] No Access Packages found. Skipping Access Packages report..."
+    }
+    $AccessPackages = @{}
+}
 
-write-host "`n********************************** [16/16] Generating Summary Report **********************************"
+write-host "`n********************************** [16/17] Enumerating Security Findings **********************************"
+$AccessPackagesAssessmentAvailable = ($RawAccessPackages.IsAvailable -and -not $RawAccessPackages.IsSkipped)
+$SecurityFindings = Invoke-CheckTenant -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -EnterpriseApps $EnterpriseApps -AppRegistrations $AppRegistrations -ManagedIdentities $ManagedIdentities -AllCaps $AllCaps -PimforEntraRoles $PimforEntraRoles -AllGroupsDetails $AllGroupsDetails -Users $Users -Devices $Devices -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -AgentIdentityBlueprints $AgentIdentityBlueprints -AgentIdentities $AgentIdentities -AccessPackages $AccessPackages -AccessPackagesAssessmentAvailable $AccessPackagesAssessmentAvailable
+
+write-host "`n********************************** [17/17] Generating Summary Report **********************************"
 # Show assessment summary and generate summary HTML report
 Export-Summary -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TenantDomains $TenantDomains -Users $Users
 
@@ -572,6 +600,8 @@ if ($DebugObjectDump) {
         AgentIdentities                       = $AgentIdentities
         AgentIdentityBlueprintsPrincipals     = $AgentIdentityBlueprintsPrincipals
         AgentIdentityBlueprints               = $AgentIdentityBlueprints
+        RawAccessPackages                     = $RawAccessPackages
+        AccessPackages                        = $AccessPackages
         SecurityFindings                      = $SecurityFindings
     }
 

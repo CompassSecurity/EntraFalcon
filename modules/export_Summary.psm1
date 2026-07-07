@@ -665,6 +665,8 @@ return @"
             "Agent Blueprints"            = $($GlobalAuditSummary.AgentIdentityBlueprints.Count)
             "Administrative Units"        = $($GlobalAuditSummary.AdministrativeUnits.Count)
             "Conditional Access Policies" = $($GlobalAuditSummary.ConditionalAccess.Count)
+            "Access Packages"             = $($GlobalAuditSummary.AccessPackages.Count)
+            "Access Package Policies"     = $($GlobalAuditSummary.AccessPackages.Policies)
             "Domains"                     = @($TenantDomains).Count
             "PIM Settings"                = $($GlobalAuditSummary.PimSettings.Count)
             "Security Findings"           = $securityFindingsSummary.Vulnerable
@@ -1845,6 +1847,7 @@ Enumeration Results:
     - Domains:                     $(@($TenantDomains).Count)
     - Entra Role Assignments:      $($GlobalAuditSummary.EntraRoleAssignments.Count) ($($GlobalAuditSummary.EntraRoleAssignments.Eligible) Eligible)
     - Azure Role Assignments:      $($GlobalAuditSummary.AzureRoleAssignments.Count) ($($GlobalAuditSummary.AzureRoleAssignments.Eligible) Eligible)
+    - Access Packages:             $($GlobalAuditSummary.AccessPackages.Count) ($($GlobalAuditSummary.AccessPackages.Policies) Policies)
     - PIM Settings:                $($GlobalAuditSummary.PimSettings.Count)
     - Findings:                    $findingsStatusLine
 "@
@@ -2001,6 +2004,13 @@ Enumeration Results:
                     tier3         = $GlobalAuditSummary.AzureRoleAssignments.Tiers.'Tier-3'
                     uncategorized = $GlobalAuditSummary.AzureRoleAssignments.Tiers.Uncategorized
                 }
+            }
+            accessPackages                    = [ordered]@{
+                count                       = $GlobalAuditSummary.AccessPackages.Count
+                policies                    = $GlobalAuditSummary.AccessPackages.Policies
+                assignments                 = $GlobalAuditSummary.AccessPackages.Assignments
+                servicePrincipalAssignments = $GlobalAuditSummary.AccessPackages.ServicePrincipalAssignments
+                highImpact                  = $GlobalAuditSummary.AccessPackages.HighImpact
             }
             pimSettings                       = [ordered]@{
                 count = $GlobalAuditSummary.PimSettings.Count

@@ -22,7 +22,9 @@ function Invoke-CheckTenant {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprints,
-        [Parameter(Mandatory=$false)][hashtable]$AgentIdentities
+        [Parameter(Mandatory=$false)][hashtable]$AgentIdentities,
+        [Parameter(Mandatory=$false)][hashtable]$AccessPackages,
+        [Parameter(Mandatory=$false)][bool]$AccessPackagesAssessmentAvailable = $false
     )
     #endregion
 
@@ -1476,6 +1478,66 @@ function Invoke-CheckTenant {
     "AffectedObjects": []
   },
   {
+    "FindingId": "APK-001",
+    "Title": "Broad Self-Request Without Approval for High-Impact Access",
+    "Category": "Access Packages",
+    "Severity": 3,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "APK-002",
+    "Title": "Persistent High-Impact Access Without Review",
+    "Category": "Access Packages",
+    "Severity": 1,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "APK-003",
+    "Title": "Potentially Dangerous Auto-Assignment Rules in Access Packages",
+    "Category": "Access Packages",
+    "Severity": 3,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "APK-004",
+    "Title": "Unprotected Groups Can Self-Request High-Impact Access Packages",
+    "Category": "Access Packages",
+    "Severity": 3,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "APK-005",
+    "Title": "Broad Non-User On-Behalf Access Without Approval",
+    "Category": "Access Packages",
+    "Severity": 2,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
     "FindingId": "PIM-001",
     "Title": "PIM for Entra Roles Not Used",
     "Category": "PIM",
@@ -2068,7 +2130,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     # CAP-006
     $CAP006VariantProps = @{
         Default = @{
-            Threat = "<p>Conditions within Conditional Access policies are evaluated using a logical AND. As a result, the policy is only applied when all configured conditions are met, which renders the policy ineffective.</p>"
+            Threat = "<p>Conditional Access policy conditions are evaluated together. Therefore, when both user risk and sign-in risk are configured in the same policy, the policy only applies if the user is classified as risky and the individual sign-in is also classified as risky.</p><p>This does not cover cases where only one of the two risk conditions is met, for example a high-risk user with a low-risk sign-in, or a high-risk sign-in from a user that is not currently classified as risky. As a result, the policy does not effectively cover both intended risk scenarios. Separate policies should be created for user risk and sign-in risk.</p>"
             Remediation = '<p>Create separate Conditional Access policies for high-risk users and high-risk sign-ins.</p><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies</a></li></ul>'
         }
         Vulnerable = @{ Status = "Vulnerable" }
@@ -2687,6 +2749,77 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     }
     #endregion
+    #region APK VariantProps
+    $accessPackageSkippedProps = @{
+        Status = "Skipped"
+        Description = "<p>Access Packages were not assessed in this run. The report is available only for BroCi-based authentication flows and ServicePrincipal flow.</p>"
+        Threat = "<p>Access packages can grant membership, application roles, SharePoint access, or Azure roles through entitlement management. If this area is not assessed, indirect access paths may be missed.</p>"
+        Remediation = "<p>Run EntraFalcon with <code>BroCi</code>, <code>BroCiManualCode</code>, <code>BroCiToken</code>, or <code>ServicePrincipal</code> authentication to include Access Packages.</p>"
+        AffectedObjects = @()
+        RelatedReportUrl = ""
+    }
+    $APK001VariantProps = @{
+        Default = @{
+            Threat = "<p>Access package policies with a broad target scope, self-service request capability, and no approval requirement can allow a large number of identities to obtain access to sensitive resources without a meaningful control gate.</p><p>This is particularly relevant for access packages that grant privileged roles, administrative access, or access to high-value resources. If such policies include broad populations such as all users, external users, service principals, or agent identities, an attacker may be able to obtain additional access by using or controlling an eligible identity.</p>"
+            Remediation = '<p>There should not be privileged access packages that allow self-request for a large number of identities without approval.</p><p>Recommended hardening steps:</p><ul><li>Require approval before access is granted. Use approvers who understand the sensitivity of the resources in the package.</li><li>Disable self-request when the policy targets broad populations such as all users, all external users, all service principals, or all agent identities.</li><li>For service principal or agent identity scopes, verify who can create or control those identities before allowing request-based assignment.</li></ul>'
+        }
+        Vulnerable = @{ Status = "Vulnerable" }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No high-impact access package policies identified with broad self-request and no approval.</p>"
+        }
+    }
+    $APK002VariantProps = @{
+        Default = @{
+            Threat = "<p>High-impact access package policies without expiration and without access reviews can create persistent access paths to sensitive resources. Access may remain active after the original business need has ended because there is no automatic expiry or periodic validation.</p>"
+            Remediation = "<p>Configure either meaningful assignment expiration or access reviews for high-impact access package policies. For privileged resources, prefer both: time-limited assignments and recurring reviews by approvers who understand the sensitivity of the granted access.</p>"
+        }
+        Vulnerable = @{ Status = "Vulnerable" }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No high-impact access package policies identified without both meaningful expiration and access reviews.</p>"
+        }
+    }
+    $APK003VariantProps = @{
+        Default = @{
+            Threat = '<p>If attributes which can be influenced by users are used in an unsafe way in high-impact access package auto-assignment rules, users may be potentially able to grant themselves access to sensitive resources.</p><p>The following user properties can be modified by users through the Microsoft Graph API:</p><ul><li>businessPhones</li><li>mobilePhone</li><li>preferredLanguage</li></ul><p>Identities that can invite guest users may also be able to manipulate UPN or email attributes and invite guest accounts they control.</p>'
+            Remediation = '<p>Access package auto-assignment rules should avoid using attributes that can be influenced by standard users.</p><p>Identities that can invite guest users may manipulate the following attributes:</p><ul><li>userPrincipalName</li><li>mail</li></ul><p>Additionally, the following attributes can be modified by users through the Microsoft Graph API:</p><ul><li>businessPhones</li><li>mobilePhone</li><li>preferredLanguage</li></ul><p>It is recommended to avoid using these attributes in auto-assignment rules, or only use them in combination with additional trusted attributes. Moreover, prefer strict operators such as <code>endsWith</code> and avoid broad matching operators like <code>match</code> or <code>contains</code>.</p><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/users/groups-dynamic-membership#supported-expression-operators" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/users/groups-dynamic-membership#supported-expression-operators</a></li></ul>'
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No high-impact access package policies with potentially dangerous auto-assignment rules were identified.</p>"
+        }
+    }
+    $APK004VariantProps = @{
+        Default = @{
+            Threat = '<p>High-impact access package policies that allow self-request without approval can let eligible identities obtain sensitive resources without an approver decision. If eligibility is granted through an unprotected group target, control over that group membership can become control over who may request the access package.</p><p>Unprotected group targets are groups that are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p>Various roles (for example, Knowledge Manager, Groups Administrator, or User Administrator) and applications with permissions such as <code>Group.ReadWrite.All</code> can manage membership of unprotected groups. An attacker with one of these permissions may therefore add themselves or another account to the targeted group and request the access package without approval.</p>'
+            Remediation = '<p>Protect the targeted groups, require approval for the access package policy, disable self-request, or replace the unprotected group target with a more controlled requestor scope.</p><p>Consider the following hardening measures for targeted groups:</p><ul><li>Add the group to a Restricted Management Administrative Unit and assign scoped administrative roles only to dedicated administrators. This limits who can modify group membership.</li><li>Alternatively, recreate the group as a <code>role-assignable</code> group, even if no roles are currently assigned. This ensures that only privileged roles or group owners can manage membership and modify authentication methods of active members.</li></ul><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/admin-units-restricted-management" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/admin-units-restricted-management</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept#how-are-role-assignable-groups-protected" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept#how-are-role-assignable-groups-protected</a></li><li><a href="https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/concept-pim-for-groups#what-are-entra-id-role-assignable-groups" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/concept-pim-for-groups#what-are-entra-id-role-assignable-groups</a></li></ul>'
+        }
+        Vulnerable = @{ Status = "Vulnerable" }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No high-impact access package policies identified that allow self-request without approval while using unprotected groups as specific targets.</p>"
+        }
+    }
+    $APK005VariantProps = @{
+        Default = @{
+            Threat = "<p>High-impact access package policies that allow on-behalf requests for broad non-user identity scopes can let requesters assign sensitive resources to service principals or agent identities without an approver decision.</p><p>If a requester can create, own, or otherwise control one of these non-user identities, the access package can become an indirect path to grant privileged resources to an identity under their control.</p>"
+            Remediation = "<p>There should not be privileged access packages that allow on-behalf assignment to all service principals or all agent identities without approval.</p><p>Recommended hardening steps:</p><ul><li>Require approval for on-behalf requests to service principals and agent identities.</li><li>Disable on-behalf requests when they are not required.</li><li>Review who can create, own, or manage service principals and agent identities.</li></ul>"
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No high-impact access package policies identified that allow on-behalf assignment to broad non-user identity scopes without approval.</p>"
+        }
+    }
+    #endregion
     #region PIM VariantProps
     $PIM001VariantProps = @{
         Default = @{
@@ -2821,6 +2954,11 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "MAI-001" = $MAI001VariantProps.Default
         "MAI-002" = $MAI002VariantProps.Default
         "MAI-003" = $MAI003VariantProps.Default
+        "APK-001" = $APK001VariantProps.Default
+        "APK-002" = $APK002VariantProps.Default
+        "APK-003" = $APK003VariantProps.Default
+        "APK-004" = $APK004VariantProps.Default
+        "APK-005" = $APK005VariantProps.Default
         "PIM-001" = $PIM001VariantProps.Default
         "PIM-002" = $PIM002VariantProps.Default
         "PIM-003" = $PIM003VariantProps.Default
@@ -8053,6 +8191,320 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     } else {
         Write-Log -Level Verbose -Message "[MAI-003] No managed identities with privileged Azure roles found."
         Set-FindingOverride -FindingId "MAI-003" -Props $MAI003VariantProps.Secure
+    }
+
+    #endregion
+
+    #region Access Packages Evaluation
+    function New-AccessPackagePolicyAffectedObject {
+        param(
+            $Policy,
+            [Parameter(Mandatory = $true)][string]$FindingId,
+            [string[]]$DangerousAutoAssignmentAttributes = $null,
+            [bool]$IncludeEntraRoleColumns = $true,
+            [bool]$IncludeAzureRoleColumns = $true
+        )
+
+        $dangerousAttributesText = if ($null -ne $DangerousAutoAssignmentAttributes) {
+            @($DangerousAutoAssignmentAttributes) -join ", "
+        } else {
+            $Policy.DangerousAutoAssignmentAttributes
+        }
+
+        $policyAnchor = if ($Policy.PSObject.Properties["Id"] -and -not [string]::IsNullOrWhiteSpace([string]$Policy.Id)) {
+            [string]$Policy.Id
+        } elseif ($Policy.PSObject.Properties["PolicyId"] -and -not [string]::IsNullOrWhiteSpace([string]$Policy.PolicyId)) {
+            "$($Policy.PackageId)_$($Policy.PolicyId)"
+        } else {
+            [string]$Policy.PackageId
+        }
+        $policyName = if ([string]::IsNullOrWhiteSpace([string]$Policy.Policy)) { "Unnamed Policy" } else { [string]$Policy.Policy }
+
+        $affected = [ordered]@{
+            "Policy" = "<a href=`"AccessPackages_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$policyAnchor`" target=`"_blank`">$policyName</a>"
+            "Package" = $Policy.Package
+            "Resources" = $Policy.Resources
+        }
+        if ($IncludeEntraRoleColumns) {
+            $affected["EntraRoles"] = $Policy.EntraRoles
+            $affected["EntraMaxTier"] = $Policy.EntraMaxTier
+        }
+        if ($IncludeAzureRoleColumns) {
+            $affected["AzureRoles"] = $Policy.AzureRoles
+            $affected["AzureMaxTier"] = $Policy.AzureMaxTier
+        }
+        $affected["Impact"] = $Policy.Impact
+
+        switch ($FindingId) {
+            "APK-001" {
+                $affected["AllowedTargetScope"] = $Policy.AllowedTargetScope
+                $affected["SelfAdd"] = $Policy.SelfAddAccess
+                $affected["Approval"] = $Policy.ApprovalRequired
+            }
+            "APK-002" {
+                $affected["Expiration"] = $Policy.Expiration
+                $affected["AccessReview"] = $Policy.AccessReview
+                $affected["Assignments"] = $Policy.Assignments
+            }
+            "APK-003" {
+                $affected["Rule"] = $Policy.AutoAssignmentRule
+                $affected["DangerousAutoAssignmentAttributes"] = $dangerousAttributesText
+            }
+            "APK-004" {
+                $affected["AllowedTargetScope"] = $Policy.AllowedTargetScope
+                $affected["SelfAdd"] = $Policy.SelfAddAccess
+                $affected["Approval"] = $Policy.ApprovalRequired
+                $affected["UnprotectedGroupTargets"] = $Policy.UnprotectedGroupSpecificTargets
+            }
+            "APK-005" {
+                $affected["AllowedTargetScope"] = $Policy.AllowedTargetScope
+                $affected["OnBehalfAdd"] = $Policy.OnBehalfAddAccess
+                $affected["Approval"] = $Policy.ApprovalRequired
+            }
+        }
+
+        [pscustomobject]$affected
+    }
+
+    function Test-AccessPackagePolicySetHasPositiveIntProperty {
+        param(
+            [object[]]$Policies,
+            [Parameter(Mandatory = $true)][string]$PropertyName
+        )
+
+        foreach ($policy in @($Policies)) {
+            if ($null -eq $policy -or -not $policy.PSObject.Properties[$PropertyName]) { continue }
+            if ((Get-IntSafe $policy.PSObject.Properties[$PropertyName].Value) -gt 0) { return $true }
+        }
+        return $false
+    }
+
+    function Get-AccessPackageAffectedRoleColumnOptions {
+        param([object[]]$Policies)
+
+        @{
+            IncludeEntraRoleColumns = Test-AccessPackagePolicySetHasPositiveIntProperty -Policies $Policies -PropertyName "EntraRoles"
+            IncludeAzureRoleColumns = ([bool]$GLOBALAzurePsChecks -and (Test-AccessPackagePolicySetHasPositiveIntProperty -Policies $Policies -PropertyName "AzureRoles"))
+        }
+    }
+
+    function Get-AccessPackageFindingReportUrl {
+        param(
+            [Parameter(Mandatory = $true)][string]$Query,
+            [string[]]$ColumnsBeforeRoleFields = @(),
+            [string[]]$ColumnsAfterRoleFields = @(),
+            [bool]$IncludeEntraRoleColumns = $true,
+            [bool]$IncludeAzureRoleColumns = $true,
+            [string]$Sort = "Risk",
+            [string]$SortDir = "desc"
+        )
+
+        $queryParts = [System.Collections.Generic.List[string]]::new()
+        if (-not [string]::IsNullOrWhiteSpace($Query)) {
+            [void]$queryParts.Add($Query)
+        }
+        [void]$queryParts.Add("Impact=%3E%3D100")
+
+        $columns = [System.Collections.Generic.List[string]]::new()
+        foreach ($column in @($ColumnsBeforeRoleFields)) {
+            if (-not [string]::IsNullOrWhiteSpace($column)) { [void]$columns.Add($column) }
+        }
+        if ($IncludeEntraRoleColumns) {
+            [void]$columns.Add("EntraRoles")
+            [void]$columns.Add("EntraMaxTier")
+        }
+        if ($IncludeAzureRoleColumns) {
+            [void]$columns.Add("AzureRoles")
+            [void]$columns.Add("AzureMaxTier")
+        }
+        foreach ($column in @($ColumnsAfterRoleFields)) {
+            if (-not [string]::IsNullOrWhiteSpace($column)) { [void]$columns.Add($column) }
+        }
+
+        $encodedColumns = [System.Uri]::EscapeDataString(($columns -join ","))
+        return "$accessPackageReportUrl`?$($queryParts -join '&')&columns=$encodedColumns&sort=$Sort&sortDir=$SortDir"
+    }
+
+    $accessPackageReportUrl = "AccessPackages_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html"
+    $apFindingIds = @("APK-001", "APK-002", "APK-003", "APK-004", "APK-005")
+
+    if (-not $AccessPackages -or $AccessPackages.Count -eq 0) {
+        if ($AccessPackagesAssessmentAvailable) {
+            Write-Log -Level Verbose -Message "[AP] No Access Packages found; marking Access Package findings as not vulnerable."
+            Set-FindingOverride -FindingId "APK-001" -Props $APK001VariantProps.Secure
+            Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Secure
+            Set-FindingOverride -FindingId "APK-003" -Props $APK003VariantProps.Secure
+            Set-FindingOverride -FindingId "APK-004" -Props $APK004VariantProps.Secure
+            Set-FindingOverride -FindingId "APK-005" -Props $APK005VariantProps.Secure
+        } else {
+            Write-Log -Level Verbose -Message "[AP] Skipping Access Package findings because no Access Package report data is available."
+            foreach ($findingId in $apFindingIds) {
+                Set-FindingOverride -FindingId $findingId -Props $accessPackageSkippedProps
+            }
+        }
+    } else {
+        $allAccessPackagePolicies = @($AccessPackages.Values)
+        $apBroadSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.HasBroadSelfAddNoApproval })
+        $apPersistentWithoutReview = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and -not $_.HasExpiration -and -not $_.HasAccessReview })
+        $apUnprotectedGroupSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.SelfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.HasUnprotectedGroupSpecificTarget })
+        $apBroadNonUserOnBehalfNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.OnBehalfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.AllowedTargetScope -in @("All Service Principals", "All Agent Identities") -and [int]$_.Resources -gt 0 })
+        $allowInvitesFromForAccessPackageRules = ""
+        if ($AuthPolicy -and $AuthPolicy.allowInvitesFrom) {
+            $allowInvitesFromForAccessPackageRules = "$($AuthPolicy.allowInvitesFrom)"
+        }
+        $includeInviteLinkedAccessPackageRuleAttributes = -not [string]::IsNullOrWhiteSpace($allowInvitesFromForAccessPackageRules) -and $allowInvitesFromForAccessPackageRules.Trim().ToLowerInvariant() -ne "none"
+        $apDangerousAutoAssignment = @($allAccessPackagePolicies | ForEach-Object {
+            $policy = $_
+            $matchedAttributeList = [System.Collections.Generic.List[string]]::new()
+            if ($policy.PSObject.Properties["DangerousAutoAssignmentAttributes"] -and -not [string]::IsNullOrWhiteSpace([string]$policy.DangerousAutoAssignmentAttributes)) {
+                foreach ($attributeName in @("$($policy.DangerousAutoAssignmentAttributes)" -split ",\s*")) {
+                    if (-not [string]::IsNullOrWhiteSpace($attributeName)) {
+                        [void]$matchedAttributeList.Add($attributeName.Trim())
+                    }
+                }
+            }
+            if ($includeInviteLinkedAccessPackageRuleAttributes -and $policy.PSObject.Properties["InviteLinkedDangerousAutoAssignmentAttributes"] -and -not [string]::IsNullOrWhiteSpace([string]$policy.InviteLinkedDangerousAutoAssignmentAttributes)) {
+                foreach ($attributeName in @("$($policy.InviteLinkedDangerousAutoAssignmentAttributes)" -split ",\s*")) {
+                    if (-not [string]::IsNullOrWhiteSpace($attributeName)) {
+                        [void]$matchedAttributeList.Add($attributeName.Trim())
+                    }
+                }
+            }
+
+            $matchedAttributes = @($matchedAttributeList | Select-Object -Unique)
+            if ($policy.IsHighImpact -and $policy.AutoAssignment -eq $true -and $matchedAttributes.Count -gt 0) {
+                $policy | Add-Member -NotePropertyName EffectiveDangerousAutoAssignmentAttributes -NotePropertyValue ($matchedAttributes -join ", ") -Force
+                $policy
+            }
+        })
+
+        if ($apBroadSelfAddNoApproval.Count -gt 0) {
+            $apk001RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apBroadSelfAddNoApproval
+            Write-Log -Level Verbose -Message "[APK-001] Found $($apBroadSelfAddNoApproval.Count) high-impact access package policies with broad self-request and no approval."
+            Set-FindingOverride -FindingId "APK-001" -Props $APK001VariantProps.Vulnerable
+            $apk001VerificationRawScopes = @(
+                "allDirectoryServicePrincipals",
+                "allConfiguredConnectedOrganizationUsers",
+                "allConfiguredConnectedOrganizationSubjects",
+                "allDirectoryAgentIdentities"
+            )
+            $apk001VerificationDisplayScopes = @(
+                "All Service Principals",
+                "All External Orgs",
+                "All Agent Identities",
+                "allConfiguredConnectedOrganizationUsers",
+                "allConfiguredConnectedOrganizationSubjects"
+            )
+            $apk001RequiresVerification = @($apBroadSelfAddNoApproval | Where-Object {
+                $rawScope = ""
+                if ($_.PSObject.Properties["RawAllowedTargetScope"]) {
+                    $rawScope = [string]$_.RawAllowedTargetScope
+                } elseif ($_.PolicyDetails -and $_.PolicyDetails.PSObject.Properties["RawAllowedTargetScope"]) {
+                    $rawScope = [string]$_.PolicyDetails.RawAllowedTargetScope
+                }
+                $displayScope = [string]$_.AllowedTargetScope
+                ($apk001VerificationRawScopes -contains $rawScope) -or ($apk001VerificationDisplayScopes -contains $displayScope)
+            }).Count -gt 0
+            $apk001Description = "<p>$($apBroadSelfAddNoApproval.Count) high-impact access package policies allow broad self-request without approval.</p>"
+            if ($apk001RequiresVerification) {
+                $apk001Description += "<p><strong>Important:</strong> This finding requires manual verification. Exploitability depends on whether objects exist in the allowed target scope and whether an attacker can create or control those objects. This is especially relevant for service principals and agent identities, where ownership or creation rights may allow abuse of the policy.</p>"
+            }
+            $apk001Props = @{
+                Description = $apk001Description
+                Confidence = if ($apk001RequiresVerification) { "Requires Verification" } else { "Sure" }
+                AffectedObjects = @($apBroadSelfAddNoApproval | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-001" @apk001RoleColumns })
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "BroadScope=true&SelfAdd=true&Approval=false" -ColumnsBeforeRoleFields @("Policy","Package","Catalog","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint") -ColumnsAfterRoleFields @("AllowedTargetScope","SelfAdd","Approval","Expiration","AccessReview","Impact","Risk","Warnings") @apk001RoleColumns
+            }
+            if (@($apBroadSelfAddNoApproval | Where-Object { [double]$_.Impact -ge 400 }).Count -gt 0) {
+                $apk001Props.Severity = 4
+            }
+            Set-FindingOverride -FindingId "APK-001" -Props $apk001Props
+        } else {
+            Set-FindingOverride -FindingId "APK-001" -Props $APK001VariantProps.Secure
+        }
+
+        if ($apPersistentWithoutReview.Count -gt 0) {
+            $apk002RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apPersistentWithoutReview
+            Write-Log -Level Verbose -Message "[APK-002] Found $($apPersistentWithoutReview.Count) high-impact access package policies without meaningful expiration or access reviews."
+            Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "APK-002" -Props @{
+                Description = "<p>$($apPersistentWithoutReview.Count) high-impact access package policies allow persistent access without meaningful expiration or access reviews.</p>"
+                AffectedObjects = @($apPersistentWithoutReview | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-002" @apk002RoleColumns })
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Expiration=false&AccessReview=false" -ColumnsBeforeRoleFields @("Policy","Package","Catalog","Resources") -ColumnsAfterRoleFields @("Assignments","Expiration","ExpirationDetails","AccessReview","Impact","Risk","Warnings") @apk002RoleColumns
+            }
+        } else {
+            Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Secure
+        }
+
+        if ($apDangerousAutoAssignment.Count -gt 0) {
+            $apk003RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apDangerousAutoAssignment
+            Write-Log -Level Verbose -Message "[APK-003] Found $($apDangerousAutoAssignment.Count) high-impact access package policies with potentially dangerous auto-assignment rules."
+            $apDangerousAttributeCounts = [ordered]@{
+                "user.preferredLanguage" = 0
+                "user.mobilePhone" = 0
+                "user.businessPhones" = 0
+                "user.userPrincipalName" = 0
+                "user.mail" = 0
+            }
+            foreach ($policy in @($apDangerousAutoAssignment)) {
+                if ($policy.PSObject.Properties["EffectiveDangerousAutoAssignmentAttributes"] -and -not [string]::IsNullOrWhiteSpace([string]$policy.EffectiveDangerousAutoAssignmentAttributes)) {
+                    foreach ($attributeName in @("$($policy.EffectiveDangerousAutoAssignmentAttributes)" -split ",\s*")) {
+                        if ($apDangerousAttributeCounts.Contains($attributeName)) {
+                            $apDangerousAttributeCounts[$attributeName] = [int]$apDangerousAttributeCounts[$attributeName] + 1
+                        }
+                    }
+                }
+            }
+            $apAttributeSummaryItems = foreach ($attributeName in $apDangerousAttributeCounts.Keys) {
+                $count = [int]$apDangerousAttributeCounts[$attributeName]
+                if ($count -gt 0) {
+                    "<li><code>$attributeName</code>: $count policies</li>"
+                }
+            }
+            $apAttributeSummaryHtml = if (@($apAttributeSummaryItems).Count -gt 0) {
+                "<ul>$($apAttributeSummaryItems -join '')</ul>"
+            } else {
+                "<p>No attribute summary available.</p>"
+            }
+            Set-FindingOverride -FindingId "APK-003" -Props $APK003VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "APK-003" -Props @{
+                Description = "<p>There are $($apDangerousAutoAssignment.Count) high-impact access package policies with potentially dangerous auto-assignment rules.</p><p>Used potentially dangerous attributes:</p>$apAttributeSummaryHtml<p><strong>Important:</strong> This finding requires manual verification. Whether a rule using one of these manipulable attributes is exploitable depends on the operator used, the assigned values, and how it is combined with other conditions in the rule.</p>"
+                AffectedObjects = @($apDangerousAutoAssignment | ForEach-Object {
+                    $matchedAttributes = if ($_.PSObject.Properties["EffectiveDangerousAutoAssignmentAttributes"]) { @("$($_.EffectiveDangerousAutoAssignmentAttributes)" -split ",\s*") } else { $null }
+                    New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-003" -DangerousAutoAssignmentAttributes $matchedAttributes @apk003RoleColumns
+                })
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Warnings=Dangerous%20auto-assignment%20rule" -ColumnsBeforeRoleFields @("Policy","Package","AutoAssignment","Resources") -ColumnsAfterRoleFields @("Impact","Risk","Warnings") @apk003RoleColumns
+            }
+        } else {
+            Set-FindingOverride -FindingId "APK-003" -Props $APK003VariantProps.Secure
+        }
+
+        if ($apUnprotectedGroupSelfAddNoApproval.Count -gt 0) {
+            $apk004RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apUnprotectedGroupSelfAddNoApproval
+            Write-Log -Level Verbose -Message "[APK-004] Found $($apUnprotectedGroupSelfAddNoApproval.Count) high-impact access package policies with self-request, no approval, and unprotected group targets."
+            Set-FindingOverride -FindingId "APK-004" -Props $APK004VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "APK-004" -Props @{
+                Description = "<p>$($apUnprotectedGroupSelfAddNoApproval.Count) high-impact access package policies allow self-request without approval and use unprotected groups as specific targets.</p><p>Unprotected group targets are groups that are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess whether a lower-tier administrator or application can manage the targeted group membership and thereby make users eligible to request the access package.</p>"
+                AffectedObjects = @($apUnprotectedGroupSelfAddNoApproval | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-004" @apk004RoleColumns })
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "SelfAdd=true&Approval=false&Warnings=Unprotected%20group%20can%20self-request%20without%20approval" -ColumnsBeforeRoleFields @("Policy","Package","Resources","Groups") -ColumnsAfterRoleFields @("AllowedTargetScope","SelfAdd","Approval","Impact","Risk","Warnings") @apk004RoleColumns
+            }
+        } else {
+            Set-FindingOverride -FindingId "APK-004" -Props $APK004VariantProps.Secure
+        }
+
+        if ($apBroadNonUserOnBehalfNoApproval.Count -gt 0) {
+            $apk005RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apBroadNonUserOnBehalfNoApproval
+            Write-Log -Level Verbose -Message "[APK-005] Found $($apBroadNonUserOnBehalfNoApproval.Count) high-impact access package policies with on-behalf requests for broad non-user identities and no approval."
+            Set-FindingOverride -FindingId "APK-005" -Props $APK005VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "APK-005" -Props @{
+                Description = "<p>$($apBroadNonUserOnBehalfNoApproval.Count) high-impact access package policies allow on-behalf assignment to all service principals or all agent identities without approval.</p><p><strong>Important:</strong> Assess whether requesters can create, own, or control service principals or agent identities in the allowed target scope. Exploitability depends on whether a requester can select a non-user identity they control and use the access package to grant it sensitive resources.</p>"
+                AffectedObjects = @($apBroadNonUserOnBehalfNoApproval | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-005" @apk005RoleColumns })
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "OnBehalfAdd=true&Approval=false&AllowedTargetScope=All%20Service%20Principals%7C%7CAll%20Agent%20Identities" -ColumnsBeforeRoleFields @("Policy","Package","Resources") -ColumnsAfterRoleFields @("AllowedTargetScope","OnBehalfAdd","Approval","Impact","Risk","Warnings") @apk005RoleColumns
+            }
+        } else {
+            Set-FindingOverride -FindingId "APK-005" -Props $APK005VariantProps.Secure
+        }
+
     }
 
     #endregion

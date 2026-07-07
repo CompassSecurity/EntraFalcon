@@ -26,6 +26,7 @@ function Invoke-CheckUsers {
         [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities = @{},
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprintsPrincipals = @{},
+        [Parameter(Mandatory=$false)][hashtable]$AccessPackageUserSpecificTargetIndex = @{},
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
         [Parameter(Mandatory=$true)][ref]$ReportStateOut
     )
@@ -53,6 +54,7 @@ function Invoke-CheckUsers {
     $global:GLOBALUserSignInActivityAvailable = $true
     $AllUsersDetails = [System.Collections.ArrayList]::new()
     $WarningReport = [System.Collections.Generic.List[string]]::new()
+    if ($null -eq $AccessPackageUserSpecificTargetIndex) { $AccessPackageUserSpecificTargetIndex = @{} }
     $EscapedTenantName = $CurrentTenant.FileSafeDisplayNameEncoded
     if (-not $GLOBALGraphExtendedChecks) {$WarningReport.Add("Coverage gap: eligible role assignments not assessed; only active assignments are included.")}
     if (-not ($GLOBALPimForGroupsChecked)) {$WarningReport.Add("Coverage gap: PIM for Groups not assessed; eligible group owners/members may be missing.")}
@@ -65,8 +67,6 @@ function Invoke-CheckUsers {
     }
     $UserImpact = @{
     "Base"                      = 1
-    "DirectAppRoleNormal"       = 10
-    "DirectAppRoleSensitive"    = 50
     "SpOwnAppLock"              = 20
     }
 	
@@ -946,28 +946,16 @@ function Invoke-CheckUsers {
             }
         }
        
-        # Check app roles for sensitive keywords
+        # Check app roles for sensitive access
         if ($UserDirectAppRolesCount -ge 1) {
-            $keywords = @("admin", "critical")
             $SensitiveCounter = 0
 
             foreach ($appRole in $UserDirectAppRoles) {
-                if ($appRole.AppRoleEnabled -eq $true) {
-                    $matchFound = $false
-
-                    foreach ($keyword in $keywords) {
-                        if ($appRole.AppRoleDisplayName -like "*$keyword*" -or $appRole.AppRoleDescription -like "*$keyword*") {
-                            $matchFound = $true
-                            break
-                        }
-                    }
-
-                    if ($matchFound) {
-                        $Impact += $UserImpact["DirectAppRoleSensitive"]
-                        $SensitiveCounter++
-                    } else {
-                        $Impact += $UserImpact["DirectAppRoleNormal"]
-                    }
+                $appRoleDescription = if ($appRole.PSObject.Properties["AppRoleDescription"]) { [string]$appRole.AppRoleDescription } elseif ($appRole.PSObject.Properties["AppRoleDescriptions"]) { [string]$appRole.AppRoleDescriptions } else { "" }
+                $appRoleImpact = Get-AppRoleAssignmentImpact -RoleDisplayName ([string]$appRole.AppRoleDisplayName) -RoleDescription $appRoleDescription -IsEnabled $appRole.AppRoleEnabled
+                $Impact += $appRoleImpact
+                if ($appRoleImpact -eq 30) {
+                    $SensitiveCounter++
                 }
             }
 
@@ -1043,6 +1031,74 @@ function Invoke-CheckUsers {
             $AzureMaxTier = "?"
         }
 
+        $AccessPackageSpecificTargets = [System.Collections.Generic.List[object]]::new()
+        $AccessPackageTargetKeys = @{}
+        if ($AccessPackageUserSpecificTargetIndex.ContainsKey([string]$item.Id)) {
+            foreach ($target in @($AccessPackageUserSpecificTargetIndex[[string]$item.Id])) {
+                $targetKey = "$($target.PackageId)|$($target.PolicyId)|Direct|"
+                if (-not $AccessPackageTargetKeys.ContainsKey($targetKey)) {
+                    $AccessPackageTargetKeys[$targetKey] = $true
+                    [void]$AccessPackageSpecificTargets.Add([pscustomobject]@{
+                        PackageId     = $target.PackageId
+                        Package       = $target.Package
+                        PolicyId      = $target.PolicyId
+                        Policy        = $target.Policy
+                        SelfAdd       = $target.SelfAdd
+                        Approval      = $target.Approval
+                        Resources     = $target.Resources
+                        Groups        = $target.Groups
+                        Applications  = $target.Applications
+                        ApiApp        = $target.ApiApp
+                        ApiDelegated  = $target.ApiDelegated
+                        SharePoint    = $target.SharePoint
+                        EntraRoles    = $target.EntraRoles
+                        AzureRoles    = $target.AzureRoles
+                        Source        = "Direct"
+                        SourceType    = "Direct"
+                        SourceGroupId = ""
+                    })
+                }
+            }
+        }
+
+        foreach ($memberGroup in @($GroupMemberDetails)) {
+            $MatchingGroup = $AllGroupsDetails[$($memberGroup.Id)]
+            if ($MatchingGroup -and $MatchingGroup.PSObject.Properties["AccessPackageSpecificTargets"] -and @($MatchingGroup.AccessPackageSpecificTargets).Count -gt 0) {
+                foreach ($target in @($MatchingGroup.AccessPackageSpecificTargets)) {
+                    $targetKey = "$($target.PackageId)|$($target.PolicyId)|Group|$($memberGroup.Id)"
+                    if (-not $AccessPackageTargetKeys.ContainsKey($targetKey)) {
+                        $AccessPackageTargetKeys[$targetKey] = $true
+                        $sourceGroupName = if ([string]::IsNullOrWhiteSpace([string]$MatchingGroup.DisplayName)) { [string]$memberGroup.Id } else { [string]$MatchingGroup.DisplayName }
+                        [void]$AccessPackageSpecificTargets.Add([pscustomobject]@{
+                            PackageId     = $target.PackageId
+                            Package       = $target.Package
+                            PolicyId      = $target.PolicyId
+                            Policy        = $target.Policy
+                            SelfAdd       = $target.SelfAdd
+                            Approval      = $target.Approval
+                            Resources     = $target.Resources
+                            Groups        = $target.Groups
+                            Applications  = $target.Applications
+                            ApiApp        = $target.ApiApp
+                            ApiDelegated  = $target.ApiDelegated
+                            SharePoint    = $target.SharePoint
+                            EntraRoles    = $target.EntraRoles
+                            AzureRoles    = $target.AzureRoles
+                            Source        = $sourceGroupName
+                            SourceType    = "Group"
+                            SourceGroupId = $memberGroup.Id
+                        })
+                    }
+                }
+            }
+        }
+
+        $AccessPackageSpecificTargets = @($AccessPackageSpecificTargets)
+        $AccessPackageCount = @($AccessPackageSpecificTargets | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.PackageId) } | Select-Object -ExpandProperty PackageId -Unique).Count
+        if (@($AccessPackageSpecificTargets | Where-Object { [bool]$_.SelfAdd -and -not [bool]$_.Approval -and [int]$_.Resources -gt 0 }).Count -gt 0) {
+            [void]$Warnings.Add("Access package self-request without approval")
+        }
+
     #Format warning messages
     $Warnings = if ($null -ne $Warnings) {
             $Warnings -join ' / '
@@ -1113,6 +1169,8 @@ function Invoke-CheckUsers {
             Protected = $protected
             AppRoles = $UserDirectAppRolesCount
             AppRolesDetails = $UserDirectAppRoles
+            AccessPackages = $AccessPackageCount
+            AccessPackageSpecificTargets = $AccessPackageSpecificTargets
             GroupOwnerDetails = $GroupOwnerDetails
             AppRegOwnerDetails = $AppRegOwnerDetails
             BlueprintOwnerDetails = $BlueprintOwnerDetails
@@ -1407,7 +1465,7 @@ function Write-EntraFalconUsersReport {
     write-host "[*] Processing results"
 
     #Define output of the main table
-    $tableOutput = $AllUsersDetails | Sort-Object Risk -Descending | select-object UPN,UPNlink,Enabled,UserType,Agent,ForeignAgent,OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $AllUsersDetails | Sort-Object Risk -Descending | select-object UPN,UPNlink,Enabled,UserType,Agent,ForeignAgent,OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,@{Name = "APTarget"; Expression = { $_.AccessPackages }},AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
     
     # Apply result limit for the main table
     if ($LimitResults -and $LimitResults -gt 0) {
@@ -1467,6 +1525,7 @@ function Write-EntraFalconUsersReport {
         $ReportingRegisteredDevice = @()
         $ReportingAdminUnits = @()
         $ReportingAppRoles = @()
+        $ReportingAccessPackageSpecificTargets = [System.Collections.Generic.List[object]]::new()
         $ReportingMemberGroup = [System.Collections.Generic.List[object]]::new()
         $ReportingAzureRoles = @()
 
@@ -1903,6 +1962,70 @@ function Write-EntraFalconUsersReport {
             }
         }
 
+        #Access Package Policy Targets
+        if ($item.PSObject.Properties["AccessPackageSpecificTargets"] -and @($item.AccessPackageSpecificTargets).Count -ge 1) {
+            $AccessPackageSpecificTargetsRaw = [System.Collections.Generic.List[object]]::new()
+
+            foreach ($object in @($item.AccessPackageSpecificTargets)) {
+                $policyName = [string]$object.Policy
+                $packageName = [string]$object.Package
+                $policyAnchor = if (-not [string]::IsNullOrWhiteSpace([string]$object.PolicyId)) { "$($object.PackageId)_$($object.PolicyId)" } else { "" }
+                $policyLink = if (-not [string]::IsNullOrWhiteSpace($policyAnchor)) {
+                    "<a href=AccessPackages_$($StartTimestamp)_$($EscapedTenantName).html#$policyAnchor>$(ConvertTo-EntraFalconHtmlText $policyName)</a>"
+                } else {
+                    ConvertTo-EntraFalconHtmlText $policyName
+                }
+                $source = if ([string]::IsNullOrWhiteSpace([string]$object.Source)) { "Direct" } else { [string]$object.Source }
+                $sourceLink = if ([string]$object.SourceType -eq "Group" -and -not [string]::IsNullOrWhiteSpace([string]$object.SourceGroupId)) {
+                    "<a href=Groups_$($StartTimestamp)_$($EscapedTenantName).html#$($object.SourceGroupId)>$(ConvertTo-EntraFalconHtmlText $source)</a>"
+                } else {
+                    ConvertTo-EntraFalconHtmlText $source
+                }
+
+                [void]$AccessPackageSpecificTargetsRaw.Add([pscustomobject]@{
+                    Policy       = $policyName
+                    PolicyLink   = $policyLink
+                    Source       = $source
+                    SourceLink   = $sourceLink
+                    Package      = $packageName
+                    SelfAdd      = [bool]$object.SelfAdd
+                    Approval     = [bool]$object.Approval
+                    Resources    = [int]$object.Resources
+                    Groups       = [int]$object.Groups
+                    Applications = [int]$object.Applications
+                    ApiApp       = [int]$object.ApiApp
+                    ApiDelegated = [int]$object.ApiDelegated
+                    SharePoint   = [int]$object.SharePoint
+                    DirectEntraRoles = [int]$object.EntraRoles
+                    DirectAzureRoles = [int]$object.AzureRoles
+                })
+            }
+
+            $formattedText = Format-ReportSection -Title "Access Package Policy Targets" `
+            -Objects $AccessPackageSpecificTargetsRaw `
+            -Properties @("Policy", "Source", "Package", "SelfAdd", "Approval", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "DirectEntraRoles", "DirectAzureRoles") `
+            -ColumnWidths @{ Policy = 50; Source = 40; Package = 50; SelfAdd = 8; Approval = 8; Resources = 9; Groups = 6; Applications = 12; ApiApp = 6; ApiDelegated = 12; SharePoint = 10; DirectEntraRoles = 16; DirectAzureRoles = 16 }
+            [void]$DetailTxtBuilder.AppendLine($formattedText)
+
+            foreach ($obj in $AccessPackageSpecificTargetsRaw) {
+                [void]$ReportingAccessPackageSpecificTargets.Add([pscustomobject]@{
+                    Policy       = $obj.PolicyLink
+                    Source       = $obj.SourceLink
+                    Package      = ConvertTo-EntraFalconHtmlText $obj.Package
+                    SelfAdd      = $obj.SelfAdd
+                    Approval     = $obj.Approval
+                    Resources    = $obj.Resources
+                    Groups       = $obj.Groups
+                    Applications = $obj.Applications
+                    ApiApp       = $obj.ApiApp
+                    ApiDelegated = $obj.ApiDelegated
+                    SharePoint   = $obj.SharePoint
+                    DirectEntraRoles = $obj.DirectEntraRoles
+                    DirectAzureRoles = $obj.DirectAzureRoles
+                })
+            }
+        }
+
         #Group Memberships
         if (@($item.UserMemberGroups).count -ge 1) {
             $MatchingGroupRaw = [System.Collections.Generic.List[object]]::new()
@@ -1940,6 +2063,7 @@ function Write-EntraFalconUsersReport {
                     "AzureMaxTier" = $object.AzureMaxTier
                     "AppRoles" = $object.AppRoles
                     "CAPs" = $object.CAPs
+                    "APTarget" = if ($MatchingGroup.PSObject.Properties["AccessPackages"] -and $null -ne $MatchingGroup.AccessPackages) { $MatchingGroup.AccessPackages } else { 0 }
                     "Users" = $MatchingGroup.Users
                     "Impact" = $object.Impact
                     "Warnings" = $warnings
@@ -1949,8 +2073,8 @@ function Write-EntraFalconUsersReport {
 
             $formattedText = Format-ReportSection -Title "Member of Groups" `
             -Objects $MatchingGroupRaw `
-            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "CAPs", "Users", "Impact", "Warnings") `
-            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; CAPs = 4; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
+            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "CAPs", "APTarget", "Users", "Impact", "Warnings") `
+            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; CAPs = 4; APTarget = 8; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
             [void]$DetailTxtBuilder.AppendLine($formattedText)
         
             foreach ($obj in $MatchingGroupRaw) {
@@ -1965,6 +2089,7 @@ function Write-EntraFalconUsersReport {
                     AzureMaxTier            = $obj.AzureMaxTier
                     AppRoles                = $obj.AppRoles
                     CAPs                    = $obj.CAPs
+                    APTarget                = $obj.APTarget
                     Users                   = $obj.Users
                     Impact                  = $obj.Impact
                     Warnings                = $obj.Warnings
@@ -2007,6 +2132,7 @@ function Write-EntraFalconUsersReport {
             "Registered Devices" = $ReportingRegisteredDevice
             "Administrative Units" = $ReportingAdminUnits
             "Directly Assigned AppRoles" = $ReportingAppRoles
+            "Access Package Policy Targets" = $ReportingAccessPackageSpecificTargets
             "Member of Groups (Transitive)" = $ReportingMemberGroup
             "Azure IAM assignments" = $ReportingAzureRoles
         }
@@ -2066,7 +2192,7 @@ Execution Warnings = $($WarningReport  -join ' / ')
     write-host "[+] Writing log files"
     write-host ""
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "UPN"; Expression = { $_.UPNlink}},Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "UPN"; Expression = { $_.UPNlink}},Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -2086,9 +2212,9 @@ $headerHtml = @"
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Csv) {
-        $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+        $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
     }
-    $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,AppRegOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | format-table | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+    $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,APTarget,AppRegOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | format-table | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     $DetailOutputTxt | Out-File -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
 
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
