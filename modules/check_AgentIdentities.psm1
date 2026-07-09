@@ -1062,8 +1062,19 @@ function Invoke-AgentIdentities {
             }
         }
 
-        #Check if app is inactive
-        if ($AppsignInData.lastSignInDays -ge 180 -or $AppsignInData.lastSignInDays -eq "-" -or $Null -eq $AppsignInData) {
+        #Check if agent is inactive
+        $LastSignInDays = "-"
+        if ($null -ne $AppsignInData -and $null -ne $AppsignInData.lastSignInDays -and -not [string]::IsNullOrWhiteSpace("$($AppsignInData.lastSignInDays)")) {
+            $LastSignInDays = $AppsignInData.lastSignInDays
+        }
+
+        $lastSignInDaysText = "$LastSignInDays".Trim()
+        $lastSignInDaysNumber = 0
+        $hasLastSignInDays = [int]::TryParse($lastSignInDaysText, [ref]$lastSignInDaysNumber)
+        $creationInDaysNumber = 0
+        $hasCreationInDays = [int]::TryParse("$CreationInDays", [ref]$creationInDaysNumber)
+
+        if (($hasLastSignInDays -and $lastSignInDaysNumber -ge 180) -or ($lastSignInDaysText -eq "-" -and $hasCreationInDays -and $creationInDaysNumber -gt 180)) {
             $Inactive = $true
         } else {
             $Inactive = $false
@@ -1097,12 +1108,6 @@ function Invoke-AgentIdentities {
             $Warnings -join ' / '
         } else {
             ''
-        }
-
-        if ($AppsignInData.lastSignInDays) {
-            $LastSignInDays = $AppsignInData.lastSignInDays
-        } else {
-            $LastSignInDays = "-"
         }
 
         #Write custom object

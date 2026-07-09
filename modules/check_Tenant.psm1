@@ -7460,7 +7460,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             })
         }
         Set-FindingOverride -FindingId "AGT-010" -Props @{
-            Description = "<p>There are $($inactiveEnabledAgentIdentities.Count) enabled agent identities with no sign-in activities over the last 180 days.</p>"
+            Description = "<p>There are $($inactiveEnabledAgentIdentities.Count) enabled inactive agent identities.</p><p><strong>Note:</strong> Agent identities are considered inactive if they have no sign-in activity for 180 days or if they never signed in and were created more than 180 days ago.</p>"
             AffectedObjects = $agt010Affected
         }
     } else {
