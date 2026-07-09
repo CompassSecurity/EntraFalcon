@@ -6460,6 +6460,72 @@ function Export-EntraFalconSecurityFindingsJson {
     }
 }
 
+function Export-EntraFalconDataJson {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputFolder,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DatasetName,
+
+        [Parameter(Mandatory = $false)]
+        [object]$Data = $null,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$NoClobber = $false
+    )
+
+    function ConvertTo-EntraFalconDataJsonFilePart {
+        param(
+            [object]$Value,
+            [string]$Fallback = "Data"
+        )
+
+        $text = [string]$Value
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            $text = $Fallback
+        }
+
+        $invalidChars = [System.IO.Path]::GetInvalidFileNameChars()
+        foreach ($invalidChar in $invalidChars) {
+            $text = $text.Replace([string]$invalidChar, "_")
+        }
+        $text = $text.Trim()
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            $text = $Fallback
+        }
+        return $text
+    }
+
+    try {
+        $resolvedOutputFolder = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFolder)
+        $null = [System.IO.Directory]::CreateDirectory($resolvedOutputFolder)
+
+        $dataJsonFolder = [System.IO.Path]::Combine($resolvedOutputFolder, "Data_Json")
+        $null = [System.IO.Directory]::CreateDirectory($dataJsonFolder)
+
+        $fileName = "{0}.json" -f (ConvertTo-EntraFalconDataJsonFilePart -Value $DatasetName)
+        $exportPath = [System.IO.Path]::Combine($dataJsonFolder, $fileName)
+        if ($NoClobber -and (Test-Path -LiteralPath $exportPath -PathType Leaf)) {
+            return (Resolve-Path -LiteralPath $exportPath).Path
+        }
+
+        $json = ConvertTo-Json -InputObject $Data -Depth 50
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($exportPath, $json, $utf8NoBom)
+
+        try {
+            return (Resolve-Path -LiteralPath $exportPath).Path
+        } catch {
+            return $exportPath
+        }
+    } catch {
+        Write-Host "[!] Failed to export data JSON '$DatasetName': $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Export-EntraFalconDebugObjectDump {
     [CmdletBinding()]
     param(
@@ -10179,4 +10245,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp

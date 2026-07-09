@@ -21,7 +21,8 @@ function Invoke-CheckRoles {
         [Parameter(Mandatory=$true)][hashtable]$Users,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities = @{},
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprintsPrincipals = @{},
-        [Parameter(Mandatory=$false)][switch]$Csv = $false
+        [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Function section ########################
@@ -562,6 +563,11 @@ function Invoke-CheckRoles {
     $mainAzureTableJson  = $mainAzureTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainAzureTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainAzureTableJson + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "EntraRoleAssignments" -Data $SortedEntraRoles | Out-Null
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "AzureRoleAssignments" -Data $SortedAzureRoles | Out-Null
+    }
 
 
 

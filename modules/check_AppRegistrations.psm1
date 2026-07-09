@@ -18,7 +18,8 @@ function Invoke-CheckAppRegistrations {
         [Parameter(Mandatory=$true)][hashtable]$AgentObjectBasics,
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
-        [Parameter(Mandatory=$false)][switch]$Csv = $false
+        [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Function section ########################
@@ -1159,6 +1160,10 @@ $ObjectsDetailsHEAD = @'
     <script id="object-data" type="application/json">
 '@
 $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "AppRegistrations" -Data $AllAppRegistrations | Out-Null
+    }
 
     
 #Define header

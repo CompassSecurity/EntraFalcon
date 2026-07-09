@@ -26,7 +26,8 @@ function Invoke-CheckGroups {
         [Parameter(Mandatory = $true)][int]$ApiTop,
         [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
         [Parameter(Mandatory=$false)][hashtable]$AccessPackageGroupSpecificTargetIndex = @{},
-        [Parameter(Mandatory=$false)][switch]$Csv = $false
+        [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Function section ########################
@@ -392,6 +393,9 @@ function Invoke-CheckGroups {
     #Abort if no groups are present
     if (@($AllGroups).count -eq 0) {
         $AllGroupsDetailsHT = @{}
+        if ($ExportDataJson) {
+            Export-EntraFalconDataJson -OutputFolder $OutputFolder -DatasetName "Groups" -Data @() | Out-Null
+        }
         Return $AllGroupsDetailsHT
     }
     
@@ -2617,6 +2621,10 @@ $ObjectsDetailsHEAD = @'
     <script id="object-data" type="application/json">
 '@
 $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "Groups" -Data $AllGroupsDetails | Out-Null
+    }
 
 
     #Define Appendix

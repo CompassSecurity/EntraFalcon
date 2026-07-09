@@ -28,6 +28,7 @@ function Invoke-CheckUsers {
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprintsPrincipals = @{},
         [Parameter(Mandatory=$false)][hashtable]$AccessPackageUserSpecificTargetIndex = @{},
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false,
         [Parameter(Mandatory=$true)][ref]$ReportStateOut
     )
 
@@ -1215,6 +1216,7 @@ function Invoke-CheckUsers {
         StartTimestamp               = $StartTimestamp
         OutputFolder                 = $OutputFolder
         Csv                          = $Csv
+        ExportDataJson               = $ExportDataJson
         QAMode                       = $QAMode
         LimitResults                 = $LimitResults
         WarningReport                = $WarningReport
@@ -1441,6 +1443,7 @@ function Write-EntraFalconUsersReport {
     $StartTimestamp = $UserReportState.StartTimestamp
     $outputFolder = $UserReportState.OutputFolder
     $Csv = [bool]$UserReportState.Csv
+    $ExportDataJson = [bool]$UserReportState.ExportDataJson
     $QAMode = [bool]$UserReportState.QAMode
     $LimitResults = $UserReportState.LimitResults
     $WarningReport = $UserReportState.WarningReport
@@ -2196,6 +2199,10 @@ Execution Warnings = $($WarningReport  -join ' / ')
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "Users" -Data $AllUsersDetails | Out-Null
+    }
 
     # Set generic information which get injected into the HTML
     Set-GlobalReportManifest -CurrentReportKey 'Users' -CurrentReportName 'Users Enumeration' -Warnings $WarningReport

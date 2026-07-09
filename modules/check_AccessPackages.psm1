@@ -702,7 +702,8 @@ function Invoke-CheckAccessPackages {
         [Parameter(Mandatory = $false)][hashtable]$ManagedIdentities = @{},
         [Parameter(Mandatory = $false)][hashtable]$AgentIdentities = @{},
         [Parameter(Mandatory = $false)][hashtable]$AgentIdentityBlueprintsPrincipals = @{},
-        [Parameter(Mandatory = $false)][switch]$Csv = $false
+        [Parameter(Mandatory = $false)][switch]$Csv = $false,
+        [Parameter(Mandatory = $false)][switch]$ExportDataJson = $false
     )
 
     ############################## Function section ########################
@@ -1648,6 +1649,10 @@ function Invoke-CheckAccessPackages {
     $mainTableExport = @($TableOutput | Select-Object Policy,Package,Catalog,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,@{Name = "Impact"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Impact }},Likelihood,@{Name = "Risk"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Risk }},Warnings)
     $mainTableJson = if ($mainTableHtml.Count -eq 0) { "[]" } else { $mainTableHtml | ConvertTo-Json -Depth 6 -Compress }
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $OutputFolder -DatasetName "AccessPackages" -Data $TableOutput | Out-Null
+    }
 
     $allObjectDetailsJson = if ($AllObjectDetails.Count -eq 0) { "[]" } else { $AllObjectDetails | ConvertTo-Json -Depth 8 -Compress }
     $objectsDetailsHead = @'

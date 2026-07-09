@@ -14,6 +14,7 @@ function Invoke-CheckCaps {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory=$true)][hashtable]$Users,
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false,
         [Parameter(Mandatory=$false)][switch]$ExportCapUncoveredUsers = $false
     )
 
@@ -3066,6 +3067,7 @@ $MissingPolicies
         $mainTableJson  = $mainTable | ConvertTo-Json -Depth 10 -Compress       
     } else {
         #Define an empty JSON object to make the HTML report loading
+        $mainTable = @()
         $mainTableJson = "[{}]"
     }
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -3110,6 +3112,10 @@ if ($AllPoliciesCount -gt 0) {
 } else {
     $AllObjectDetailsHTML = "`n"
 }
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "ConditionalAccessPolicies" -Data $ConditionalAccessPolicies | Out-Null
+    }
 
 
 

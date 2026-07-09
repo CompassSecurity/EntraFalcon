@@ -11,7 +11,9 @@ function Export-Summary {
         [Parameter(Mandatory=$true)][Object[]]$CurrentTenant,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
         [Parameter(Mandatory=$false)][object[]]$TenantDomains = @(),
-        [Parameter(Mandatory=$false)][hashtable]$Users = @{}
+        [Parameter(Mandatory=$false)][hashtable]$Users = @{},
+        [Parameter(Mandatory=$false)][string]$EntraFalconVersion,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Function section ########################
@@ -2061,6 +2063,9 @@ Enumeration Results:
     $summaryJsonPath = "$outputFolder\_EntraFalconEnumerationSummary_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).json"
     $Report | Out-File $summaryHtmlPath
     $summaryJson | ConvertTo-Json -Depth 10 | Out-File -FilePath $summaryJsonPath -Encoding utf8
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $OutputFolder -DatasetName "Summary" -Data $summaryJson | Out-Null
+    }
 
     # Print to console
     Write-Host "`n`n========================================= Summary =========================================" -ForegroundColor Cyan

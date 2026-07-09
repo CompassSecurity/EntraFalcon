@@ -97,6 +97,9 @@
     Exports the complete Security Findings report as JSON at the end of the run.
     The output matches the JSON (All) export from the interactive Security Findings report.
 
+    .PARAMETER ExportDataJson
+    Exports enriched report and supporting datasets as one JSON file per dataset under Data_Json.
+
     .NOTES
     Author: Christian Feuchter, Compass Security Switzerland AG, https://www.compass-security.com/
     Source: https://github.com/CompassSecurity/EntraFalcon 
@@ -152,6 +155,9 @@ Param (
 
     [Parameter(Mandatory=$false)]
     [switch]$ExportFindingsJson = $false,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$ExportDataJson = $false,
 
     [Parameter(Mandatory = $false)]
     [string]$BroCiToken,
@@ -288,6 +294,9 @@ $optionalParamsOutput = @{}
 if ($Csv) {
     $optionalParamsOutput['Csv'] = $true
 }
+if ($ExportDataJson) {
+    $optionalParamsOutput['ExportDataJson'] = $true
+}
 $optionalParamsCap = @{}
 if ($ExportCapUncoveredUsers) {
     $optionalParamsCap['ExportCapUncoveredUsers'] = $true
@@ -340,6 +349,7 @@ $TenantDomains = Get-TenantDomains
 if ($null -eq $OutputFolder -or "" -eq $OutputFolder) {
     $OutputFolder = "Results_$($CurrentTenant.FileSafeDisplayName)_$($StartTimestamp)"
 }
+$OutputFolder = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFolder)
 # Create report directory
 if (-not (Test-Path -Path $OutputFolder)) {
     try {
@@ -568,7 +578,35 @@ $SecurityFindings = Invoke-CheckTenant -CurrentTenant $CurrentTenant -StartTimes
 
 write-host "`n********************************** [17/17] Generating Summary Report **********************************"
 # Show assessment summary and generate summary HTML report
-Export-Summary -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TenantDomains $TenantDomains -Users $Users
+Export-Summary -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TenantDomains $TenantDomains -Users $Users -EntraFalconVersion $EntraFalconVersion -ExportDataJson:$ExportDataJson
+
+if ($ExportDataJson) {
+    $fallbackDataJsonExports = [ordered]@{
+        Users                              = $Users
+        Groups                             = $AllGroupsDetails
+        ConditionalAccessPolicies         = $AllCaps
+        EnterpriseApps                     = $EnterpriseApps
+        AppRegistrations                   = $AppRegistrations
+        ManagedIdentities                  = $ManagedIdentities
+        EntraRoleAssignments               = $TenantRoleAssignments
+        AzureRoleAssignments               = $AzureIAMAssignments
+        PimForEntra                        = $PimforEntraRoles
+        PimForGroups                       = $PimforGroups
+        AccessPackages                     = $AccessPackages
+        AgentIdentities                    = $AgentIdentities
+        AgentIdentityBlueprints            = $AgentIdentityBlueprints
+        AgentIdentityBlueprintsPrincipals  = $AgentIdentityBlueprintsPrincipals
+        SecurityFindings                   = $SecurityFindings
+        Summary                            = $GlobalAuditSummary
+        Domains                            = $TenantDomains
+        AdministrativeUnits                = $AdminUnitWithMembers
+        Subscriptions                      = $GlobalAuditSummary.Subscriptions.Details
+    }
+
+    foreach ($fallbackExport in $fallbackDataJsonExports.GetEnumerator()) {
+        Export-EntraFalconDataJson -OutputFolder $OutputFolder -DatasetName $fallbackExport.Key -Data $fallbackExport.Value -NoClobber | Out-Null
+    }
+}
 
 if ($DebugObjectDump) {
     $debugContext = @{

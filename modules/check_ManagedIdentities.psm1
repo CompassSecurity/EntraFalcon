@@ -17,7 +17,8 @@ function Invoke-CheckManagedIdentities {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory = $true)][int]$ApiTop,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
-        [Parameter(Mandatory=$false)][switch]$Csv = $false
+        [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Script section ########################
@@ -1083,6 +1084,10 @@ $ObjectsDetailsHEAD = @'
     <script id="object-data" type="application/json">
 '@
 $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "ManagedIdentities" -Data $AllServicePrincipal | Out-Null
+    }
 
 #Define header
 $headerTXT = "************************************************************************************************************************

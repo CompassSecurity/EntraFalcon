@@ -250,6 +250,7 @@ This also skips the standalone `PIM for Groups` settings report.
 | **Csv**                | Enables writing CSV report files in addition to TXT/HTML report files.                                                             | `false`                                           |
 | **ExportCapUncoveredUsers** | For each enabled Conditional Access policy with user targeting, exports a CSV listing users **not** covered by that policy. Files are written to a `ConditionalAccessPolicies_UncoveredUsers` subfolder in the output directory. | `false` |
 | **ExportFindingsJson** | Exports all Security Findings as JSON at the end of the run. | `false` |
+| **ExportDataJson**    | Exports enriched report and supporting datasets as raw JSON data files under `Data_Json`; run metadata is available in `Summary.json`. | `false` |
 | **DebugObjectDump**    | Exports final in-memory report objects as CLIXML to `Debug_ObjectDump` for troubleshooting and testing. | `false`                                      |
 
 

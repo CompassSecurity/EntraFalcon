@@ -12,7 +12,8 @@ function Invoke-CheckPIMGroups {
         [Parameter(Mandatory = $true)][hashtable]$AllGroupsDetails,
         [Parameter(Mandatory = $true)][hashtable]$AllCaps,
         [Parameter(Mandatory = $true)][String[]]$StartTimestamp,
-        [Parameter(Mandatory = $false)][switch]$Csv = $false
+        [Parameter(Mandatory = $false)][switch]$Csv = $false,
+        [Parameter(Mandatory = $false)][switch]$ExportDataJson = $false
     )
 
     function Parse-ISO8601Duration {
@@ -813,6 +814,10 @@ Execution Warnings = This report includes only PIM settings for PIM-enabled grou
     <script id="object-data" type="application/json">
 '@
     $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "PimForGroups" -Data $AllPIMGroupDetails | Out-Null
+    }
 
     $headerTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     $tableOutput | Format-Table Group, EntraMaxTier, AzureMaxTier, Role, Eligible, Active, ActivationAuthContext, ActivationMFA, ActivationJustification, ActivationTicketing, ActivationDuration, ActivationApproval, EligibleExpiration, EligibleExpirationTime, ActiveExpiration, ActiveExpirationTime, ActiveAssignMFA, ActiveAssignJustification, AlertAssignEligible, AlertAssignActive, AlertActivation, Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append

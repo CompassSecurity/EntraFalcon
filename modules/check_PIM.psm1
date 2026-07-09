@@ -15,7 +15,8 @@ function Invoke-CheckPIM {
         [Parameter(Mandatory=$true)][hashtable]$Users,
         [Parameter(Mandatory=$true)][hashtable]$AllCaps,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
-        [Parameter(Mandatory=$false)][switch]$Csv = $false
+        [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Function section ########################
@@ -849,6 +850,10 @@ $ObjectsDetailsHEAD = @'
     <script id="object-data" type="application/json">
 '@
     $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "PimForEntra" -Data $AllPIMDetails | Out-Null
+    }
 
     #Write TXT and CSV files
     $headerTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append

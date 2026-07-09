@@ -25,7 +25,8 @@ function Invoke-CheckEnterpriseApps {
         [Parameter(Mandatory=$true)][hashtable]$ServicePrincipalSignInActivityLookup,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
         [Parameter(Mandatory=$false)][ref]$AppRoleReferenceCacheOut = $null,
-        [Parameter(Mandatory=$false)][switch]$Csv = $false
+        [Parameter(Mandatory=$false)][switch]$Csv = $false,
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
 
     ############################## Script section ########################
@@ -1942,6 +1943,10 @@ $ObjectsDetailsHEAD = @'
     <script id="object-data" type="application/json">
 '@
 $AllObjectDetailsHTML = $ObjectsDetailsHEAD + "`n" + $AllObjectDetailsHTML + "`n" + '</script>'
+
+    if ($ExportDataJson) {
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "EnterpriseApps" -Data $AllServicePrincipal | Out-Null
+    }
 
 #Define header
 $headerTXT = "************************************************************************************************************************
