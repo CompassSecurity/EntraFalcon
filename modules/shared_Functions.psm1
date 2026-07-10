@@ -6620,7 +6620,13 @@ function Export-EntraFalconDebugObjectDump {
         [object]$AccessPackages,
 
         [Parameter(Mandatory = $false)]
-        [object]$SecurityFindings
+        [object]$SecurityFindings,
+
+        [Parameter(Mandatory = $false)]
+        [object]$IntuneRbacRoleAssignments,
+
+        [Parameter(Mandatory = $false)]
+        [object]$IntuneRbacState
     )
 
     function Get-DebugObjectCount {
@@ -6663,6 +6669,14 @@ function Export-EntraFalconDebugObjectDump {
         }
         $debugDumpFolderFullPath = (Resolve-Path -LiteralPath $debugDumpFolder).Path
 
+        if ($null -eq $IntuneRbacState) {
+            $IntuneRbacState = [pscustomobject]@{
+                Checked    = [bool]$GLOBALIntuneRbacChecked
+                Available  = [bool]$GLOBALIntuneRbacAvailable
+                SkipReason = [string]$GLOBALIntuneRbacSkipReason
+            }
+        }
+
         $debugObjects = [ordered]@{
             "01_CurrentTenant.clixml"                     = $CurrentTenant
             "02_TenantDomains.clixml"                     = $TenantDomains
@@ -6692,6 +6706,8 @@ function Export-EntraFalconDebugObjectDump {
             "26_RawAccessPackages.clixml"                 = $RawAccessPackages
             "27_AccessPackages.clixml"                    = $AccessPackages
             "28_SecurityFindings.clixml"                  = $SecurityFindings
+            "29_IntuneRbacRoleAssignments.clixml"         = $IntuneRbacRoleAssignments
+            "30_IntuneRbacState.clixml"                   = $IntuneRbacState
         }
 
         $summaryProperties = [ordered]@{
@@ -8658,6 +8674,256 @@ function Get-EntraRoleAssignments {
     Return $TenantRoleAssignmentsHT
 }
 
+function Get-IntuneRbacRoleAssignments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [int]$ApiTop = 999
+    )
+
+    $global:GLOBALIntuneRbacChecked = $false
+    $global:GLOBALIntuneRbacAvailable = $false
+    $global:GLOBALIntuneRbacSkipReason = ""
+
+    $IntuneAssignmentsByGroup = @{}
+    $authFlow = ""
+    if ($GLOBALAuthMethods -and $GLOBALAuthMethods.ContainsKey("AuthFlow")) {
+        $authFlow = [string]$GLOBALAuthMethods.AuthFlow
+    }
+
+    $supportedAuthFlow = (@("BroCi", "BroCiManualCode", "BroCiToken") -contains $authFlow) -or $authFlow -eq "ServicePrincipal"
+    if (-not $supportedAuthFlow) {
+        $global:GLOBALIntuneRbacChecked = $true
+        $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because AuthFlow '$authFlow' is not supported for this check."
+        Write-Host "[!] $($global:GLOBALIntuneRbacSkipReason)"
+        return $IntuneAssignmentsByGroup
+    }
+
+    Write-Host "[*] Authentication for Intune RBAC assessment"
+    if (-not (invoke-EntraFalconAuth -Action Auth -Purpose IntuneRbac @GLOBALAuthMethods)) {
+        $global:GLOBALIntuneRbacChecked = $true
+        $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because authentication failed."
+        Write-Host "[!] $($global:GLOBALIntuneRbacSkipReason)"
+        return $IntuneAssignmentsByGroup
+    }
+
+    if ($null -eq $GLOBALIntuneRbacAccessToken -or [string]::IsNullOrWhiteSpace([string]$GLOBALIntuneRbacAccessToken.access_token)) {
+        $global:GLOBALIntuneRbacChecked = $true
+        $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because no access token was returned."
+        Write-Host "[!] $($global:GLOBALIntuneRbacSkipReason)"
+        return $IntuneAssignmentsByGroup
+    }
+
+    $highRiskRoleDefinitionIds = @(
+        "5500eb3c-d329-45fd-b3a9-5f87c2cc5e03", # Multi Admin Approval Policy Manager
+        "fb2603eb-3c87-4be3-8b5b-d58a5b4a0bc0", # Intune Role Administrator
+        "0bd113fe-6be5-400c-a28f-ae5553f9c0be", # Policy and Profile Manager
+        "c1d9fcbb-cba5-40b0-bf6b-527006585f4b"  # Application Manager
+    )
+    $roleScopeTagsById = @{}
+    $directoryObjectNamesById = @{}
+
+    function Resolve-IntuneRbacDirectoryObjectReferences {
+        param(
+            [Parameter(Mandatory = $false)]
+            [object[]]$ObjectIds
+        )
+
+        $resolvedNames = @()
+        foreach ($objectId in @($ObjectIds)) {
+            $objectKey = [string]$objectId
+            if ([string]::IsNullOrWhiteSpace($objectKey)) { continue }
+
+            if (-not $directoryObjectNamesById.ContainsKey($objectKey)) {
+                $displayValue = $objectKey
+                try {
+                    $directoryObject = Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/directoryObjects/$objectKey" -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
+                    if ($directoryObject -and -not [string]::IsNullOrWhiteSpace([string]$directoryObject.displayName)) {
+                        $displayValue = [string]$directoryObject.displayName
+                    }
+                } catch {
+                    Write-Log -Level Verbose -Message ("[IntuneRbac] Unable to resolve directory object {0}: {1}" -f $objectKey, $_.Exception.Message)
+                }
+                $directoryObjectNamesById[$objectKey] = $displayValue
+            }
+
+            $resolvedNames += $directoryObjectNamesById[$objectKey]
+        }
+
+        return $resolvedNames
+    }
+
+    try {
+        Write-Host "[*] Get Intune RBAC role definitions"
+        $roleDefinitionQueryParameters = @{
+            '$select' = "id,displayName,isBuiltIn,description,rolePermissions"
+            '$top'    = $ApiTop
+        }
+        $roleDefinitions = @(Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleDefinitions" -QueryParameters $roleDefinitionQueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+
+        try {
+            $roleScopeTagQueryParameters = @{
+                '$select' = "id,displayName"
+                '$top'    = $ApiTop
+            }
+            $roleScopeTags = @(Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleScopeTags" -QueryParameters $roleScopeTagQueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+            foreach ($roleScopeTag in $roleScopeTags) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$roleScopeTag.id)) {
+                    $roleScopeTagsById[[string]$roleScopeTag.id] = [string]$roleScopeTag.displayName
+                }
+            }
+        } catch {
+            Write-Log -Level Verbose -Message ("[IntuneRbac] Unable to enumerate role scope tags: {0}" -f $_.Exception.Message)
+        }
+
+        foreach ($roleDefinition in $roleDefinitions) {
+            $roleDefinitionId = [string]$roleDefinition.id
+            if ([string]::IsNullOrWhiteSpace($roleDefinitionId)) { continue }
+
+            $roleName = [string]$roleDefinition.displayName
+            $isHighRiskRole = $false
+            foreach ($highRiskRoleDefinitionId in $highRiskRoleDefinitionIds) {
+                if ($roleDefinitionId -ieq $highRiskRoleDefinitionId) {
+                    $isHighRiskRole = $true
+                    break
+                }
+            }
+
+            $assignmentQueryParameters = @{
+                '$top' = $ApiTop
+            }
+            $roleAssignments = @(Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleDefinitions/$roleDefinitionId/roleAssignments" -QueryParameters $assignmentQueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+
+            foreach ($assignment in $roleAssignments) {
+                if ($null -eq $assignment) { continue }
+
+                $assignmentForMembers = $assignment
+                $assignmentId = [string]$assignment.id
+                $listMembers = @()
+                if ($assignment.PSObject.Properties.Name -contains "members") {
+                    $listMembers = @($assignment.members | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                }
+
+                # Some tenants return members as an empty array on the list endpoint, while the direct assignment endpoint returns the actual included groups.
+                if ($listMembers.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($assignmentId)) {
+                    try {
+                        $directAssignment = Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleDefinitions/$roleDefinitionId/roleAssignments/$assignmentId" -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
+                        if ($directAssignment) {
+                            $assignmentForMembers = $directAssignment
+                        }
+                    } catch {
+                        Write-Log -Level Verbose -Message ("[IntuneRbac] Unable to hydrate assignment {0}: {1}" -f $assignmentId, $_.Exception.Message)
+                    }
+                }
+
+                if (-not ($assignmentForMembers.PSObject.Properties.Name -contains "members")) { continue }
+
+                $memberIds = @($assignmentForMembers.members | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                if ($memberIds.Count -eq 0) { continue }
+
+                $roleScopeTagIds = @()
+                if ($assignmentForMembers.PSObject.Properties.Name -contains "roleScopeTags") {
+                    $roleScopeTagIds = @($assignmentForMembers.roleScopeTags | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                }
+
+                $roleScopeTagNames = @()
+                foreach ($roleScopeTagId in $roleScopeTagIds) {
+                    $roleScopeTagKey = [string]$roleScopeTagId
+                    if ($roleScopeTagsById.ContainsKey($roleScopeTagKey)) {
+                        $roleScopeTagNames += $roleScopeTagsById[$roleScopeTagKey]
+                    } else {
+                        $roleScopeTagNames += $roleScopeTagKey
+                    }
+                }
+
+                $scopeMembers = @()
+                if ($assignmentForMembers.PSObject.Properties.Name -contains "scopeMembers") {
+                    $scopeMembers = @($assignmentForMembers.scopeMembers | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                }
+
+                $resourceScopes = @()
+                if ($assignmentForMembers.PSObject.Properties.Name -contains "resourceScopes") {
+                    $resourceScopes = @($assignmentForMembers.resourceScopes | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                }
+
+                $scopeMembersResolved = @(Resolve-IntuneRbacDirectoryObjectReferences -ObjectIds $scopeMembers)
+                $resourceScopesResolved = @(Resolve-IntuneRbacDirectoryObjectReferences -ObjectIds $resourceScopes)
+
+                $scopeType = [string]$assignmentForMembers.scopeType
+                if ([string]::IsNullOrWhiteSpace($scopeType)) {
+                    if ($resourceScopes.Count -gt 0) {
+                        $scopeType = "resourceScope"
+                    } elseif ($scopeMembers.Count -gt 0) {
+                        $scopeType = "scopeMembers"
+                    } elseif ($roleScopeTagIds.Count -gt 0) {
+                        $scopeType = "roleScopeTags"
+                    } else {
+                        $scopeType = "All"
+                    }
+                }
+
+                $isScopedAssignment = ($resourceScopes.Count -gt 0) -or ($scopeMembers.Count -gt 0) -or ($roleScopeTagIds.Count -gt 0) -or ($scopeType -ne "All")
+                if ($isHighRiskRole) {
+                    $impactScore = if ($isScopedAssignment) { 100 } else { 400 }
+                } else {
+                    $impactScore = 50
+                }
+
+                foreach ($memberId in $memberIds) {
+                    $memberKey = [string]$memberId
+                    if (-not $IntuneAssignmentsByGroup.ContainsKey($memberKey)) {
+                        $IntuneAssignmentsByGroup[$memberKey] = [System.Collections.Generic.List[object]]::new()
+                    }
+
+                    [void]$IntuneAssignmentsByGroup[$memberKey].Add([pscustomobject]@{
+                        RoleName              = $roleName
+                        RoleDefinitionId      = $roleDefinitionId
+                        RoleDescription       = [string]$roleDefinition.description
+                        IsBuiltIn             = [bool]$roleDefinition.isBuiltIn
+                        AssignmentName        = [string]$assignmentForMembers.displayName
+                        AssignmentId          = [string]$assignmentForMembers.id
+                        AssignmentDescription = [string]$assignmentForMembers.description
+                        ScopeType             = $scopeType
+                        ScopeMembers          = $scopeMembers
+                        ScopeMembersResolved  = $scopeMembersResolved
+                        ResourceScopes        = $resourceScopes
+                        ResourceScopesResolved = $resourceScopesResolved
+                        RoleScopeTagIds       = $roleScopeTagIds
+                        RoleScopeTags         = $roleScopeTagNames
+                        HighRiskRole          = $isHighRiskRole
+                        ImpactScore           = $impactScore
+                    })
+                }
+            }
+        }
+
+        $assignmentCount = 0
+        foreach ($groupAssignments in $IntuneAssignmentsByGroup.Values) {
+            $assignmentCount += @($groupAssignments).Count
+        }
+
+        $global:GLOBALIntuneRbacChecked = $true
+        $global:GLOBALIntuneRbacAvailable = $true
+        $global:GLOBALIntuneRbacSkipReason = ""
+        Write-Host "[+] Retrieved $assignmentCount Intune RBAC role assignments to $($IntuneAssignmentsByGroup.Count) groups"
+        return $IntuneAssignmentsByGroup
+    } catch {
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "403|Forbidden|DeviceManagementRBAC\.Read") {
+            $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because the token lacks DeviceManagementRBAC.Read.All or DeviceManagementRBAC.ReadWrite.All."
+        } elseif ($errorMessage -match "license|licence|not licensed|Intune") {
+            $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because the tenant may not have the required Intune license."
+        } else {
+            $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed due to an unexpected response or request failure."
+        }
+        $global:GLOBALIntuneRbacChecked = $true
+        $global:GLOBALIntuneRbacAvailable = $false
+        Write-Host "[!] $($global:GLOBALIntuneRbacSkipReason)"
+        Write-Log -Level Debug -Message ("[IntuneRbac] Failure: {0}" -f $errorMessage)
+        return @{}
+    }
+}
+
 
 
 $global:TenantReportTabs = @()
@@ -9626,7 +9892,7 @@ function invoke-EntraFalconAuth {
 
     .PARAMETER Purpose
     Specifies which token to obtain or refresh.
-    Valid values: MainAuth, PimforEntra, PimforGroup, Azure, SecurityFindings.
+    Valid values: MainAuth, PimforEntra, PimforGroup, Azure, SecurityFindings, IntuneRbac.
 
     .OUTPUTS
     System.Boolean.
@@ -9659,7 +9925,7 @@ function invoke-EntraFalconAuth {
 
         # Purpose
         [Parameter(Mandatory = $true)]
-        [ValidateSet("MainAuth", "PimforEntra", "PimforGroup", "Azure", "SecurityFindings")]
+        [ValidateSet("MainAuth", "PimforEntra", "PimforGroup", "Azure", "SecurityFindings", "IntuneRbac")]
         [string]$Purpose,
 
         # BroCiToken
@@ -9740,7 +10006,7 @@ function invoke-EntraFalconAuth {
             [ValidateSet("Auth", "Refresh")]
             [string]$Action,
 
-            [ValidateSet("MainAuth", "PimforEntra", "PimforGroup", "Azure", "SecurityFindings")]
+            [ValidateSet("MainAuth", "PimforEntra", "PimforGroup", "Azure", "SecurityFindings", "IntuneRbac")]
             [string]$Purpose,
 
             [ValidateSet("BroCi", "AuthCode", "DeviceCode", "ManualCode", "BroCiManualCode", "BroCiToken", "ServicePrincipal")]
@@ -9783,6 +10049,39 @@ function invoke-EntraFalconAuth {
         }
 
         return $token
+    }
+
+    $InvokeIntuneRbacBroCiRefresh = {
+        $refreshToken = $null
+        if ($GLOBALBrociAccessToken -and $GLOBALBrociAccessToken.PSObject.Properties.Name -contains 'refresh_token') {
+            $refreshToken = $GLOBALBrociAccessToken.refresh_token
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$refreshToken)) {
+            throw "BroCi refresh token is not available for Intune RBAC authentication."
+        }
+
+        $commonParams = @{
+            RefreshToken     = $refreshToken
+            ClientID         = '5926fc8e-304e-4f59-8bed-58ca97cc39a4'
+            BrkClientId      = 'c44b4083-3bb0-49c1-b47d-974e53cbdf3c'
+            RedirectUri      = 'brk-c44b4083-3bb0-49c1-b47d-974e53cbdf3c://portal.azure.com'
+            Api              = 'graph.microsoft.com'
+            Scope            = '.default offline_access'
+            DisableJwtParsing = $true
+        }
+        foreach ($origin in @('https://portal.azure.com', 'https://endpoint.microsoft.com')) {
+            try {
+                $tokens = Invoke-Refresh @commonParams -Origin $origin @GLOBALAuthParameters
+                if ($tokens -and -not [string]::IsNullOrWhiteSpace([string]$tokens.access_token)) {
+                    $global:GLOBALIntuneRbacAccessToken = $tokens
+                    return $true
+                }
+            } catch {
+                Write-Log -Level Verbose -Message ("[IntuneRbac] Token exchange failed for origin {0}: {1}" -f $origin, $_.Exception.Message)
+            }
+        }
+
+        throw "Unable to obtain an Intune RBAC Graph token from the BroCi refresh token."
     }
 
     # --------------------------
@@ -9906,6 +10205,13 @@ function invoke-EntraFalconAuth {
                         $true
                     }
                 }
+
+                IntuneRbac = @{
+                    ServicePrincipal = {
+                        $global:GLOBALIntuneRbacAccessToken = & $InvokeCC
+                        $true
+                    }
+                }
             }
 
             BroCi = @{
@@ -10006,6 +10312,12 @@ function invoke-EntraFalconAuth {
                         $true
                     }
                 }
+
+                IntuneRbac = @{
+                    Any = {
+                        & $InvokeIntuneRbacBroCiRefresh
+                    }
+                }
             }
         }
 
@@ -10046,6 +10358,12 @@ function invoke-EntraFalconAuth {
                         $true
                     }
                 }
+                IntuneRbac = @{
+                    ServicePrincipal = {
+                        $global:GLOBALIntuneRbacAccessToken = & $InvokeCC
+                        $true
+                    }
+                }
             }
 
             BroCi = @{
@@ -10071,6 +10389,11 @@ function invoke-EntraFalconAuth {
                                                 -DisableJwtParsing @GLOBALAuthParameters
                         $global:GLOBALPIMsGraphAccessToken = $tokens
                         $true
+                    }
+                }
+                IntuneRbac = @{
+                    Any = {
+                        & $InvokeIntuneRbacBroCiRefresh
                     }
                 }
             }
@@ -10170,6 +10493,10 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALEntraFalconLogLevel -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALSecurityFindingsAccessContext -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALSecurityFindingsGraphAccessTokenSpecial -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALIntuneRbacChecked -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALIntuneRbacAvailable -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALIntuneRbacSkipReason -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALIntuneRbacAccessToken -ErrorAction SilentlyContinue
 
 
 }
@@ -10245,4 +10572,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp

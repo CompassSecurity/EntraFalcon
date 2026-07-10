@@ -44,6 +44,7 @@ Findings are presented in interactive HTML reports to support efficient explorat
         - PIM for Azure Roles
     - Entra Role Assignments
     - Azure Role Assignments
+    - Intune RBAC Assignments
     - Access Packages
     - Conditional Access Policies
     - Administrative Units
@@ -756,7 +757,6 @@ To detect usage of EntraFalcon, blue teams can monitor for the listed applicatio
 ## 🕳️ Known Limitations
 - **M365 RBAC**: Not assessed
 - **Defender for Endpoint RBAC**: Not assessed
-- **Intune RBAC**: Not assessed
 - **Conditional Access user coverage**: Effective user coverage and `-ExportCapUncoveredUsers` are best-effort calculations based on enumerated users, group members, role assignments, and resolvable external-user categories. External-user selectors are only resolved for tenant guest users matching `b2bCollaborationGuest`. Other external-user types or external users with specified external tenants can make coverage values approximate. Eligible PIM paths are reported as potential coverage and are not counted as currently covered. CSV export is limited to enabled policies and enabled users.
 - **Cloud Environment**: Cloud platforms evolve rapidly. As a result, some assessments or detections may become outdated or inaccurate over time. Moreover, tenants are becoming increasingly complex, and specific configurations or combinations of settings may lead to inaccurate results. While we strive to keep EntraFalcon up to date, it is always recommended to validate findings independently and not rely solely on the tool for critical decisions.
 - **HTML Reports**: The generated HTML reports do not implement protection mechanisms against cross-site scripting (XSS).

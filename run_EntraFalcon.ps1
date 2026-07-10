@@ -378,6 +378,7 @@ if (Invoke-MsGraphAuthPIM) {
 }
 #Get active role assignments and merge eligible
 $TenantRoleAssignments = Get-EntraRoleAssignments -TenantPimRoleAssignments $TenantPimRoleAssignments
+$IntuneRbacRoleAssignments = Get-IntuneRbacRoleAssignments -ApiTop $ApiTop
 
 # Check if authentication to Azure ARM API works and if the user has access to a subscription
 if ((EnsureAuthAzurePsNative) -and (checkSubscriptionNative)){
@@ -489,7 +490,7 @@ $ServicePrincipalSignInActivityLookup = Get-ServicePrincipalSignInActivityLookup
 
 # Main enumeration
 write-host "`n********************************** [1/17] Enumerating Groups **********************************"
-$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex @optionalParamsUserandGroup @optionalParamsOutput
+$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex @optionalParamsUserandGroup @optionalParamsOutput
 
 write-host "`n********************************** [2/17] Enumerating Enterprise Apps **********************************"
 $AppRoleReferenceCache = @{}
@@ -512,7 +513,7 @@ $AgentIdentityBlueprints = Invoke-AgentIdentityBlueprints -CurrentTenant $Curren
 
 write-host "`n********************************** [8/17] Enumerating Users **********************************"
 $UserReportState = $null
-$Users = Invoke-CheckUsers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -UserAuthMethodsTable $UserAuthMethodsTable -Devices $Devices -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -ApiTop $ApiTop -AccessPackageUserSpecificTargetIndex $AccessPackageUserSpecificTargetIndex -ReportStateOut ([ref]$UserReportState) @optionalParamsUserandGroup @optionalParamsOutput
+$Users = Invoke-CheckUsers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -UserAuthMethodsTable $UserAuthMethodsTable -Devices $Devices -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -ApiTop $ApiTop -AccessPackageUserSpecificTargetIndex $AccessPackageUserSpecificTargetIndex -ReportStateOut ([ref]$UserReportState) @optionalParamsUserandGroup @optionalParamsOutput
 
 write-host "`n********************************** [9/17] Finalizing Agent Objects **********************************"
 Invoke-CheckAgentsFinalize -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -Users $Users -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -AgentIdentityBlueprints $AgentIdentityBlueprints @optionalParamsOutput
@@ -589,6 +590,7 @@ if ($ExportDataJson) {
         AppRegistrations                   = $AppRegistrations
         ManagedIdentities                  = $ManagedIdentities
         EntraRoleAssignments               = $TenantRoleAssignments
+        IntuneRbacRoleAssignments          = $IntuneRbacRoleAssignments
         AzureRoleAssignments               = $AzureIAMAssignments
         PimForEntra                        = $PimforEntraRoles
         PimForGroups                       = $PimforGroups
@@ -626,6 +628,12 @@ if ($DebugObjectDump) {
         TenantPimForGroupsAssignments         = $TenantPimForGroupsAssignments
         TenantPimRoleAssignments              = $TenantPimRoleAssignments
         TenantRoleAssignments                 = $TenantRoleAssignments
+        IntuneRbacRoleAssignments             = $IntuneRbacRoleAssignments
+        IntuneRbacState                       = [pscustomobject]@{
+            Checked    = [bool]$GLOBALIntuneRbacChecked
+            Available  = [bool]$GLOBALIntuneRbacAvailable
+            SkipReason = [string]$GLOBALIntuneRbacSkipReason
+        }
         AzureIAMAssignments                   = $AzureIAMAssignments
         AllCaps                               = $AllCaps
         Devices                               = $Devices

@@ -16,6 +16,7 @@ function Invoke-CheckUsers {
         [Parameter(Mandatory=$false)][switch]$QAMode = $false,
         [Parameter(Mandatory=$false)][hashtable]$AzureIAMAssignments,
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
+        [Parameter(Mandatory=$false)][hashtable]$IntuneRbacRoleAssignments = @{},
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
         [Parameter(Mandatory=$true)][hashtable]$AllGroupsDetails,
         [Parameter(Mandatory=$true)][hashtable]$Devices,
@@ -59,6 +60,13 @@ function Invoke-CheckUsers {
     $EscapedTenantName = $CurrentTenant.FileSafeDisplayNameEncoded
     if (-not $GLOBALGraphExtendedChecks) {$WarningReport.Add("Coverage gap: eligible role assignments not assessed; only active assignments are included.")}
     if (-not ($GLOBALPimForGroupsChecked)) {$WarningReport.Add("Coverage gap: PIM for Groups not assessed; eligible group owners/members may be missing.")}
+    if (-not ($GLOBALIntuneRbacAvailable)) {
+        if ([string]::IsNullOrWhiteSpace([string]$GLOBALIntuneRbacSkipReason)) {
+            $WarningReport.Add("Coverage gap: Intune RBAC role assignments were not assessed; Intune role assignment counts are unknown.")
+        } else {
+            $WarningReport.Add("Coverage gap: $GLOBALIntuneRbacSkipReason")
+        }
+    }
     if (-not ($GLOBALAzurePsChecks)) {
         if ($GLOBALAzureIamWarningText) {
             $WarningReport.Add($GLOBALAzureIamWarningText)
@@ -400,6 +408,8 @@ function Invoke-CheckUsers {
         $EntraRolesTroughGroupMembership = 0
         $AzureRolesTroughGroupOwnership = 0
         $AzureRolesTroughGroupMembership = 0
+        $IntuneRolesTroughGroupOwnership = 0
+        $IntuneRolesTroughGroupMembership = 0
         $EntraMaxTierTroughGroupOwnership = "-"
         $EntraMaxTierTroughGroupMembership = "-"
         $AzureMaxTierTroughGroupOwnership = "-"
@@ -665,6 +675,8 @@ function Invoke-CheckUsers {
                     CAPs = $MatchingGroup.CAPs
                     AzureRoles = $MatchingGroup.AzureRoles
                     AzureMaxTier = $MatchingGroup.AzureMaxTier
+                    IntuneRoles = if ($MatchingGroup.PSObject.Properties["IntuneRoles"] -and $null -ne $MatchingGroup.IntuneRoles) { $MatchingGroup.IntuneRoles } else { if ($GLOBALIntuneRbacAvailable) { 0 } else { "?" } }
+                    IntuneRoleDetails = if ($MatchingGroup.PSObject.Properties["IntuneRoleDetails"]) { $MatchingGroup.IntuneRoleDetails } else { @() }
                     AppRoles = $MatchingGroup.AppRoles
                     Impact = $MatchingGroup.Impact
                 })
@@ -689,6 +701,8 @@ function Invoke-CheckUsers {
                     CAPs = $MatchingGroup.CAPs
                     AzureRoles = $MatchingGroup.AzureRoles
                     AzureMaxTier = $MatchingGroup.AzureMaxTier
+                    IntuneRoles = if ($MatchingGroup.PSObject.Properties["IntuneRoles"] -and $null -ne $MatchingGroup.IntuneRoles) { $MatchingGroup.IntuneRoles } else { if ($GLOBALIntuneRbacAvailable) { 0 } else { "?" } }
+                    IntuneRoleDetails = if ($MatchingGroup.PSObject.Properties["IntuneRoleDetails"]) { $MatchingGroup.IntuneRoleDetails } else { @() }
                     AppRoles = $MatchingGroup.AppRoles
                     Impact = $MatchingGroup.Impact
                 })
@@ -787,6 +801,7 @@ function Invoke-CheckUsers {
             $EntraRolesCount = 0
             $CAPs = 0
             $AzureRolesCount = 0
+            $IntuneRolesCount = 0
             $AppRolesCount = 0
             $Message = ""
             $MessageParts = @()
@@ -802,6 +817,7 @@ function Invoke-CheckUsers {
                     $CAPs += $object.CAPs
                 }
                 if ($object.AzureRoles -is [int]) {$AzureRolesCount += $object.AzureRoles} else {$AzureRolesCount += 0}
+                if ($object.IntuneRoles -is [int]) {$IntuneRolesCount += $object.IntuneRoles} else {$IntuneRolesCount += 0}
                 $EntraMaxTierTroughGroupOwnership = Merge-HigherTierLabel -CurrentTier $EntraMaxTierTroughGroupOwnership -CandidateTier $object.EntraMaxTier
                 $AzureMaxTierTroughGroupOwnership = Merge-HigherTierLabel -CurrentTier $AzureMaxTierTroughGroupOwnership -CandidateTier $object.AzureMaxTier
                 
@@ -814,12 +830,15 @@ function Invoke-CheckUsers {
                 $protected = $true
             }
 
-            if (($EntraRolesCount + $CAPs + $AzureRolesCount + $AppRolesCount) -ge 1) {
+            if (($EntraRolesCount + $CAPs + $AzureRolesCount + $AppRolesCount + $IntuneRolesCount) -ge 1) {
                 if ($EntraRolesCount -ge 1) {
                     $MessageParts += "EntraRoles:$EntraRolesCount"
                 }
                 if ($AzureRolesCount -ge 1) {
                     $MessageParts += "AzureRoles:$AzureRolesCount"
+                }
+                if ($IntuneRolesCount -ge 1) {
+                    $MessageParts += "IntuneRoles:$IntuneRolesCount"
                 }
                 if ($AppRolesCount -ge 1) {
                     $MessageParts += "AppRoles:$AppRolesCount"
@@ -832,6 +851,7 @@ function Invoke-CheckUsers {
             }
             $EntraRolesTroughGroupOwnership = $EntraRolesCount
             $AzureRolesTroughGroupOwnership = $AzureRolesCount
+            $IntuneRolesTroughGroupOwnership = $IntuneRolesCount
         }
 
         #Process member groups
@@ -841,6 +861,7 @@ function Invoke-CheckUsers {
             $EntraRolesCount = 0
             $ObjectsWithCaps = 0
             $AzureRolesCount = 0
+            $IntuneRolesCount = 0
             $AppRolesCount = 0
             $Message = ""
             $MessageParts = @()
@@ -858,6 +879,7 @@ function Invoke-CheckUsers {
                 }
                 
                 if ($object.AzureRoles -is [int]) {$AzureRolesCount += $object.AzureRoles} else {$AzureRolesCount += 0}
+                if ($object.IntuneRoles -is [int]) {$IntuneRolesCount += $object.IntuneRoles} else {$IntuneRolesCount += 0}
                 $EntraMaxTierTroughGroupMembership = Merge-HigherTierLabel -CurrentTier $EntraMaxTierTroughGroupMembership -CandidateTier $object.EntraMaxTier
                 $AzureMaxTierTroughGroupMembership = Merge-HigherTierLabel -CurrentTier $AzureMaxTierTroughGroupMembership -CandidateTier $object.AzureMaxTier
                 $AppRolesCount += $object.AppRoles
@@ -873,18 +895,22 @@ function Invoke-CheckUsers {
                 $protected = $true
             }
 
-            if (($EntraRolesCount + $AzureRolesCount) -ge 1) {
+            if (($EntraRolesCount + $AzureRolesCount + $IntuneRolesCount) -ge 1) {
                 if ($EntraRolesCount -ge 1) {
                     $MessageParts += "EntraRoles:$EntraRolesCount"
                 }
                 if ($AzureRolesCount -ge 1) {
                     $MessageParts += "AzureRoles:$AzureRolesCount"
                 }
+                if ($IntuneRolesCount -ge 1) {
+                    $MessageParts += "IntuneRoles:$IntuneRolesCount"
+                }
                 $Message = $MessageParts -join ' / '
                 [void]$Warnings.Add("Member of privileged group ($Message)")
             }
             $EntraRolesTroughGroupMembership = $EntraRolesCount
             $AzureRolesTroughGroupMembership = $AzureRolesCount
+            $IntuneRolesTroughGroupMembership = $IntuneRolesCount
         }
 
         #If any user is member of a AU which is management restricted the likelihood score has to be lowered
@@ -1115,6 +1141,11 @@ function Invoke-CheckUsers {
         } else {
             $TotalAzureRoles = $AzureRoleCount
         }
+        if ($GLOBALIntuneRbacAvailable) {
+            $TotalIntuneRoles = $IntuneRolesTroughGroupOwnership + $IntuneRolesTroughGroupMembership
+        } else {
+            $TotalIntuneRoles = "?"
+        }
         
         
         $OnPremisesSamAccountName = if ([string]::IsNullOrWhiteSpace($item.OnPremisesSamAccountName)) { "-" } else { $item.OnPremisesSamAccountName }
@@ -1156,6 +1187,7 @@ function Invoke-CheckUsers {
             AzureRoles = $TotalAzureRoles
             AzureMaxTier = $AzureMaxTier
             AzureRoleDetails = $AzureRoleDetails
+            IntuneRoles = $TotalIntuneRoles
             GrpMem = @($GroupMemberDetails).count
             GrpOwn = @($GroupOwnerDetails).count
             AuUnits = $AUMember.count
@@ -1468,7 +1500,7 @@ function Write-EntraFalconUsersReport {
     write-host "[*] Processing results"
 
     #Define output of the main table
-    $tableOutput = $AllUsersDetails | Sort-Object Risk -Descending | select-object UPN,UPNlink,Enabled,UserType,Agent,ForeignAgent,OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,@{Name = "APTarget"; Expression = { $_.AccessPackages }},AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $AllUsersDetails | Sort-Object Risk -Descending | select-object UPN,UPNlink,Enabled,UserType,Agent,ForeignAgent,OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,@{Name = "APTarget"; Expression = { $_.AccessPackages }},AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
     
     # Apply result limit for the main table
     if ($LimitResults -and $LimitResults -gt 0) {
@@ -1544,6 +1576,7 @@ function Write-EntraFalconUsersReport {
             "Protected" = $item.Protected
             "Entra Max Tier" = $item.EntraMaxTier
             "Azure Max Tier" = $item.AzureMaxTier
+            "Intune Roles" = $item.IntuneRoles
             "RiskScore" = $item.Risk
             "UserType" = $item.UserType
             "Agent" = $item.Agent
@@ -1664,6 +1697,7 @@ function Write-EntraFalconUsersReport {
                     "AzureRoles" = $object.AzureRoles
                     "AzureMaxTier" = $object.AzureMaxTier
                     "AppRoles" = $object.AppRoles
+                    "IntuneRoles" = $object.IntuneRoles
                     "CAPs" = $object.CAPs
                     "Users" = $MatchingGroup.Users
                     "Impact" = $object.Impact
@@ -1673,8 +1707,8 @@ function Write-EntraFalconUsersReport {
 
             $formattedText = Format-ReportSection -Title "Owner of Groups" `
             -Objects $ReportingGroupOwner `
-            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "CAPs", "Users", "Impact", "Warnings") `
-            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; CAPs = 4; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
+            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "IntuneRoles", "CAPs", "Users", "Impact", "Warnings") `
+            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; IntuneRoles = 12; CAPs = 4; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
             [void]$DetailTxtBuilder.AppendLine($formattedText)
                     
             
@@ -1689,6 +1723,7 @@ function Write-EntraFalconUsersReport {
                     AzureRoles              = $obj.AzureRoles
                     AzureMaxTier            = $obj.AzureMaxTier
                     AppRoles                = $obj.AppRoles
+                    IntuneRoles             = $obj.IntuneRoles
                     CAPs                    = $obj.CAPs
                     Users                   = $obj.Users
                     Impact                  = $obj.Impact
@@ -2065,6 +2100,7 @@ function Write-EntraFalconUsersReport {
                     "AzureRoles" = $object.AzureRoles
                     "AzureMaxTier" = $object.AzureMaxTier
                     "AppRoles" = $object.AppRoles
+                    "IntuneRoles" = $object.IntuneRoles
                     "CAPs" = $object.CAPs
                     "APTarget" = if ($MatchingGroup.PSObject.Properties["AccessPackages"] -and $null -ne $MatchingGroup.AccessPackages) { $MatchingGroup.AccessPackages } else { 0 }
                     "Users" = $MatchingGroup.Users
@@ -2076,8 +2112,8 @@ function Write-EntraFalconUsersReport {
 
             $formattedText = Format-ReportSection -Title "Member of Groups" `
             -Objects $MatchingGroupRaw `
-            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "CAPs", "APTarget", "Users", "Impact", "Warnings") `
-            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; CAPs = 4; APTarget = 8; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
+            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "IntuneRoles", "CAPs", "APTarget", "Users", "Impact", "Warnings") `
+            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; IntuneRoles = 12; CAPs = 4; APTarget = 8; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
             [void]$DetailTxtBuilder.AppendLine($formattedText)
         
             foreach ($obj in $MatchingGroupRaw) {
@@ -2091,6 +2127,7 @@ function Write-EntraFalconUsersReport {
                     AzureRoles              = $obj.AzureRoles
                     AzureMaxTier            = $obj.AzureMaxTier
                     AppRoles                = $obj.AppRoles
+                    IntuneRoles             = $obj.IntuneRoles
                     CAPs                    = $obj.CAPs
                     APTarget                = $obj.APTarget
                     Users                   = $obj.Users
@@ -2195,7 +2232,7 @@ Execution Warnings = $($WarningReport  -join ' / ')
     write-host "[+] Writing log files"
     write-host ""
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "UPN"; Expression = { $_.UPNlink}},Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "UPN"; Expression = { $_.UPNlink}},Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -2219,9 +2256,9 @@ $headerHtml = @"
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Csv) {
-        $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+        $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
     }
-    $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,APTarget,AppRegOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | format-table | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+    $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,APTarget,AppRegOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | format-table | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     $DetailOutputTxt | Out-File -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
 
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }

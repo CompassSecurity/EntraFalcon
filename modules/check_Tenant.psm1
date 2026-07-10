@@ -3449,19 +3449,22 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $capsCount = Get-IntSafe $group.CAPs
                 $entraRolesCount = Get-IntSafe $group.EntraRoles
                 $azureRolesCount = Get-IntSafe $group.AzureRoles
+                $intuneRolesCount = Get-IntSafe $group.IntuneRoles
                 $azureMaxTierNormalized = Get-NormalizedRoleTierLabel -RoleTier $group.AzureMaxTier
 
                 $hasCapsUsage = $capsCount -gt 0
                 $hasEntraRolesUsage = $entraRolesCount -gt 0
                 $hasAzureRolesUsage = $azureRolesCount -gt 0 -and @("0", "1", "Uncategorized") -contains $azureMaxTierNormalized
+                $hasIntuneRolesUsage = $intuneRolesCount -gt 0
 
-                if ($hasCapsUsage -or $hasEntraRolesUsage -or $hasAzureRolesUsage) {
+                if ($hasCapsUsage -or $hasEntraRolesUsage -or $hasAzureRolesUsage -or $hasIntuneRolesUsage) {
                     $unprotectedSensitiveGroups.Add([pscustomobject]@{
                         Id = $entry.Key
                         Group = $group
                         HasCapsUsage = $hasCapsUsage
                         HasAzureRolesUsage = $hasAzureRolesUsage
                         HasEntraRolesUsage = $hasEntraRolesUsage
+                        HasIntuneRolesUsage = $hasIntuneRolesUsage
                     })
                 }
             }
@@ -10081,6 +10084,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         $groupsUsedInCaps = 0
         $groupsUsedInAzureRoles = 0
         $groupsUsedInEntraRoles = 0
+        $groupsUsedInIntuneRoles = 0
 
         foreach ($entry in $unprotectedSensitiveGroups) {
             $group = $entry.Group
@@ -10090,6 +10094,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             if ($entry.HasCapsUsage) { $groupsUsedInCaps += 1 }
             if ($entry.HasAzureRolesUsage) { $groupsUsedInAzureRoles += 1 }
             if ($entry.HasEntraRolesUsage) { $groupsUsedInEntraRoles += 1 }
+            if ($entry.HasIntuneRolesUsage) { $groupsUsedInIntuneRoles += 1 }
 
             $grp005Affected.Add([pscustomobject][ordered]@{
                 "DisplayName" = "<a href=`"Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($entry.Id)`" target=`"_blank`">$groupDisplayName</a>"
@@ -10098,6 +10103,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 "Entra Tier" = $group.EntraMaxTier
                 "Azure Roles" = $group.AzureRoles
                 "Azure Tier" = $group.AzureMaxTier
+                "Intune Roles" = $group.IntuneRoles
                 "CAPs" = $group.CAPs
                 "Warnings" = $group.Warnings
                 "_SortImpact" = $group.Impact
@@ -10106,8 +10112,8 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         Set-FindingOverride -FindingId "GRP-005" -Props $GRP005VariantProps.Vulnerable
         Set-FindingOverride -FindingId "GRP-005" -Props @{
-            Description = "<p>There are $($unprotectedSensitiveGroups.Count) sensitive groups that are insufficiently protected. They are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p>Unprotected group usage:</p><ul><li>$groupsUsedInCaps groups are used in Conditional Access policies</li><li>$groupsUsedInAzureRoles groups are used for Azure role assignments with a highest tier of Tier-0, Tier-1, or Uncategorized</li><li>$groupsUsedInEntraRoles groups are used for Entra ID role assignments</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess the impact if a lower-tier administrator or application can manage the membership of these groups.</p>"
-            RelatedReportUrl = "Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Protected=%3Dfalse&or_EntraRoles=%3E0&or_AzureMaxTier=Tier-0%7C%7CTier-1%7C%7CUncategorized&or_CAPs=%3E0&columns=DisplayName%2CType%2CSecurityEnabled%2CDynamic%2CVisibility%2CProtected%2CUsers%2CEntraMaxTier%2C%2CAzureMaxTier%2CNestedInGroups%2CAppRoles%2CCAPs%2CEntraRoles%2CAzureRoles%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
+            Description = "<p>There are $($unprotectedSensitiveGroups.Count) sensitive groups that are insufficiently protected. They are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p>Unprotected group usage:</p><ul><li>$groupsUsedInCaps groups are used in Conditional Access policies</li><li>$groupsUsedInAzureRoles groups are used for Azure role assignments with a highest tier of Tier-0, Tier-1, or Uncategorized</li><li>$groupsUsedInEntraRoles groups are used for Entra ID role assignments</li><li>$groupsUsedInIntuneRoles groups are used for Intune RBAC role assignments</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess the impact if a lower-tier administrator or application can manage the membership of these groups.</p>"
+            RelatedReportUrl = "Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Protected=%3Dfalse&or_EntraRoles=%3E0&or_AzureMaxTier=Tier-0%7C%7CTier-1%7C%7CUncategorized&or_IntuneRoles=%3E0&or_CAPs=%3E0&columns=DisplayName%2CType%2CSecurityEnabled%2CDynamic%2CVisibility%2CProtected%2CUsers%2CEntraMaxTier%2CAzureMaxTier%2CNestedInGroups%2CAppRoles%2CIntuneRoles%2CCAPs%2CEntraRoles%2CAzureRoles%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
             AffectedSortKey = "_SortImpact"
             AffectedSortDir = "DESC"
             AffectedObjects = $grp005Affected
