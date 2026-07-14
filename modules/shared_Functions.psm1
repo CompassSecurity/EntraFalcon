@@ -2524,6 +2524,7 @@ $global:GLOBALJavaScript_Table = @'
         function renderInfo(start, end) {
             const shownStart = viewData.length === 0 ? 0 : start + 1;
             const shownEnd = Math.min(end, viewData.length);
+            const hasActiveFilters = Object.values(columnFilters).some(value => String(value || "").trim());
             const isFiltered = filteredData.length < data.length;
             const hiddenCount = filteredData.length - viewData.length;
             infoBox.innerHTML = "";
@@ -2533,10 +2534,24 @@ $global:GLOBALJavaScript_Table = @'
             showingChip.textContent = `Showing ${shownStart}-${shownEnd} of ${viewData.length}`;
             infoBox.appendChild(showingChip);
 
-            if (isFiltered) {
-                const filteredChip = document.createElement("span");
-                filteredChip.className = "info-chip";
-                filteredChip.textContent = `Filtered from ${data.length}`;
+            if (hasActiveFilters) {
+                const filteredChip = document.createElement("button");
+                filteredChip.type = "button";
+                filteredChip.className = "info-chip info-chip-action";
+                filteredChip.textContent = isFiltered ? `Filtered from ${data.length}` : "Filters active";
+                filteredChip.title = "Clear filters";
+                filteredChip.addEventListener("click", () => {
+                    if (filterDebounceTimer) {
+                        window.clearTimeout(filterDebounceTimer);
+                        filterDebounceTimer = null;
+                    }
+                    columnFilters = {};
+                    container.querySelectorAll("input[data-filter]").forEach(input => {
+                        input.value = "";
+                    });
+                    filterData(false);
+                    showToast("Filters cleared", 2000);
+                });
                 infoBox.appendChild(filteredChip);
             }
 
@@ -2706,7 +2721,7 @@ $global:GLOBALJavaScript_Table = @'
 
         
         // Applies per-column filters
-        function filterData() {
+        function filterData(resetPage) {
             const groups = {}; // { groupName: [ { col, input } ] }
 
             Object.entries(columnFilters).forEach(([colKey, input]) => {
@@ -2746,7 +2761,7 @@ $global:GLOBALJavaScript_Table = @'
                 return true;
             });
 
-            currentPage = 1;
+            if (resetPage !== false) currentPage = 1;
             sortData();
             applyHiddenRows();
             renderTable();
