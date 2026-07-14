@@ -305,6 +305,7 @@ This also skips the standalone `PIM for Groups` settings report.
 - Some table header fields display helper text on mouse hover.
 - Sort data by clicking a table header.
 - Alt+click a main table column header to quickly hide that column.
+- Alt+click a main table content row to hide it temporarily. Use the hidden-rows chip or Reset View to show hidden rows again.
 
 ### **Filtering**
 - If no operator is specified, filtering defaults to *contains*.

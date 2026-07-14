@@ -1762,9 +1762,11 @@ $global:GLOBALJavaScript_Table = @'
             let currentPage = 1;
             let rowsPerPage = parseInt(pageSizeSelector.value);
             let filteredData = [...data];
+            let viewData = [...data];
             let currentSort = { column: null, asc: true };
             let columnFilters = {};
             let hiddenColumns = new Set();
+            let hiddenRowKeys = new Set();
             let responsiveProfileApplied = false;
             let filterDebounceTimer = null;
 
@@ -1803,6 +1805,31 @@ $global:GLOBALJavaScript_Table = @'
 
             function applyDefaultSort() {
                 applySort(getDefaultSort());
+            }
+
+            function getRowKey(row) {
+                if (!row || row.__efRowKey == null) return "";
+                return String(row.__efRowKey);
+            }
+
+            data.forEach((row, index) => {
+                const firstColumn = columns[0];
+                const anchor = firstColumn ? extractAnchorIdAndText(row[firstColumn]) : { id: "" };
+                const anchorId = anchor && anchor.id ? anchor.id : "";
+                Object.defineProperty(row, "__efRowKey", {
+                    value: anchorId ? `${anchorId}::${index}` : `row::${index}`,
+                    enumerable: false,
+                    configurable: true
+                });
+            });
+
+            function applyHiddenRows() {
+                viewData = filteredData.filter(row => !hiddenRowKeys.has(getRowKey(row)));
+            }
+
+            function resetColumnsToDefault() {
+                hiddenColumns = new Set();
+                defaultHidden.forEach(col => hiddenColumns.add(col));
             }
 
             container.addEventListener("input", (e) => {
@@ -1886,7 +1913,7 @@ $global:GLOBALJavaScript_Table = @'
                 if (special) {
                     return {
                         headers: visibleColumns,
-                        rows: filteredData.map(row => {
+                        rows: viewData.map(row => {
                             const output = {};
                             visibleColumns.forEach(col => {
                                 const val = col.toLowerCase() === "principal" ? stripHtmlToText(row[col]) : row[col];
@@ -1903,7 +1930,7 @@ $global:GLOBALJavaScript_Table = @'
 
                 return {
                     headers: headers,
-                    rows: filteredData.map(row => {
+                    rows: viewData.map(row => {
                         const output = {};
                         const link = extractAnchorIdAndText(row[linkColumn]);
                         output.ID = link.id;
@@ -1920,7 +1947,7 @@ $global:GLOBALJavaScript_Table = @'
                 const visibleColumns = getVisibleColumns();
                 return {
                     headers: visibleColumns,
-                    rows: filteredData.map(row => {
+                    rows: viewData.map(row => {
                         const output = {};
                         visibleColumns.forEach(col => {
                             output[col] = stripHtmlToText(row[col]);
@@ -2041,6 +2068,14 @@ $global:GLOBALJavaScript_Table = @'
             return (tempDiv.textContent || tempDiv.innerText || "").trim();
             }
 
+            function escapeHtmlAttribute(value) {
+            return String(value ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/"/g, "&quot;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+            }
+
             // Extract anchor target + visible text from "<a href=#target>Text</a>".
             // Some reports use non-GUID synthetic detail ids such as policy ids or
             // composite keys, so do not restrict this to GUID-only anchors.
@@ -2074,6 +2109,7 @@ $global:GLOBALJavaScript_Table = @'
             presetBtn.style.margin = "10px 0px";
 
             const resetViewBtn = document.createElement("button");
+            resetViewBtn.type = "button";
             resetViewBtn.textContent = "\uD83D\uDD01 Reset View";
             resetViewBtn.style.margin = "10px 0px";
 
@@ -2081,13 +2117,13 @@ $global:GLOBALJavaScript_Table = @'
             if (toolbarLeft) {
 				toolbarLeft.appendChild(presetBtn);
 				toolbarLeft.appendChild(resetViewBtn);
-			}
+            }
 
             //Resetview button
             resetViewBtn.addEventListener("click", () => {
                 columnFilters = {};
-                hiddenColumns = new Set();
-                defaultHidden.forEach(col => hiddenColumns.add(col));
+                hiddenRowKeys.clear();
+                resetColumnsToDefault();
                 applyDefaultSort();
                 filterData();
                 createColumnSelector();
@@ -2292,12 +2328,13 @@ $global:GLOBALJavaScript_Table = @'
         
         // Renders main table
         function renderTable() {
+            applyHiddenRows();
             let start = (currentPage - 1) * rowsPerPage;
             let end = start + rowsPerPage;
-            let pageData = filteredData.slice(start, end);
+            let pageData = viewData.slice(start, end);
 
             if (pageData.length === 0 && currentPage > 1) {
-                currentPage = 1;
+                currentPage = Math.max(1, Math.ceil(viewData.length / rowsPerPage));
                 return renderTable();
             }
 
@@ -2339,7 +2376,7 @@ $global:GLOBALJavaScript_Table = @'
             html += '</tr></thead><tbody>';
 
             pageData.forEach(row => {
-                html += '<tr>';
+                html += `<tr data-row-key="${escapeHtmlAttribute(getRowKey(row))}">`;
                 visibleCols.forEach(col => {
                     const val = row[col];
                     const columnHeader = columns[colIndexMap[col]];
@@ -2402,12 +2439,29 @@ $global:GLOBALJavaScript_Table = @'
                 });
             });
 
+            // Quick row hiding
+            container.querySelectorAll("tbody tr[data-row-key]").forEach(tr => {
+                tr.addEventListener("click", (event) => {
+                    if (!event.altKey) return;
+
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const rowKey = tr.getAttribute("data-row-key");
+                    if (!rowKey) return;
+
+                    hiddenRowKeys.add(rowKey);
+                    renderTable();
+                    showToast("Row hidden", 2000);
+                });
+            });
+
             // Copy column buttons
             container.querySelectorAll("thead tr:first-child th .copy-col-btn").forEach(btn => {
                 btn.addEventListener("click", (e) => {
                     e.stopPropagation();
                     const col = btn.getAttribute("data-copy-col");
-                    const values = filteredData
+                    const values = viewData
                         .map(row => stripHtmlToText(String(row[col] ?? "")))
                         .filter(v => v !== "");
                     navigator.clipboard.writeText(values.join("\n")).then(() => {
@@ -2451,7 +2505,7 @@ $global:GLOBALJavaScript_Table = @'
         
         //Pagination for the main table
         function renderPagination() {
-            const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage));
+            const totalPages = Math.max(1, Math.ceil(viewData.length / rowsPerPage));
             let html = '';
 
             if (currentPage > 1) {
@@ -2466,13 +2520,39 @@ $global:GLOBALJavaScript_Table = @'
         }
 
         
-        // Displays how many entries are shown (e.g., "Showing 1-10 of 50 entries")
+        // Displays current table state (e.g., "Showing 1-10 of 50")
         function renderInfo(start, end) {
-            const shownStart = filteredData.length === 0 ? 0 : start + 1;
-            const shownEnd = Math.min(end, filteredData.length);
+            const shownStart = viewData.length === 0 ? 0 : start + 1;
+            const shownEnd = Math.min(end, viewData.length);
             const isFiltered = filteredData.length < data.length;
-            infoBox.textContent = `Showing ${shownStart}-${shownEnd} of ${filteredData.length} entries` +
-                (isFiltered ? ` (filtered from ${data.length})` : "");
+            const hiddenCount = filteredData.length - viewData.length;
+            infoBox.innerHTML = "";
+
+            const showingChip = document.createElement("span");
+            showingChip.className = "info-chip";
+            showingChip.textContent = `Showing ${shownStart}-${shownEnd} of ${viewData.length}`;
+            infoBox.appendChild(showingChip);
+
+            if (isFiltered) {
+                const filteredChip = document.createElement("span");
+                filteredChip.className = "info-chip";
+                filteredChip.textContent = `Filtered from ${data.length}`;
+                infoBox.appendChild(filteredChip);
+            }
+
+            if (hiddenCount > 0) {
+                const hiddenBtn = document.createElement("button");
+                hiddenBtn.type = "button";
+                hiddenBtn.className = "info-chip info-chip-action";
+                hiddenBtn.textContent = `${hiddenCount} row${hiddenCount === 1 ? "" : "s"} hidden`;
+                hiddenBtn.title = "Show hidden rows";
+                hiddenBtn.addEventListener("click", () => {
+                    hiddenRowKeys.clear();
+                    renderTable();
+                    showToast("Hidden rows restored", 2000);
+                });
+                infoBox.appendChild(hiddenBtn);
+            }
         }
 
         window.goToPage = function (page) {
@@ -2668,6 +2748,7 @@ $global:GLOBALJavaScript_Table = @'
 
             currentPage = 1;
             sortData();
+            applyHiddenRows();
             renderTable();
 
             const loadingOverlay = document.getElementById('loadingOverlay');
@@ -4002,6 +4083,7 @@ $global:GLOBALJavaScript_Nav = @'
                         <li>Some table header fields display helper text on mouse hover.</li>
                         <li>Sort data by clicking any table header.</li>
                         <li>Alt+click a main table column header to quickly hide that column.</li>
+                        <li>Alt+click a main table content row to hide it temporarily.</li>
                     </ul>
                     <strong>Filtering</strong>
                     <ul>
@@ -4382,9 +4464,50 @@ $global:GLOBALCss = @"
     }
 
     .info-box {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
         font-size: 14px;
         white-space: nowrap;
         max-width: 100%;
+    }
+
+    .info-box .info-chip,
+    .details-info {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 24px;
+        padding: 3px 8px;
+        font-size: 12px;
+        font-family: inherit;
+        font-weight: 500;
+        line-height: 1.2;
+        border-radius: 999px;
+        border: 1px solid;
+        box-sizing: border-box;
+        background: rgba(128,128,128,0.10);
+        border-color: rgba(128,128,128,0.28);
+        color: inherit;
+        margin: 0;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .info-box .info-chip-action {
+        appearance: none;
+        -webkit-appearance: none;
+        cursor: pointer;
+        background: rgba(26,74,122,0.10);
+        border-color: rgba(26,74,122,0.34);
+        color: inherit;
+    }
+
+    .info-box .info-chip-action:hover,
+    .info-box .info-chip-action:focus {
+        background: rgba(26,74,122,0.16);
+        border-color: rgba(26,74,122,0.48);
     }
 
     @media (max-width: 900px) {
@@ -4504,8 +4627,6 @@ $global:GLOBALCss = @"
     }
 
     .details-info {
-        font-size: 13px;
-        white-space: nowrap;
         margin-left: auto;
     }
     .column-toggle-wrapper,
