@@ -1203,7 +1203,11 @@ function Invoke-CheckEnterpriseApps {
             $LastSignInDays = "-"
         }
         $EntraRolesEffective = $EntraRolesDirect + $EntraRolesThroughGroupMembership + $EntraRolesThroughGroupOwnership
-        $AzureRolesEffective = $AzureRolesDirect + $AzureRolesThroughGroupMembership + $AzureRolesThroughGroupOwnership
+        $AzureRolesEffective = if ($GLOBALAzurePsChecks) {
+            $AzureRolesDirect + $AzureRolesThroughGroupMembership + $AzureRolesThroughGroupOwnership
+        } else {
+            "?"
+        }
 
         #Write custom object
         $SPInfo = [PSCustomObject]@{ 

@@ -1411,6 +1411,40 @@ $global:GLOBALJavaScript_Table = @'
         //Define columns which are hidden by default
         const defaultHidden = ["DeviceReg", "DeviceOwn", "LicenseStatus", "OwnersSynced", "DefaultMS", "CreationInDays", "AppRoleRequired", "SAML", "RoleAssignable", "LastSignInDays", "CreatedDays", "ParentBlueprintDisplayName", "ForeignAgent","ActiveAssignJustification","AlertAssignEligible","AlertAssignActive", "AlertActivation", "EligibleExpirationTime", "ActiveExpirationTime", "SignInFrequency", "SignInFrequencyInterval", "ApiDelegatedDangerous", "ApiDelegatedHigh", "ApiDelegatedMedium", "ApiDelegatedLow", "ApiDelegatedMisc", "IncUsersViaGroups", "ExcUsersViaGroups", "PerUserMfa", "ExcUsersViaRoles", "IncUsersViaRoles"];
 
+        // Hide low-information columns by default when every row contains the same value. The column remains available in the Columns menu.
+        const conditionalDefaultHiddenRules = [
+            { reports: ["Users", "Groups"], column: "IntuneRoles", uniformValues: [0, "?"] },
+            { reports: ["Users", "Groups", "EA", "MI", "AgentIdentities"], column: "AzureRoles", uniformValues: ["?"] },
+            { reports: ["Users", "Groups", "EA", "MI", "AgentIdentities"], column: "AzureMaxTier", uniformValues: ["?"] },
+            { reports: ["Users", "Groups"], column: "AuUnits", uniformValues: [0] },
+            { reports: ["Users"], column: "Agent", uniformValues: [false] },
+            { reports: ["Groups"], column: "PIM", uniformValues: [false] },
+            { reports: ["CAP"], column: "DeviceFilter", uniformValues: [0] },
+            { reports: ["CAP"], column: "AuthContext", uniformValues: [0] },
+            { reports: ["Users", "Groups"], column: "APTarget", uniformValues: [0] },
+            { reports: ["AccessPackages"], column: "ApiApp", uniformValues: [0] },
+            { reports: ["AccessPackages"], column: "ApiDelegated", uniformValues: [0] },
+            { reports: ["AccessPackages"], column: "ServicePrincipals", uniformValues: [0] },
+            { reports: ["AccessPackages"], column: "Guests", uniformValues: [0] }
+        ];
+
+        function getConditionalDefaultHiddenColumns(reportKey, data, columns) {
+            if (!reportKey || !Array.isArray(data) || data.length === 0 || !Array.isArray(columns)) {
+                return [];
+            }
+
+            const availableColumns = new Set(columns);
+            return conditionalDefaultHiddenRules
+                .filter(rule => rule.reports.includes(reportKey) && availableColumns.has(rule.column))
+                .filter(rule => rule.uniformValues.some(expectedValue => data.every(row =>
+                    row !== null &&
+                    typeof row === "object" &&
+                    Object.prototype.hasOwnProperty.call(row, rule.column) &&
+                    row[rule.column] === expectedValue
+                )))
+                .map(rule => rule.column);
+        }
+
         // Responsive column profiles keyed by currentReportKey from the report manifest.
         // Profiles define which columns are VISIBLE; all unlisted columns are hidden.
         // Applied once at page load — not re-evaluated on resize.
@@ -1750,6 +1784,10 @@ $global:GLOBALJavaScript_Table = @'
             }, {});
 
             const columns = Object.keys(data[0] || {});
+            getConditionalDefaultHiddenColumns(manifest && manifest.currentReportKey, data, columns).forEach(col => {
+                if (!defaultHidden.includes(col)) defaultHidden.push(col);
+            });
+
             const colIndexMap = {};
             for (let i = 0; i < columns.length; i++) {
                 colIndexMap[columns[i]] = i;

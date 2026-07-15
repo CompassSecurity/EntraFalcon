@@ -679,7 +679,11 @@ function Invoke-CheckManagedIdentities {
             $Warnings += "Known $joined API permission$plural!"
         }
         $EntraRolesEffective = $EntraRolesDirect + $EntraRolesThroughGroupMembership + $EntraRolesThroughGroupOwnership
-        $AzureRolesEffective = $AzureRolesDirect + $AzureRolesThroughGroupMembership + $AzureRolesThroughGroupOwnership
+        $AzureRolesEffective = if ($GLOBALAzurePsChecks) {
+            $AzureRolesDirect + $AzureRolesThroughGroupMembership + $AzureRolesThroughGroupOwnership
+        } else {
+            "?"
+        }
         #Format warning messages
         $Warnings = if ($null -ne $Warnings) {
             $Warnings -join ' / '
