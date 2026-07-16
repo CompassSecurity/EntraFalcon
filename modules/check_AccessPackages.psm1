@@ -42,11 +42,12 @@ function Format-AccessPackageGraphError {
 function Invoke-AccessPackageGraphGet {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
-        [Parameter(Mandatory = $false)][hashtable]$QueryParameters
+        [Parameter(Mandatory = $false)][hashtable]$QueryParameters,
+        [Parameter(Mandatory = $false)][ValidateSet("v1.0", "beta")][string]$ApiVersion = "v1.0"
     )
 
     return Send-ApiRequest -Method GET `
-        -Uri "https://graph.microsoft.com/v1.0$Uri" `
+        -Uri "https://graph.microsoft.com/$ApiVersion$Uri" `
         -AccessToken $GLOBALMsGraphAccessToken.access_token `
         -QueryParameters $QueryParameters `
         -UserAgent $($GlobalAuditSummary.UserAgent.Name) `
@@ -484,6 +485,7 @@ function Get-AccessPackagesRawData {
             Warnings                    = @($Warnings)
             Packages                    = @()
             Assignments                 = @()
+            PolicyEnabledById           = @{}
             ResourceRoleScopesByPackage = @{}
         }
     }
@@ -494,6 +496,7 @@ function Get-AccessPackagesRawData {
 
     $packages = @()
     $assignments = @()
+    $policyEnabledById = @{}
     $resourceRoleScopesByPackage = @{}
 
     ########################################## SECTION: DATACOLLECTION ##########################################
@@ -515,6 +518,7 @@ function Get-AccessPackagesRawData {
             Warnings                    = @($Warnings)
             Packages                    = @()
             Assignments                 = @()
+            PolicyEnabledById           = @{}
             ResourceRoleScopesByPackage = @{}
         }
     }
@@ -527,8 +531,28 @@ function Get-AccessPackagesRawData {
             Warnings                    = @($Warnings)
             Packages                    = @()
             Assignments                 = @()
+            PolicyEnabledById           = @{}
             ResourceRoleScopesByPackage = @{}
         }
+    }
+
+    try {
+        Write-Host "[*] Enumerating Access Package policy enabled states"
+        $policyStates = @(Invoke-AccessPackageGraphGet -ApiVersion "beta" -Uri "/identityGovernance/entitlementManagement/accessPackageAssignmentPolicies" -QueryParameters @{
+            '$select' = 'id,requestorSettings'
+            '$top'    = $ApiTop
+        })
+        foreach ($policyState in $policyStates) {
+            $policyId = [string](Get-AccessPackageObjectValue -Object $policyState -Names @("id"))
+            if ([string]::IsNullOrWhiteSpace($policyId) -or -not $policyState.requestorSettings -or -not $policyState.requestorSettings.PSObject.Properties["acceptRequests"]) { continue }
+            $policyEnabledById[$policyId] = Test-AccessPackageTruthyValue $policyState.requestorSettings.acceptRequests
+        }
+        Write-Host "[+] Got $($policyEnabledById.Count) Access Package policy enabled states"
+        Write-Log -Level Debug -Message "[AccessPackages] Policy enabled-state collection returned $($policyEnabledById.Count) mapped policies."
+    } catch {
+        $Warnings.Add("Coverage gap: Access Package policy enabled states could not be enumerated from Microsoft Graph beta. $(Format-AccessPackageGraphError -ErrorRecord $_)")
+        Write-Log -Level Debug -Message "[AccessPackages] Policy enabled-state collection failed: $($_.Exception.Message)"
+        $policyEnabledById = @{}
     }
 
     try {
@@ -579,6 +603,7 @@ function Get-AccessPackagesRawData {
         Warnings                    = @($Warnings)
         Packages                    = @($packages)
         Assignments                 = @($assignments)
+        PolicyEnabledById           = $policyEnabledById
         ResourceRoleScopesByPackage = $resourceRoleScopesByPackage
     }
 }
@@ -1214,6 +1239,12 @@ function Invoke-CheckAccessPackages {
         $AssignmentsByPackageId[$packageId].Add($assignment)
     }
 
+    $PolicyEnabledById = if ($RawAccessPackages.PSObject.Properties["PolicyEnabledById"] -and $null -ne $RawAccessPackages.PolicyEnabledById) {
+        $RawAccessPackages.PolicyEnabledById
+    } else {
+        @{}
+    }
+
     $AccessPackages = @{}
     $TableOutput = [System.Collections.Generic.List[object]]::new()
     $AllObjectDetails = [System.Collections.ArrayList]::new()
@@ -1290,9 +1321,20 @@ function Invoke-CheckAccessPackages {
         $hasHighImpact = ($resourceImpactSum -ge 100)
 
         $catalogName = if ($package.catalog) { [string]$package.catalog.displayName } else { "-" }
+        $catalogEnabled = ($package.catalog -and ([string]$package.catalog.state -eq "published"))
         $displayName = if ([string]::IsNullOrWhiteSpace([string]$package.displayName)) { $packageId } else { [string]$package.displayName }
 
         $policyRows = foreach ($policy in $policies) {
+            $policyId = [string](Get-AccessPackageObjectValue -Object $policy -Names @("id"))
+            $autoAssignment = ($null -ne $policy.automaticRequestSettings)
+            $policyEnabled = if ($PolicyEnabledById -is [System.Collections.IDictionary] -and $PolicyEnabledById.Contains($policyId)) {
+                [bool]$PolicyEnabledById[$policyId]
+            } else {
+                $null
+            }
+            if ($autoAssignment) {
+                $policyEnabled = $true
+            }
             $autoAssignmentRule = Get-AccessPackageAutoAssignmentRuleText -Policy $policy
             $rawAllowedTargetScope = [string]$policy.allowedTargetScope
             $dangerousAutoAssignmentAttributes = @(Get-AccessPackageDangerousDynamicRuleAttributes -MembershipRule $autoAssignmentRule)
@@ -1303,9 +1345,10 @@ function Invoke-CheckAccessPackages {
                 $null -ne $_ -and [string]::IsNullOrWhiteSpace([string](Get-AccessPackageObjectValue -Object $_ -Names @("membershipRule")))
             })
             [pscustomobject]@{
-                Id                  = [string](Get-AccessPackageObjectValue -Object $policy -Names @("id"))
+                Id                  = $policyId
                 DisplayName         = ConvertTo-EntraFalconHtmlText (Get-AccessPackageObjectValue -Object $policy -Names @("displayName", "id")) -DefaultValue "-"
                 RawDisplayName      = [string](Get-AccessPackageObjectValue -Object $policy -Names @("displayName", "id"))
+                PolicyEnabled       = $policyEnabled
                 RawAllowedTargetScope = $rawAllowedTargetScope
                 AllowedTargetScope  = Format-AccessPackageAllowedTargetScope -AllowedTargetScope $rawAllowedTargetScope
                 BroadScope          = Test-AccessPackagePolicyBroadScope -Policy $policy
@@ -1314,7 +1357,7 @@ function Invoke-CheckAccessPackages {
                 ApprovalRequired    = Test-AccessPackagePolicyApprovalRequired -Policy $policy
                 Expiration          = Get-AccessPackagePolicyExpirationText -Policy $policy
                 AccessReview        = Test-AccessPackagePolicyHasReview -Policy $policy
-                AutoAssignment      = ($null -ne $policy.automaticRequestSettings)
+                AutoAssignment      = $autoAssignment
                 AutoAssignmentRule  = $autoAssignmentRule
                 HasDangerousAutoAssignmentRule = (($dangerousAutoAssignmentAttributes.Count + $inviteLinkedDangerousAutoAssignmentAttributes.Count) -gt 0)
                 DangerousAutoAssignmentAttributes = ($dangerousAutoAssignmentAttributes -join ", ")
@@ -1448,6 +1491,8 @@ function Invoke-CheckAccessPackages {
                 Policy             = ConvertTo-EntraFalconHtmlText $policyName -DefaultValue "-"
                 AccessPackage      = ConvertTo-EntraFalconHtmlText $displayName -DefaultValue "-"
                 Catalog            = ConvertTo-EntraFalconHtmlText $catalogName -DefaultValue "-"
+                PolicyEnabled      = $policyRow.PolicyEnabled
+                CatalogEnabled     = [bool]$catalogEnabled
                 Hidden             = [bool]$package.isHidden
                 AllowedTargetScope = $policyRow.AllowedTargetScope
                 SelfAdd            = $policyRow.SelfAddAccess
@@ -1569,7 +1614,9 @@ function Invoke-CheckAccessPackages {
                 PolicyId                = $policyId
                 Policy                  = $policyName
                 PolicyLink              = $policyLink
+                PolicyEnabled           = $policyRow.PolicyEnabled
                 Catalog                 = $catalogName
+                CatalogEnabled          = [bool]$catalogEnabled
                 Hidden                  = [bool]$package.isHidden
                 Resources               = @($resources).Count
                 Groups                  = $groupResources
@@ -1645,8 +1692,8 @@ function Invoke-CheckAccessPackages {
     ########################################## SECTION: Write Output ##########################################
 
     Write-Host "[*] Writing Access Package reports"
-    $mainTableHtml = @($TableOutput | Select-Object @{Name = "Policy"; Expression = { $_.PolicyLink }},Package,Catalog,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings)
-    $mainTableExport = @($TableOutput | Select-Object Policy,Package,Catalog,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,@{Name = "Impact"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Impact }},Likelihood,@{Name = "Risk"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Risk }},Warnings)
+    $mainTableHtml = @($TableOutput | Select-Object @{Name = "Policy"; Expression = { $_.PolicyLink }},Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings)
+    $mainTableExport = @($TableOutput | Select-Object Policy,Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,@{Name = "Impact"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Impact }},Likelihood,@{Name = "Risk"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Risk }},Warnings)
     $mainTableJson = if ($mainTableHtml.Count -eq 0) { "[]" } else { $mainTableHtml | ConvertTo-Json -Depth 6 -Compress }
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
 
@@ -1711,12 +1758,12 @@ Execution Warnings = $($Warnings -join ' / ')
     $htmlPath = Join-Path -Path $OutputFolder -ChildPath "$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).html"
 
     $headerTXT | Out-File -Width 512 -FilePath $txtPath -Append
-    $mainTableExport | Format-Table Policy,Package,Catalog,Hidden,Resources,Groups,Applications,ApiApp,ApiDelegated,SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,SelfAdd,OnBehalfAdd,Approval,Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 $txtPath -Append
+    $mainTableExport | Format-Table Policy,Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,Resources,Groups,Applications,ApiApp,ApiDelegated,SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,SelfAdd,OnBehalfAdd,Approval,Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 $txtPath -Append
     $DetailTxtBuilder.ToString() | Out-File $txtPath -Append
 
     if ($Csv) {
         $csvPath = Join-Path -Path $OutputFolder -ChildPath "$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv"
-        $csvColumns = @("Policy","Package","Catalog","Hidden","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","AllowedTargetScope","BroadScope","SelfAdd","OnBehalfAdd","Approval","Expiration","ExpirationDetails","AccessReview","AutoAssignment","SpecificTargets","Assignments","Users","Guests","ServicePrincipals","Impact","Likelihood","Risk","Warnings")
+        $csvColumns = @("Policy","Package","Catalog","PolicyEnabled","CatalogEnabled","Hidden","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","AllowedTargetScope","BroadScope","SelfAdd","OnBehalfAdd","Approval","Expiration","ExpirationDetails","AccessReview","AutoAssignment","SpecificTargets","Assignments","Users","Guests","ServicePrincipals","Impact","Likelihood","Risk","Warnings")
         if ($mainTableExport.Count -eq 0) {
             ($csvColumns -join ",") | Out-File -FilePath $csvPath
         } else {

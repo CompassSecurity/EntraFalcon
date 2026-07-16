@@ -8282,6 +8282,35 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         return $false
     }
 
+    function Test-AccessPackagePolicyStatusNotFalse {
+        param(
+            $Policy,
+            [Parameter(Mandatory = $true)][string]$PropertyName
+        )
+
+        if ($null -eq $Policy -or -not $Policy.PSObject.Properties[$PropertyName]) { return $true }
+        $value = $Policy.PSObject.Properties[$PropertyName].Value
+        if ($null -eq $value) { return $true }
+        if ($value -is [bool]) { return [bool]$value }
+        return ([string]$value).Trim().ToLowerInvariant() -ne "false"
+    }
+
+    function Test-AccessPackageRequestPathEnabled {
+        param($Policy)
+
+        return ((Test-AccessPackagePolicyStatusNotFalse -Policy $Policy -PropertyName "PolicyEnabled") -and
+            (Test-AccessPackagePolicyStatusNotFalse -Policy $Policy -PropertyName "CatalogEnabled"))
+    }
+
+    function Test-AccessPackagePersistentExposure {
+        param($Policy)
+
+        if ($null -eq $Policy) { return $false }
+        if ((Get-IntSafe $Policy.Assignments) -gt 0) { return $true }
+        if ($Policy.AutoAssignment -eq $true) { return $true }
+        return (Test-AccessPackagePolicyStatusNotFalse -Policy $Policy -PropertyName "PolicyEnabled")
+    }
+
     function Get-AccessPackageAffectedRoleColumnOptions {
         param([object[]]$Policies)
 
@@ -8347,10 +8376,10 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     } else {
         $allAccessPackagePolicies = @($AccessPackages.Values)
-        $apBroadSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.HasBroadSelfAddNoApproval })
-        $apPersistentWithoutReview = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and -not $_.HasExpiration -and -not $_.HasAccessReview })
-        $apUnprotectedGroupSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.SelfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.HasUnprotectedGroupSpecificTarget })
-        $apBroadNonUserOnBehalfNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.OnBehalfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.AllowedTargetScope -in @("All Service Principals", "All Agent Identities") -and [int]$_.Resources -gt 0 })
+        $apBroadSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.HasBroadSelfAddNoApproval -and (Test-AccessPackageRequestPathEnabled -Policy $_) })
+        $apPersistentWithoutReview = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and -not $_.HasExpiration -and -not $_.HasAccessReview -and (Test-AccessPackagePersistentExposure -Policy $_) })
+        $apUnprotectedGroupSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.SelfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.HasUnprotectedGroupSpecificTarget -and (Test-AccessPackageRequestPathEnabled -Policy $_) })
+        $apBroadNonUserOnBehalfNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.OnBehalfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.AllowedTargetScope -in @("All Service Principals", "All Agent Identities") -and [int]$_.Resources -gt 0 -and (Test-AccessPackageRequestPathEnabled -Policy $_) })
         $allowInvitesFromForAccessPackageRules = ""
         if ($AuthPolicy -and $AuthPolicy.allowInvitesFrom) {
             $allowInvitesFromForAccessPackageRules = "$($AuthPolicy.allowInvitesFrom)"
@@ -8375,7 +8404,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
 
             $matchedAttributes = @($matchedAttributeList | Select-Object -Unique)
-            if ($policy.IsHighImpact -and $policy.AutoAssignment -eq $true -and $matchedAttributes.Count -gt 0) {
+            if ($policy.IsHighImpact -and $policy.AutoAssignment -eq $true -and (Test-AccessPackagePolicyStatusNotFalse -Policy $policy -PropertyName "CatalogEnabled") -and $matchedAttributes.Count -gt 0) {
                 $policy | Add-Member -NotePropertyName EffectiveDangerousAutoAssignmentAttributes -NotePropertyValue ($matchedAttributes -join ", ") -Force
                 $policy
             }
@@ -8383,7 +8412,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         if ($apBroadSelfAddNoApproval.Count -gt 0) {
             $apk001RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apBroadSelfAddNoApproval
-            Write-Log -Level Verbose -Message "[APK-001] Found $($apBroadSelfAddNoApproval.Count) high-impact access package policies with broad self-request and no approval."
+            Write-Log -Level Verbose -Message "[APK-001] Found $($apBroadSelfAddNoApproval.Count) enabled high-impact access package policies in enabled catalogs with broad self-request and no approval."
             Set-FindingOverride -FindingId "APK-001" -Props $APK001VariantProps.Vulnerable
             $apk001VerificationRawScopes = @(
                 "allDirectoryServicePrincipals",
@@ -8408,7 +8437,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $displayScope = [string]$_.AllowedTargetScope
                 ($apk001VerificationRawScopes -contains $rawScope) -or ($apk001VerificationDisplayScopes -contains $displayScope)
             }).Count -gt 0
-            $apk001Description = "<p>$($apBroadSelfAddNoApproval.Count) high-impact access package policies allow broad self-request without approval.</p>"
+            $apk001Description = "<p>$($apBroadSelfAddNoApproval.Count) enabled high-impact access package policies in enabled catalogs allow broad self-request without approval.</p>"
             if ($apk001RequiresVerification) {
                 $apk001Description += "<p><strong>Important:</strong> This finding requires manual verification. Exploitability depends on whether objects exist in the allowed target scope and whether an attacker can create or control those objects. This is especially relevant for service principals and agent identities, where ownership or creation rights may allow abuse of the policy.</p>"
             }
@@ -8416,7 +8445,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 Description = $apk001Description
                 Confidence = if ($apk001RequiresVerification) { "Requires Verification" } else { "Sure" }
                 AffectedObjects = @($apBroadSelfAddNoApproval | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-001" @apk001RoleColumns })
-                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "BroadScope=true&SelfAdd=true&Approval=false" -ColumnsBeforeRoleFields @("Policy","Package","Catalog","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint") -ColumnsAfterRoleFields @("AllowedTargetScope","SelfAdd","Approval","Expiration","AccessReview","Impact","Risk","Warnings") @apk001RoleColumns
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "PolicyEnabled=true&CatalogEnabled=true&BroadScope=true&SelfAdd=true&Approval=false" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint") -ColumnsAfterRoleFields @("AllowedTargetScope","SelfAdd","Approval","Expiration","AccessReview","Impact","Risk","Warnings") @apk001RoleColumns
             }
             if (@($apBroadSelfAddNoApproval | Where-Object { [double]$_.Impact -ge 400 }).Count -gt 0) {
                 $apk001Props.Severity = 4
@@ -8428,12 +8457,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         if ($apPersistentWithoutReview.Count -gt 0) {
             $apk002RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apPersistentWithoutReview
-            Write-Log -Level Verbose -Message "[APK-002] Found $($apPersistentWithoutReview.Count) high-impact access package policies without meaningful expiration or access reviews."
+            Write-Log -Level Verbose -Message "[APK-002] Found $($apPersistentWithoutReview.Count) active or assignable high-impact access package policies without meaningful expiration or access reviews."
             Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Vulnerable
             Set-FindingOverride -FindingId "APK-002" -Props @{
-                Description = "<p>$($apPersistentWithoutReview.Count) high-impact access package policies allow persistent access without meaningful expiration or access reviews.</p>"
+                Description = "<p>$($apPersistentWithoutReview.Count) active or assignable high-impact access package policies allow persistent access without meaningful expiration or access reviews. Disabled policies are retained when they have existing assignments or use automatic assignment.</p>"
                 AffectedObjects = @($apPersistentWithoutReview | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-002" @apk002RoleColumns })
-                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Expiration=false&AccessReview=false" -ColumnsBeforeRoleFields @("Policy","Package","Catalog","Resources") -ColumnsAfterRoleFields @("Assignments","Expiration","ExpirationDetails","AccessReview","Impact","Risk","Warnings") @apk002RoleColumns
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Expiration=false&AccessReview=false" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","Resources") -ColumnsAfterRoleFields @("AutoAssignment","Assignments","Expiration","ExpirationDetails","AccessReview","Impact","Risk","Warnings") @apk002RoleColumns
             }
         } else {
             Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Secure
@@ -8441,7 +8470,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         if ($apDangerousAutoAssignment.Count -gt 0) {
             $apk003RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apDangerousAutoAssignment
-            Write-Log -Level Verbose -Message "[APK-003] Found $($apDangerousAutoAssignment.Count) high-impact access package policies with potentially dangerous auto-assignment rules."
+            Write-Log -Level Verbose -Message "[APK-003] Found $($apDangerousAutoAssignment.Count) high-impact access package policies in enabled catalogs with potentially dangerous auto-assignment rules."
             $apDangerousAttributeCounts = [ordered]@{
                 "user.preferredLanguage" = 0
                 "user.mobilePhone" = 0
@@ -8471,12 +8500,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
             Set-FindingOverride -FindingId "APK-003" -Props $APK003VariantProps.Vulnerable
             Set-FindingOverride -FindingId "APK-003" -Props @{
-                Description = "<p>There are $($apDangerousAutoAssignment.Count) high-impact access package policies with potentially dangerous auto-assignment rules.</p><p>Used potentially dangerous attributes:</p>$apAttributeSummaryHtml<p><strong>Important:</strong> This finding requires manual verification. Whether a rule using one of these manipulable attributes is exploitable depends on the operator used, the assigned values, and how it is combined with other conditions in the rule.</p>"
+                Description = "<p>There are $($apDangerousAutoAssignment.Count) high-impact access package policies in enabled catalogs with potentially dangerous auto-assignment rules.</p><p>Used potentially dangerous attributes:</p>$apAttributeSummaryHtml<p><strong>Important:</strong> This finding requires manual verification. Whether a rule using one of these manipulable attributes is exploitable depends on the operator used, the assigned values, and how it is combined with other conditions in the rule.</p>"
                 AffectedObjects = @($apDangerousAutoAssignment | ForEach-Object {
                     $matchedAttributes = if ($_.PSObject.Properties["EffectiveDangerousAutoAssignmentAttributes"]) { @("$($_.EffectiveDangerousAutoAssignmentAttributes)" -split ",\s*") } else { $null }
                     New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-003" -DangerousAutoAssignmentAttributes $matchedAttributes @apk003RoleColumns
                 })
-                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Warnings=Dangerous%20auto-assignment%20rule" -ColumnsBeforeRoleFields @("Policy","Package","AutoAssignment","Resources") -ColumnsAfterRoleFields @("Impact","Risk","Warnings") @apk003RoleColumns
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "CatalogEnabled=true&Warnings=Dangerous%20auto-assignment%20rule" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","AutoAssignment","Resources") -ColumnsAfterRoleFields @("Impact","Risk","Warnings") @apk003RoleColumns
             }
         } else {
             Set-FindingOverride -FindingId "APK-003" -Props $APK003VariantProps.Secure
@@ -8484,12 +8513,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         if ($apUnprotectedGroupSelfAddNoApproval.Count -gt 0) {
             $apk004RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apUnprotectedGroupSelfAddNoApproval
-            Write-Log -Level Verbose -Message "[APK-004] Found $($apUnprotectedGroupSelfAddNoApproval.Count) high-impact access package policies with self-request, no approval, and unprotected group targets."
+            Write-Log -Level Verbose -Message "[APK-004] Found $($apUnprotectedGroupSelfAddNoApproval.Count) enabled high-impact access package policies in enabled catalogs with self-request, no approval, and unprotected group targets."
             Set-FindingOverride -FindingId "APK-004" -Props $APK004VariantProps.Vulnerable
             Set-FindingOverride -FindingId "APK-004" -Props @{
-                Description = "<p>$($apUnprotectedGroupSelfAddNoApproval.Count) high-impact access package policies allow self-request without approval and use unprotected groups as specific targets.</p><p>Unprotected group targets are groups that are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess whether a lower-tier administrator or application can manage the targeted group membership and thereby make users eligible to request the access package.</p>"
+                Description = "<p>$($apUnprotectedGroupSelfAddNoApproval.Count) enabled high-impact access package policies in enabled catalogs allow self-request without approval and use unprotected groups as specific targets.</p><p>Unprotected group targets are groups that are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess whether a lower-tier administrator or application can manage the targeted group membership and thereby make users eligible to request the access package.</p>"
                 AffectedObjects = @($apUnprotectedGroupSelfAddNoApproval | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-004" @apk004RoleColumns })
-                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "SelfAdd=true&Approval=false&Warnings=Unprotected%20group%20can%20self-request%20without%20approval" -ColumnsBeforeRoleFields @("Policy","Package","Resources","Groups") -ColumnsAfterRoleFields @("AllowedTargetScope","SelfAdd","Approval","Impact","Risk","Warnings") @apk004RoleColumns
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "PolicyEnabled=true&CatalogEnabled=true&SelfAdd=true&Approval=false&Warnings=Unprotected%20group%20can%20self-request%20without%20approval" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","Resources","Groups") -ColumnsAfterRoleFields @("AllowedTargetScope","SelfAdd","Approval","Impact","Risk","Warnings") @apk004RoleColumns
             }
         } else {
             Set-FindingOverride -FindingId "APK-004" -Props $APK004VariantProps.Secure
@@ -8497,12 +8526,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         if ($apBroadNonUserOnBehalfNoApproval.Count -gt 0) {
             $apk005RoleColumns = Get-AccessPackageAffectedRoleColumnOptions -Policies $apBroadNonUserOnBehalfNoApproval
-            Write-Log -Level Verbose -Message "[APK-005] Found $($apBroadNonUserOnBehalfNoApproval.Count) high-impact access package policies with on-behalf requests for broad non-user identities and no approval."
+            Write-Log -Level Verbose -Message "[APK-005] Found $($apBroadNonUserOnBehalfNoApproval.Count) enabled high-impact access package policies in enabled catalogs with on-behalf requests for broad non-user identities and no approval."
             Set-FindingOverride -FindingId "APK-005" -Props $APK005VariantProps.Vulnerable
             Set-FindingOverride -FindingId "APK-005" -Props @{
-                Description = "<p>$($apBroadNonUserOnBehalfNoApproval.Count) high-impact access package policies allow on-behalf assignment to all service principals or all agent identities without approval.</p><p><strong>Important:</strong> Assess whether requesters can create, own, or control service principals or agent identities in the allowed target scope. Exploitability depends on whether a requester can select a non-user identity they control and use the access package to grant it sensitive resources.</p>"
+                Description = "<p>$($apBroadNonUserOnBehalfNoApproval.Count) enabled high-impact access package policies in enabled catalogs allow on-behalf assignment to all service principals or all agent identities without approval.</p><p><strong>Important:</strong> Assess whether requesters can create, own, or control service principals or agent identities in the allowed target scope. Exploitability depends on whether a requester can select a non-user identity they control and use the access package to grant it sensitive resources.</p>"
                 AffectedObjects = @($apBroadNonUserOnBehalfNoApproval | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-005" @apk005RoleColumns })
-                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "OnBehalfAdd=true&Approval=false&AllowedTargetScope=All%20Service%20Principals%7C%7CAll%20Agent%20Identities" -ColumnsBeforeRoleFields @("Policy","Package","Resources") -ColumnsAfterRoleFields @("AllowedTargetScope","OnBehalfAdd","Approval","Impact","Risk","Warnings") @apk005RoleColumns
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "PolicyEnabled=true&CatalogEnabled=true&OnBehalfAdd=true&Approval=false&AllowedTargetScope=All%20Service%20Principals%7C%7CAll%20Agent%20Identities" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","Resources") -ColumnsAfterRoleFields @("AllowedTargetScope","OnBehalfAdd","Approval","Impact","Risk","Warnings") @apk005RoleColumns
             }
         } else {
             Set-FindingOverride -FindingId "APK-005" -Props $APK005VariantProps.Secure

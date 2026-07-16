@@ -575,6 +575,8 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies with broad self-request and no approval",
                     label: "Broad Self-Add No Approval",
                     filters: {
+                        PolicyEnabled: "=true",
+                        CatalogEnabled: "=true",
                         BroadScope: "=true",
                         SelfAdd: "=true",
                         Approval: "=false",
@@ -589,6 +591,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies with dangerous auto-assignment rules",
                     label: "Dangerous Auto-Assignment Rules",
                     filters: {
+                        CatalogEnabled: "=true",
                         Warnings: "Dangerous auto-assignment rule",
                         Impact: ">99"
                     },
@@ -601,6 +604,8 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies allowing broad non-user on-behalf assignment without approval",
                     label: "Broad Non-User On-Behalf No Approval",
                     filters: {
+                        PolicyEnabled: "=true",
+                        CatalogEnabled: "=true",
                         OnBehalfAdd: "=true",
                         Approval: "=false",
                         AllowedTargetScope: "All Service Principals||All Agent Identities",
@@ -661,6 +666,8 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact self-request policies without approval that target unprotected groups",
                     label: "Unprotected Group Self-Request",
                     filters: {
+                        PolicyEnabled: "=true",
+                        CatalogEnabled: "=true",
                         Warnings: "Unprotected group can self-request without approval"
                     },
                     columns: ["Policy", "Package", "AllowedTargetScope", "SelfAdd", "Approval", "SpecificTargets", "Groups", "EntraMaxTier", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
@@ -1424,8 +1431,10 @@ $global:GLOBALJavaScript_Table = @'
             { reports: ["Users", "Groups"], column: "APTarget", uniformValues: [0] },
             { reports: ["AccessPackages"], column: "ApiApp", uniformValues: [0] },
             { reports: ["AccessPackages"], column: "ApiDelegated", uniformValues: [0] },
-            { reports: ["AccessPackages"], column: "ServicePrincipals", uniformValues: [0] },
-            { reports: ["AccessPackages"], column: "Guests", uniformValues: [0] }
+            { reports: ["AccessPackages"], column: "AutoAssignment", uniformValues: [false] },
+            { reports: ["AccessPackages"], column: "AzureRoles", uniformValues: [0] },
+            { reports: ["AccessPackages"], column: "AzureMaxTier", uniformValues: ["-", "?"] },
+            { reports: ["AccessPackages"], column: "Hidden", uniformValues: [false] }
         ];
 
         function getConditionalDefaultHiddenColumns(reportKey, data, columns) {
@@ -1436,12 +1445,12 @@ $global:GLOBALJavaScript_Table = @'
             const availableColumns = new Set(columns);
             return conditionalDefaultHiddenRules
                 .filter(rule => rule.reports.includes(reportKey) && availableColumns.has(rule.column))
-                .filter(rule => rule.uniformValues.some(expectedValue => data.every(row =>
+                .filter(rule => data.every(row =>
                     row !== null &&
                     typeof row === "object" &&
                     Object.prototype.hasOwnProperty.call(row, rule.column) &&
-                    row[rule.column] === expectedValue
-                )))
+                    rule.uniformValues.some(expectedValue => row[rule.column] === expectedValue)
+                ))
                 .map(rule => rule.column);
         }
 
@@ -1738,6 +1747,8 @@ $global:GLOBALJavaScript_Table = @'
             "ApiApp": "Access Package OAuth application permissions",
             "ApiDelegated": "Access Package OAuth delegated permissions",
             "SharePoint": "Access Package SharePoint resources",
+            "PolicyEnabled": "Access Package policy accepts new requests or assignments, or uses automatic assignment",
+            "CatalogEnabled": "Access Package catalog is published",
             "AllowedTargetScope": "Access Package policy target scope",
             "BroadScope": "Access Package policy allows a broad target or requestor population",
             "SelfAdd": "Targets can request access for themselves through this policy",
@@ -1758,7 +1769,7 @@ $global:GLOBALJavaScript_Table = @'
             window.__reportManifest = manifest;        
 
             if (manifest && manifest.currentReportKey === "AccessPackages") {
-                ["ExpirationDetails", "Catalog", "AccessReview"].forEach(col => {
+                ["ExpirationDetails", "Catalog", "AccessReview", "ServicePrincipals", "Users", "Guests"].forEach(col => {
                     if (!defaultHidden.includes(col)) defaultHidden.push(col);
                 });
             }
@@ -3607,7 +3618,7 @@ $global:GLOBALJavaScript_Table = @'
             const isDark = document.body.classList.contains("dark-mode");
 
             const redIfTrueHeaders = new Set(['Foreign', 'ForeignAgent', 'Inactive', 'PIM', 'Dynamic', 'SecurityEnabled', 'OnPrem', 'Conditions', 'IsBuiltIn', 'IsPrivileged', 'SAML', 'Agent', 'ActivatedViaPIM', 'SelfAdd', 'AutoAssignment', 'Hidden', 'OnBehalfAdd', 'BroadScope']);
-            const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview']);
+            const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview', 'PolicyEnabled', 'CatalogEnabled']);
             const redIfContent = new Set(['all', 'alltrusted', 'report-only', 'disabled', 'public', 'guest', 'customrole', 'active', 'tier-0', 'tier-1', 'tier-2', 'all users', 'all internal users', 'all service principals', 'all agent identities', 'all external users', 'all external orgs']);
             const redIfContentHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms', 'State', 'Visibility', 'UserType', 'RoleType', 'AssignmentType', 'EntraMaxTier', 'AzureMaxTier', 'PerUserMfa', 'AllowedTargetScope']);
 
