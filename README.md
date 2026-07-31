@@ -367,6 +367,7 @@ For Azure roles, this categorization is less precise, as the actual impact depen
 | Authentication Administrator                  | 1          | c4e39bd9-1100-46d3-8c65-fb160da0071f   |
 | Azure DevOps Administrator                    | 1          | e3973bdf-4987-49ae-837a-ba8e231c7286   |
 | Directory Writers                             | 1          | 9360feb5-f418-4baa-8175-e2a00bac4301   |
+| Entra SOC Identity Responder                  | 1          | 58f930cc-fcf4-4152-852c-1d7dbf502139   |
 | Exchange Administrator                        | 1          | 29232cdf-9323-42fd-ade2-1d097af3e4de   |
 | Groups Administrator                          | 1          | fdd7a751-b60b-444a-984c-02652fe8fa1c   |
 | Helpdesk Administrator                        | 1          | 729827e3-9c14-49f7-bb1b-9608f156bbb8   |

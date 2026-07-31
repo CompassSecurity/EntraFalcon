@@ -7876,6 +7876,7 @@ $global:GLOBALEntraRoleRating = @{
     "c4e39bd9-1100-46d3-8c65-fb160da0071f" = 1 #Authentication Administrator
     "e3973bdf-4987-49ae-837a-ba8e231c7286" = 1 #Azure DevOps Administrator
     "9360feb5-f418-4baa-8175-e2a00bac4301" = 1 #Directory Writers
+    "58f930cc-fcf4-4152-852c-1d7dbf502139" = 1 #Entra SOC Identity Responder
     "29232cdf-9323-42fd-ade2-1d097af3e4de" = 1 #Exchange Administrator
     "fdd7a751-b60b-444a-984c-02652fe8fa1c" = 1 #Groups Administrator
     "729827e3-9c14-49f7-bb1b-9608f156bbb8" = 1 #Helpdesk Administrator
