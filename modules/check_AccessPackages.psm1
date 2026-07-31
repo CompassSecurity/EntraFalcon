@@ -55,6 +55,68 @@ function Invoke-AccessPackageGraphGet {
         -ErrorAction Stop
 }
 
+# Retrieves incompatible Access Package and group relationships in Graph batches.
+# These relationships are intentionally not expanded on the package collection:
+# Graph can return an empty or missing expanded relationship even when the direct
+# relationship endpoint contains configured objects.
+function Invoke-AccessPackageSeparationBatch {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Packages,
+        [Parameter(Mandatory = $true)][string]$AccessToken,
+        [string]$UserAgent
+    )
+
+    $requests = New-Object 'System.Collections.Generic.List[object]'
+    $requestMap = @{}
+    foreach ($package in @($Packages)) {
+        $packageId = [string]$package.id
+        if ([string]::IsNullOrWhiteSpace($packageId)) { continue }
+
+        $packageRequestId = "ap-$packageId-packages"
+        $groupRequestId = "ap-$packageId-groups"
+        [void]$requests.Add(@{
+            id     = $packageRequestId
+            method = 'GET'
+            url    = "/identityGovernance/entitlementManagement/accessPackages/$packageId/incompatibleAccessPackages?`$top=100&`$select=id,displayName"
+        })
+        [void]$requests.Add(@{
+            id     = $groupRequestId
+            method = 'GET'
+            url    = "/identityGovernance/entitlementManagement/accessPackages/$packageId/incompatibleGroups?`$top=100"
+        })
+        $requestMap[$packageRequestId] = [pscustomobject]@{ PackageId = $packageId; Type = 'Access Package' }
+        $requestMap[$groupRequestId] = [pscustomobject]@{ PackageId = $packageId; Type = 'Group' }
+    }
+
+    $requestArray = @($requests.ToArray())
+    $responses = @()
+    if ($requestArray.Count -gt 0) {
+        $responses = @(Send-GraphBatchRequest -AccessToken $AccessToken -Requests $requestArray -MaxBatchSize 20 -UserAgent $UserAgent -Silent)
+    }
+
+    return [pscustomobject]@{
+        Requests = $requestArray
+        Responses = @($responses)
+        RequestMap = $requestMap
+        BatchRequests = if ($requests.Count -gt 0) { [int][math]::Ceiling($requests.Count / 20.0) } else { 0 }
+    }
+}
+
+# Returns true only when the expanded collection query can reasonably be retried
+# through the legacy collection shape. Authentication, licensing, throttling, and
+# exhausted transient failures must retain their existing coverage behavior.
+function Test-AccessPackageExpandedQueryFallbackEligible {
+    param(
+        [Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    $message = [string]$ErrorRecord.Exception.Message
+    return (
+        $message -match "(?i)status\s+400\b" -or
+        $message -match "(?i)InvalidFilter|Request_BadRequest|invalid\s+OData|unsupported.*query"
+    )
+}
+
 # Reads the first non-empty property value from a Graph object.
 function Get-AccessPackageObjectValue {
     param(
@@ -116,6 +178,79 @@ function Test-AccessPackageTruthyValue {
     if ($null -eq $Value) { return $false }
     if ($Value -is [bool]) { return [bool]$Value }
     return ([string]$Value).Trim().ToLowerInvariant() -in @("true", "1", "yes", "enabled", "required")
+}
+
+# Converts Graph date values without depending on the current PowerShell culture.
+function ConvertTo-AccessPackageDateTimeOffset {
+    param([Parameter(Mandatory = $false)][object]$Value)
+
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return [datetimeoffset]$Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]([datetime]$Value) }
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse($text, [ref]$parsed)) { return $parsed }
+    return $null
+}
+
+# Returns the calculated end of an assignment schedule when it can be resolved.
+function Get-AccessPackageAssignmentEndDateTime {
+    param([Parameter(Mandatory = $true)][object]$Assignment)
+
+    if ($null -eq $Assignment.schedule -or $null -eq $Assignment.schedule.expiration) { return $null }
+    $expiration = $Assignment.schedule.expiration
+    $expirationType = [string]$expiration.type
+    if ($expirationType -ieq "afterDateTime") {
+        $endValue = if ($expiration.endDateTime) { $expiration.endDateTime } else { $expiration.expirationDateTime }
+        return (ConvertTo-AccessPackageDateTimeOffset -Value $endValue)
+    }
+    if ($expirationType -ieq "afterDuration") {
+        $start = ConvertTo-AccessPackageDateTimeOffset -Value $Assignment.schedule.startDateTime
+        if ($null -eq $start -or [string]::IsNullOrWhiteSpace([string]$expiration.duration)) { return $null }
+        try {
+            return $start.Add([System.Xml.XmlConvert]::ToTimeSpan([string]$expiration.duration))
+        } catch {
+            return $null
+        }
+    }
+    return $null
+}
+
+# Counts only fully delivered assignments whose configured schedule is currently active.
+function Test-AccessPackageAssignmentActive {
+    param(
+        [Parameter(Mandatory = $true)][object]$Assignment,
+        [Parameter(Mandatory = $true)][datetimeoffset]$Now
+    )
+
+    if ([string]$Assignment.state -ine "delivered" -or [string]$Assignment.status -ine "Delivered") { return $false }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Assignment.expiredDateTime)) { return $false }
+    if ($null -eq $Assignment.schedule -or $null -eq $Assignment.schedule.expiration) { return $false }
+
+    $startValue = $Assignment.schedule.startDateTime
+    $start = ConvertTo-AccessPackageDateTimeOffset -Value $startValue
+    if ($null -ne $startValue -and -not [string]::IsNullOrWhiteSpace([string]$startValue)) {
+        if ($null -eq $start -or $start.ToUniversalTime() -gt $Now.ToUniversalTime()) { return $false }
+    }
+
+    $expirationType = [string]$Assignment.schedule.expiration.type
+    if ($expirationType -ieq "noExpiration") { return $true }
+    $end = Get-AccessPackageAssignmentEndDateTime -Assignment $Assignment
+    return ($null -ne $end -and $end.ToUniversalTime() -gt $Now.ToUniversalTime())
+}
+
+# Separately identifies assignments whose state, marker, or schedule shows expiration.
+function Test-AccessPackageAssignmentExpired {
+    param(
+        [Parameter(Mandatory = $true)][object]$Assignment,
+        [Parameter(Mandatory = $true)][datetimeoffset]$Now
+    )
+
+    if ([string]$Assignment.state -ieq "expired") { return $true }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Assignment.expiredDateTime)) { return $true }
+    $end = Get-AccessPackageAssignmentEndDateTime -Assignment $Assignment
+    return ($null -ne $end -and $end.ToUniversalTime() -le $Now.ToUniversalTime())
 }
 
 # Reads a boolean requestor setting from policy requestor metadata.
@@ -482,11 +617,15 @@ function Get-AccessPackagesRawData {
         return [pscustomobject]@{
             IsAvailable                 = $false
             IsSkipped                   = $true
+            AssignmentsAvailable        = $false
+            ResourceRoleScopesAvailable = $false
             Warnings                    = @($Warnings)
             Packages                    = @()
             Assignments                 = @()
             PolicyEnabledById           = @{}
             ResourceRoleScopesByPackage = @{}
+            SeparationOfDutiesAvailable = $false
+            SeparationOfDutiesByPackage = @{}
         }
     }
 
@@ -496,30 +635,78 @@ function Get-AccessPackagesRawData {
 
     $packages = @()
     $assignments = @()
+    $assignmentsAvailable = $true
     $policyEnabledById = @{}
     $resourceRoleScopesByPackage = @{}
+    $resourceRoleScopesAvailable = $true
+    $separationOfDutiesByPackage = @{}
+    $separationOfDutiesAvailable = $true
+    $collectionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $scopeCollectionMode = "Expanded"
+    $scopeFallbackRequests = 0
+    $scopeFallbackFailures = 0
+    $separationCollectionMode = "Expanded"
 
     ########################################## SECTION: DATACOLLECTION ##########################################
 
     try {
         Write-Host "[*] Enumerating Access Packages"
         $packages = @(Invoke-AccessPackageGraphGet -Uri "/identityGovernance/entitlementManagement/accessPackages" -QueryParameters @{
-            '$expand' = 'catalog,assignmentPolicies'
-            '$top'    = $ApiTop
+            '$select' = 'id,displayName,isHidden'
+            # Do not expand incompatible relationships here. Graph can return
+            # empty or missing expanded values even when direct endpoints have data;
+            # they are collected reliably through the batch relationship requests below.
+            '$expand' = 'catalog,assignmentPolicies,resourceRoleScopes($expand=role,scope)'
+            '$top'    = [Math]::Min([Math]::Max($ApiTop, 1), 100)
         })
         Write-Host "[+] Got $(@($packages).Count) Access Packages"
-        Write-Log -Level Debug -Message "[AccessPackages] Access package collection returned $(@($packages).Count) package objects."
+        Write-Log -Level Debug -Message "[AccessPackages] Expanded access package collection returned $(@($packages).Count) package objects."
     } catch {
-        $Warnings.Add("Coverage gap: Access Packages could not be enumerated. $(Format-AccessPackageGraphError -ErrorRecord $_)")
-        Write-Log -Level Debug -Message "[AccessPackages] Access package collection failed: $($_.Exception.Message)"
-        return [pscustomobject]@{
-            IsAvailable                 = $false
-            IsSkipped                   = $false
-            Warnings                    = @($Warnings)
-            Packages                    = @()
-            Assignments                 = @()
-            PolicyEnabledById           = @{}
-            ResourceRoleScopesByPackage = @{}
+        if (Test-AccessPackageExpandedQueryFallbackEligible -ErrorRecord $_) {
+            $scopeCollectionMode = "Fallback"
+            $separationCollectionMode = "Batch"
+            Write-Log -Level Debug -Message "[AccessPackages] Expanded collection query was rejected; retrying with the legacy collection shape. $($_.Exception.Message)"
+            try {
+                $packages = @(Invoke-AccessPackageGraphGet -Uri "/identityGovernance/entitlementManagement/accessPackages" -QueryParameters @{
+                    '$select' = 'id,displayName,isHidden'
+                    '$expand' = 'catalog,assignmentPolicies'
+                    '$top'    = [Math]::Min([Math]::Max($ApiTop, 1), 100)
+                })
+                Write-Host "[+] Got $(@($packages).Count) Access Packages"
+                Write-Log -Level Debug -Message "[AccessPackages] Legacy access package collection returned $(@($packages).Count) package objects."
+            } catch {
+                $Warnings.Add("Coverage gap: Access Packages could not be enumerated. $(Format-AccessPackageGraphError -ErrorRecord $_)")
+                Write-Log -Level Debug -Message "[AccessPackages] Legacy access package collection failed: $($_.Exception.Message)"
+                return [pscustomobject]@{
+                    IsAvailable                 = $false
+                    IsSkipped                   = $false
+                    AssignmentsAvailable        = $false
+                    ResourceRoleScopesAvailable = $false
+                    Warnings                    = @($Warnings)
+                    Packages                    = @()
+                    Assignments                 = @()
+                    PolicyEnabledById           = @{}
+                    ResourceRoleScopesByPackage = @{}
+                    SeparationOfDutiesAvailable = $false
+                    SeparationOfDutiesByPackage = @{}
+                }
+            }
+        } else {
+            $Warnings.Add("Coverage gap: Access Packages could not be enumerated. $(Format-AccessPackageGraphError -ErrorRecord $_)")
+            Write-Log -Level Debug -Message "[AccessPackages] Expanded access package collection failed: $($_.Exception.Message)"
+            return [pscustomobject]@{
+                IsAvailable                 = $false
+                IsSkipped                   = $false
+                AssignmentsAvailable        = $false
+                ResourceRoleScopesAvailable = $false
+                Warnings                    = @($Warnings)
+                Packages                    = @()
+                Assignments                 = @()
+                PolicyEnabledById           = @{}
+                ResourceRoleScopesByPackage = @{}
+                SeparationOfDutiesAvailable = $false
+                SeparationOfDutiesByPackage = @{}
+            }
         }
     }
 
@@ -528,11 +715,15 @@ function Get-AccessPackagesRawData {
         return [pscustomobject]@{
             IsAvailable                 = $true
             IsSkipped                   = $false
+            AssignmentsAvailable        = $true
+            ResourceRoleScopesAvailable = $true
             Warnings                    = @($Warnings)
             Packages                    = @()
             Assignments                 = @()
             PolicyEnabledById           = @{}
             ResourceRoleScopesByPackage = @{}
+            SeparationOfDutiesAvailable = $true
+            SeparationOfDutiesByPackage = @{}
         }
     }
 
@@ -558,7 +749,8 @@ function Get-AccessPackagesRawData {
     try {
         Write-Host "[*] Enumerating Access Package assignments"
         $assignments = @(Invoke-AccessPackageGraphGet -Uri "/identityGovernance/entitlementManagement/assignments" -QueryParameters @{
-            '$expand' = 'target,accessPackage,assignmentPolicy'
+            '$select' = 'id,state,status,expiredDateTime,schedule'
+            '$expand' = 'target($select=id,objectId,displayName,principalName,email,subjectType),accessPackage($select=id,displayName),assignmentPolicy'
             '$top'    = $ApiTop
         })
         Write-Host "[+] Got $(@($assignments).Count) Access Package assignments"
@@ -567,6 +759,7 @@ function Get-AccessPackagesRawData {
         $Warnings.Add("Coverage gap: Access Package assignments could not be enumerated. $(Format-AccessPackageGraphError -ErrorRecord $_)")
         Write-Log -Level Debug -Message "[AccessPackages] Assignment collection failed: $($_.Exception.Message)"
         $assignments = @()
+        $assignmentsAvailable = $false
     }
 
     Write-Host "[*] Enumerating Access Package resource role scopes"
@@ -575,36 +768,125 @@ function Get-AccessPackagesRawData {
     foreach ($package in @($packages)) {
         if (-not $package -or [string]::IsNullOrWhiteSpace([string]$package.id)) { continue }
         $packageScopeCounter++
-        if (-not (Invoke-CheckTokenExpiration $GLOBALmsGraphAccessToken)) {
-            RefreshAuthenticationMsGraph | Out-Null
+        $expandedScopesProperty = $package.PSObject.Properties["resourceRoleScopes"]
+        $expandedNextLinkProperty = $package.PSObject.Properties["resourceRoleScopes@odata.nextLink"]
+        $expandedNextLink = if ($expandedNextLinkProperty) { [string]$expandedNextLinkProperty.Value } else { "" }
+        $requiresFallback = ($null -eq $expandedScopesProperty -or -not [string]::IsNullOrWhiteSpace($expandedNextLink))
+
+        if (-not $requiresFallback) {
+            $resourceRoleScopes = @($expandedScopesProperty.Value)
+            $resourceRoleScopesByPackage[[string]$package.id] = $resourceRoleScopes
+            $resourceRoleScopeTotal += $resourceRoleScopes.Count
+            Write-Log -Level Debug -Message "[AccessPackages] Package '$($package.displayName)' has $($resourceRoleScopes.Count) expanded resource role scope entries."
+        } else {
+            $scopeFallbackRequests++
+            if ($scopeCollectionMode -eq "Expanded") { $scopeCollectionMode = "Mixed" }
+            if (-not (Invoke-CheckTokenExpiration $GLOBALmsGraphAccessToken)) {
+                RefreshAuthenticationMsGraph | Out-Null
+            }
+
+            try {
+                Write-Log -Level Verbose -Message "[AccessPackages] Collecting paged resource role scopes for package $packageScopeCounter of $(@($packages).Count): $($package.displayName)"
+                $resourceRoleScopes = @(Invoke-AccessPackageGraphGet -Uri "/identityGovernance/entitlementManagement/accessPackages/$($package.id)/resourceRoleScopes" -QueryParameters @{
+                    '$select' = 'id'
+                    '$expand' = 'role,scope'
+                    '$top'    = 100
+                })
+                $resourceRoleScopesByPackage[[string]$package.id] = $resourceRoleScopes
+                $resourceRoleScopeTotal += $resourceRoleScopes.Count
+                Write-Log -Level Debug -Message "[AccessPackages] Package '$($package.displayName)' has $($resourceRoleScopes.Count) fallback resource role scope entries."
+            } catch {
+                $scopeFallbackFailures++
+                $resourceRoleScopesByPackage[[string]$package.id] = @()
+                $resourceRoleScopesAvailable = $false
+                $Warnings.Add("Coverage gap: Resource role scopes could not be enumerated for access package '$($package.displayName)'. $(Format-AccessPackageGraphError -ErrorRecord $_)")
+                Write-Log -Level Debug -Message "[AccessPackages] Resource role scope collection failed for package '$($package.displayName)': $($_.Exception.Message)"
+            }
         }
 
-        try {
-            Write-Log -Level Verbose -Message "[AccessPackages] Collecting resource role scopes for package $packageScopeCounter of $(@($packages).Count): $($package.displayName)"
-            $packageWithScopes = Invoke-AccessPackageGraphGet -Uri "/identityGovernance/entitlementManagement/accessPackages/$($package.id)" -QueryParameters @{
-                '$expand' = 'resourceRoleScopes($expand=role,scope)'
+        foreach ($propertyName in @("resourceRoleScopes", "resourceRoleScopes@odata.context", "resourceRoleScopes@odata.nextLink")) {
+            if ($package.PSObject.Properties[$propertyName]) {
+                $package.PSObject.Properties.Remove($propertyName)
             }
-            $resourceRoleScopesByPackage[$package.id] = @($packageWithScopes.resourceRoleScopes)
-            $resourceRoleScopeTotal += @($packageWithScopes.resourceRoleScopes).Count
-            Write-Log -Level Debug -Message "[AccessPackages] Package '$($package.displayName)' has $(@($packageWithScopes.resourceRoleScopes).Count) resource role scope entries."
-        } catch {
-            $resourceRoleScopesByPackage[$package.id] = @()
-            $Warnings.Add("Coverage gap: Resource role scopes could not be enumerated for access package '$($package.displayName)'. $(Format-AccessPackageGraphError -ErrorRecord $_)")
-            Write-Log -Level Debug -Message "[AccessPackages] Resource role scope collection failed for package '$($package.displayName)': $($_.Exception.Message)"
         }
     }
     Write-Host "[+] Got $resourceRoleScopeTotal Access Package resource role scopes"
+
+    Write-Host "[*] Enumerating Access Package separation-of-duties settings"
+    $separationEntryTotal = 0
+    $separationCollectionMode = "Batch"
+    $separationBatchRequests = 0
+    $separationSubrequests = 0
+    $separationBatchFailures = 0
+    $separationBatchResult = Invoke-AccessPackageSeparationBatch -Packages @($packages) -AccessToken $GLOBALMsGraphAccessToken.access_token -UserAgent $($GlobalAuditSummary.UserAgent.Name)
+    $separationSubrequests = @($separationBatchResult.Requests).Count
+    $separationBatchRequests = [int]$separationBatchResult.BatchRequests
+
+    $entriesByPackage = @{}
+    foreach ($package in @($packages)) {
+        if ($package -and -not [string]::IsNullOrWhiteSpace([string]$package.id)) {
+            $entriesByPackage[[string]$package.id] = [System.Collections.Generic.List[object]]::new()
+        }
+    }
+    $entryKeysByPackage = @{}
+    foreach ($packageId in @($entriesByPackage.Keys)) {
+        $entryKeysByPackage[$packageId] = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    }
+
+    foreach ($response in @($separationBatchResult.Responses)) {
+        $responseId = [string]$response.id
+        if (-not $separationBatchResult.RequestMap.ContainsKey($responseId)) { continue }
+        $requestInfo = $separationBatchResult.RequestMap[$responseId]
+        $packageId = [string]$requestInfo.PackageId
+        if ([string]$response.status -notmatch '^2') {
+            $separationBatchFailures++
+            $separationOfDutiesAvailable = $false
+            $package = @($packages | Where-Object { [string]$_.id -eq $packageId } | Select-Object -First 1)
+            $packageName = if ($package) { [string]$package.displayName } else { $packageId }
+            $relationshipName = if ($requestInfo.Type -eq 'Group') { 'incompatibleGroups' } else { 'incompatibleAccessPackages' }
+            $Warnings.Add("Coverage gap: $relationshipName could not be enumerated for access package '$packageName'. $([string]$response.errorMessage)")
+            continue
+        }
+
+        $relatedObjects = if ($response.response -and $response.response.value) { @($response.response.value) } else { @() }
+        foreach ($relatedObject in $relatedObjects) {
+            if ($null -eq $relatedObject) { continue }
+            $relatedId = [string](Get-AccessPackageObjectValue -Object $relatedObject -Names @('id'))
+            if ([string]::IsNullOrWhiteSpace($relatedId)) { continue }
+            $entryKey = "$($requestInfo.Type)|$relatedId"
+            if (-not $entryKeysByPackage[$packageId].Add($entryKey)) { continue }
+            $relatedDisplayName = [string](Get-AccessPackageObjectValue -Object $relatedObject -Names @('displayName', 'id'))
+            if ([string]::IsNullOrWhiteSpace($relatedDisplayName)) { $relatedDisplayName = $relatedId }
+            [void]$entriesByPackage[$packageId].Add([pscustomobject]@{
+                Id          = $relatedId
+                DisplayName = $relatedDisplayName
+                Type        = [string]$requestInfo.Type
+            })
+        }
+    }
+
+    foreach ($packageId in @($entriesByPackage.Keys)) {
+        $separationOfDutiesByPackage[$packageId] = @($entriesByPackage[$packageId] | Sort-Object Type, DisplayName)
+        $separationEntryTotal += @($entriesByPackage[$packageId]).Count
+    }
+    Write-Host "[+] Got $separationEntryTotal Access Package separation-of-duties entries"
+    $collectionStopwatch.Stop()
+    Write-Log -Level Debug -Message "[AccessPackages] Collection metrics: ScopeMode=$scopeCollectionMode, SeparationMode=$separationCollectionMode, Packages=$(@($packages).Count), Assignments=$(@($assignments).Count), ResourceRoleScopes=$resourceRoleScopeTotal, SeparationEntries=$separationEntryTotal, ScopeFallbackRequests=$scopeFallbackRequests, ScopeFallbackFailures=$scopeFallbackFailures, SeparationSubrequests=$separationSubrequests, SeparationBatchRequests=$separationBatchRequests, SeparationBatchFailures=$separationBatchFailures, ElapsedMs=$($collectionStopwatch.ElapsedMilliseconds)"
     if ($Warnings.Count -gt 0) {
         Write-Log -Level Verbose -Message "[AccessPackages] Raw collection completed with $($Warnings.Count) warning(s): $($Warnings -join ' / ')"
     }
     return [pscustomobject]@{
         IsAvailable                 = $true
         IsSkipped                   = $false
+        AssignmentsAvailable        = $assignmentsAvailable
+        ResourceRoleScopesAvailable = $resourceRoleScopesAvailable
+        SeparationOfDutiesAvailable = $separationOfDutiesAvailable
         Warnings                    = @($Warnings)
         Packages                    = @($packages)
         Assignments                 = @($assignments)
         PolicyEnabledById           = $policyEnabledById
         ResourceRoleScopesByPackage = $resourceRoleScopesByPackage
+        SeparationOfDutiesByPackage = $separationOfDutiesByPackage
     }
 }
 
@@ -708,6 +990,121 @@ function New-AccessPackageUserSpecificTargetIndex {
     )
 
     return (New-AccessPackageSpecificTargetIndex -RawAccessPackages $RawAccessPackages -TargetKind "User")
+}
+
+# Produces a stable comparison key while preserving whitespace inside quoted rule values.
+function ConvertTo-AccessPackageMembershipRuleKey {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)][string]$MembershipRule
+    )
+
+    if ([string]::IsNullOrWhiteSpace($MembershipRule)) { return "" }
+
+    $builder = [System.Text.StringBuilder]::new()
+    $insideQuotes = $false
+    $escaped = $false
+    foreach ($character in $MembershipRule.Trim().ToCharArray()) {
+        if ($character -eq '"' -and -not $escaped) {
+            $insideQuotes = -not $insideQuotes
+            [void]$builder.Append($character)
+            $escaped = $false
+            continue
+        }
+        if (-not $insideQuotes -and [char]::IsWhiteSpace($character)) {
+            $escaped = $false
+            continue
+        }
+        [void]$builder.Append($character)
+        $escaped = ($insideQuotes -and $character -eq '\' -and -not $escaped)
+        if ($character -ne '\') { $escaped = $false }
+    }
+    return $builder.ToString()
+}
+
+# Builds a lightweight membership-rule lookup for automatic Access Package policies.
+function New-AccessPackageAutoAssignmentPolicyIndex {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$RawAccessPackages
+    )
+
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    $index = [System.Collections.Generic.Dictionary[string,System.Collections.Generic.List[object]]]::new([System.StringComparer]::Ordinal)
+    if ($null -eq $RawAccessPackages -or -not $RawAccessPackages.PSObject.Properties["Packages"]) {
+        return $index
+    }
+
+    $scopesAvailable = (-not $RawAccessPackages.PSObject.Properties["ResourceRoleScopesAvailable"] -or [bool]$RawAccessPackages.ResourceRoleScopesAvailable)
+    $scopesByPackage = if ($RawAccessPackages.PSObject.Properties["ResourceRoleScopesByPackage"] -and $null -ne $RawAccessPackages.ResourceRoleScopesByPackage) {
+        $RawAccessPackages.ResourceRoleScopesByPackage
+    } else {
+        @{}
+    }
+    $dedupe = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $policyCount = 0
+
+    foreach ($package in @($RawAccessPackages.Packages)) {
+        if ($null -eq $package) { continue }
+        $packageId = [string](Get-AccessPackageObjectValue -Object $package -Names @("id"))
+        if ([string]::IsNullOrWhiteSpace($packageId)) { continue }
+        $packageName = [string](Get-AccessPackageObjectValue -Object $package -Names @("displayName", "id"))
+        if ([string]::IsNullOrWhiteSpace($packageName)) { $packageName = $packageId }
+
+        $configuredResources = "-"
+        $configuredRoles = "-"
+        if ($scopesAvailable) {
+            $resourceKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $roleKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $roleScopes = if ($scopesByPackage -is [System.Collections.IDictionary] -and $scopesByPackage.Contains($packageId)) { @($scopesByPackage[$packageId]) } else { @() }
+            foreach ($roleScope in $roleScopes) {
+                if ($null -eq $roleScope) { continue }
+                $scope = $roleScope.scope
+                $role = $roleScope.role
+                $originSystem = [string](Get-AccessPackageObjectValue -Object $scope -Names @("originSystem"))
+                if ([string]::IsNullOrWhiteSpace($originSystem)) { $originSystem = [string](Get-AccessPackageObjectValue -Object $role -Names @("originSystem")) }
+                $originId = [string](Get-AccessPackageObjectValue -Object $scope -Names @("originId", "id"))
+                if ([string]::IsNullOrWhiteSpace($originId)) { $originId = [string](Get-AccessPackageObjectValue -Object $roleScope -Names @("id")) }
+                $roleId = [string](Get-AccessPackageObjectValue -Object $role -Names @("originId", "id", "displayName"))
+                if ([string]::IsNullOrWhiteSpace($roleId)) { $roleId = [string](Get-AccessPackageObjectValue -Object $roleScope -Names @("id")) }
+                $resourceKey = "$originSystem|$originId"
+                [void]$resourceKeys.Add($resourceKey)
+                [void]$roleKeys.Add("$resourceKey|$roleId")
+            }
+            $configuredResources = $resourceKeys.Count
+            $configuredRoles = $roleKeys.Count
+        }
+
+        foreach ($policy in @($package.assignmentPolicies)) {
+            if ($null -eq $policy -or -not $policy.PSObject.Properties["automaticRequestSettings"] -or $null -eq $policy.automaticRequestSettings) { continue }
+            $policyId = [string](Get-AccessPackageObjectValue -Object $policy -Names @("id"))
+            $policyName = [string](Get-AccessPackageObjectValue -Object $policy -Names @("displayName", "id"))
+            if ([string]::IsNullOrWhiteSpace($policyName)) { $policyName = if ($policyId) { $policyId } else { "Unnamed Policy" } }
+
+            foreach ($target in @($policy.specificAllowedTargets)) {
+                $membershipRule = [string](Get-AccessPackageObjectValue -Object $target -Names @("membershipRule"))
+                $ruleKey = ConvertTo-AccessPackageMembershipRuleKey -MembershipRule $membershipRule
+                if ([string]::IsNullOrWhiteSpace($ruleKey)) { continue }
+                $dedupeKey = "$packageId|$policyId|$ruleKey"
+                if (-not $dedupe.Add($dedupeKey)) { continue }
+                if (-not $index.ContainsKey($ruleKey)) { $index[$ruleKey] = [System.Collections.Generic.List[object]]::new() }
+                [void]$index[$ruleKey].Add([pscustomobject]@{
+                    PackageId          = $packageId
+                    Package            = $packageName
+                    PolicyId           = $policyId
+                    Policy             = $policyName
+                    MembershipRule     = $membershipRule
+                    ConfiguredResources = $configuredResources
+                    ConfiguredRoles     = $configuredRoles
+                })
+                $policyCount++
+            }
+        }
+    }
+
+    $timer.Stop()
+    Write-Log -Level Debug -Message ("[AccessPackages] Built automatic-assignment rule index with {0} rule key(s) and {1} policy target(s) in {2:N3} s." -f $index.Count, $policyCount, $timer.Elapsed.TotalSeconds)
+    return $index
 }
 
 # Processes Access Package data into reports and normalized policy rows.
@@ -1016,7 +1413,7 @@ function Invoke-CheckAccessPackages {
             if ($AllUsersBasicHT.ContainsKey($objectId)) {
                 $objectKind = "User"
                 $targetReport = "Users_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$objectId"
-                if ([string]::IsNullOrWhiteSpace($displayName) -and $AllUsersBasicHT.ContainsKey($objectId)) { $displayName = [string]$AllUsersBasicHT[$objectId].UserPrincipalName }
+                $displayName = [string]$AllUsersBasicHT[$objectId].UserPrincipalName
             } elseif ($AllGroupsDetails.ContainsKey($objectId)) {
                 $objectKind = "Group"
                 $targetReport = "Groups_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$objectId"
@@ -1042,6 +1439,10 @@ function Invoke-CheckAccessPackages {
             }
         }
 
+        if ($objectKind -eq "User" -and (-not $AllUsersBasicHT.ContainsKey($objectId) -or [string]::IsNullOrWhiteSpace($displayName))) {
+            $displayName = if ($objectId) { $objectId } else { "-" }
+            $targetReport = $null
+        }
         if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = if ($objectId) { $objectId } else { "-" } }
         $displayNameEncoded = ConvertTo-EntraFalconHtmlText $displayName -DefaultValue "-"
         $displayNameLink = if ($targetReport) { "<a href=$targetReport>$displayNameEncoded</a>" } else { $displayNameEncoded }
@@ -1073,7 +1474,6 @@ function Invoke-CheckAccessPackages {
         [pscustomobject]@{
             Policy         = ConvertTo-EntraFalconHtmlText $policyName -DefaultValue "-"
             Target         = $targetInfo.Link
-            TargetName     = ConvertTo-EntraFalconHtmlText $targetInfo.DisplayName -DefaultValue "-"
             TargetType     = $targetInfo.Kind
             Protected      = $targetInfo.Protected
             TargetId       = if ([string]::IsNullOrWhiteSpace($targetInfo.Id)) { "-" } else { $targetInfo.Id }
@@ -1244,11 +1644,42 @@ function Invoke-CheckAccessPackages {
     } else {
         @{}
     }
+    $SeparationOfDutiesByPackage = if ($RawAccessPackages.PSObject.Properties["SeparationOfDutiesByPackage"] -and $null -ne $RawAccessPackages.SeparationOfDutiesByPackage) {
+        $RawAccessPackages.SeparationOfDutiesByPackage
+    } else {
+        @{}
+    }
+    $PackageAnchorById = @{}
+    foreach ($anchorPackage in @($RawAccessPackages.Packages)) {
+        if ($null -eq $anchorPackage -or [string]::IsNullOrWhiteSpace([string]$anchorPackage.id)) { continue }
+        $anchorPackageId = [string]$anchorPackage.id
+        $anchorPolicies = @($anchorPackage.assignmentPolicies)
+        $anchorPolicyId = if ($anchorPolicies.Count -gt 0) { [string](Get-AccessPackageObjectValue -Object $anchorPolicies[0] -Names @("id")) } else { "" }
+        $PackageAnchorById[$anchorPackageId] = if ([string]::IsNullOrWhiteSpace($anchorPolicyId)) {
+            "$anchorPackageId`_no-policy"
+        } else {
+            "$anchorPackageId`_$anchorPolicyId"
+        }
+    }
 
     $AccessPackages = @{}
     $TableOutput = [System.Collections.Generic.List[object]]::new()
     $AllObjectDetails = [System.Collections.ArrayList]::new()
     $DetailTxtBuilder = [System.Text.StringBuilder]::new()
+    $assignmentNow = [datetimeoffset]::UtcNow
+    $htmlAssignmentLimit = 250
+    $assignmentSortProperties = @(
+        @{ Expression = {
+            if ([bool]$_.IsActive) { 0 }
+            elseif ([bool]$_.IsExpired) { 3 }
+            elseif ([string]$_.State -ieq "delivered" -or [string]$_.Status -ieq "Delivered") { 1 }
+            else { 2 }
+        }; Ascending = $true },
+        @{ Expression = { [string]$_.Start }; Descending = $true },
+        @{ Expression = { [string]$_.Target }; Ascending = $true }
+    )
+    $actualPolicyCount = 0
+    $policylessPackageCount = 0
     ########################################## SECTION: Processing ##########################################
 
     $packagesToProcess = @($RawAccessPackages.Packages)
@@ -1267,6 +1698,8 @@ function Invoke-CheckAccessPackages {
         $resourceRoleScopesByPackage = if ($RawAccessPackages.PSObject.Properties["ResourceRoleScopesByPackage"] -and $null -ne $RawAccessPackages.ResourceRoleScopesByPackage) { $RawAccessPackages.ResourceRoleScopesByPackage } else { @{} }
         $resourceRoleScopes = if ($resourceRoleScopesByPackage.ContainsKey($packageId)) { @($resourceRoleScopesByPackage[$packageId]) } else { @() }
         $policies = @($package.assignmentPolicies)
+        $actualPolicyCount += $policies.Count
+        if ($policies.Count -eq 0) { $policylessPackageCount++ }
 
         $resources = @($resourceRoleScopes | ForEach-Object { Get-AccessPackageResourceInfo -ResourceRoleScope $_ })
         $targetRows = [System.Collections.Generic.List[object]]::new()
@@ -1279,11 +1712,16 @@ function Invoke-CheckAccessPackages {
             $scheduleEnd = ""
             if ($assignment.PSObject.Properties["schedule"] -and $assignment.schedule) {
                 $scheduleStart = [string](Get-AccessPackageObjectValue -Object $assignment.schedule -Names @("startDateTime"))
-                $scheduleEnd = [string](Get-AccessPackageObjectValue -Object $assignment.schedule -Names @("expirationDateTime", "endDateTime"))
+                $calculatedScheduleEnd = Get-AccessPackageAssignmentEndDateTime -Assignment $assignment
+                if ($null -ne $calculatedScheduleEnd) { $scheduleEnd = $calculatedScheduleEnd.ToString("o") }
+            }
+            $expiryDateTime = if ([string]::IsNullOrWhiteSpace([string]$assignment.expiredDateTime)) {
+                $scheduleEnd
+            } else {
+                [string]$assignment.expiredDateTime
             }
             $targetRows.Add([pscustomobject]@{
                 Target         = $targetInfo.Link
-                TargetName     = $targetInfo.DisplayName
                 TargetId       = $targetInfo.Id
                 TargetType     = $targetInfo.Kind
                 PolicyId       = $policyId
@@ -1291,12 +1729,10 @@ function Invoke-CheckAccessPackages {
                 Policy         = if ([string]::IsNullOrWhiteSpace($policyName)) { "-" } else { ConvertTo-EntraFalconHtmlText $policyName -DefaultValue "-" }
                 State          = if ([string]::IsNullOrWhiteSpace([string]$assignment.state)) { "-" } else { [string]$assignment.state }
                 Status         = if ([string]::IsNullOrWhiteSpace([string]$assignment.status)) { "-" } else { [string]$assignment.status }
-                Start          = if ([string]::IsNullOrWhiteSpace($scheduleStart)) { "-" } else { $scheduleStart }
-                Expiry         = if ([string]::IsNullOrWhiteSpace([string]$assignment.expiredDateTime)) {
-                    if ([string]::IsNullOrWhiteSpace($scheduleEnd)) { "-" } else { $scheduleEnd }
-                } else {
-                    [string]$assignment.expiredDateTime
-                }
+                Start          = ConvertTo-AccessPackageDateTimeText -DateTimeText $scheduleStart
+                Expiry         = ConvertTo-AccessPackageDateTimeText -DateTimeText $expiryDateTime
+                IsActive       = Test-AccessPackageAssignmentActive -Assignment $assignment -Now $assignmentNow
+                IsExpired      = Test-AccessPackageAssignmentExpired -Assignment $assignment -Now $assignmentNow
             })
         }
 
@@ -1321,8 +1757,43 @@ function Invoke-CheckAccessPackages {
         $hasHighImpact = ($resourceImpactSum -ge 100)
 
         $catalogName = if ($package.catalog) { [string]$package.catalog.displayName } else { "-" }
+        $catalogId = if ($package.catalog) { [string]$package.catalog.id } else { "" }
+        $catalogDetailsLink = if ([string]::IsNullOrWhiteSpace($catalogId)) {
+            ConvertTo-EntraFalconHtmlText $catalogName -DefaultValue "-"
+        } else {
+            "<a href=Catalogs_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$catalogId>$(ConvertTo-EntraFalconHtmlText $catalogName -DefaultValue '-')</a>"
+        }
         $catalogEnabled = ($package.catalog -and ([string]$package.catalog.state -eq "published"))
         $displayName = if ([string]::IsNullOrWhiteSpace([string]$package.displayName)) { $packageId } else { [string]$package.displayName }
+        $separationOfDutiesEntries = if ($SeparationOfDutiesByPackage -is [System.Collections.IDictionary] -and $SeparationOfDutiesByPackage.Contains($packageId)) {
+            @($SeparationOfDutiesByPackage[$packageId])
+        } else {
+            @()
+        }
+        $separationOfDutiesRows = @(foreach ($entry in $separationOfDutiesEntries) {
+            if ($null -eq $entry) { continue }
+            $entryId = [string](Get-AccessPackageObjectValue -Object $entry -Names @("Id", "id"))
+            $entryType = [string](Get-AccessPackageObjectValue -Object $entry -Names @("Type"))
+            $entryDisplayName = [string](Get-AccessPackageObjectValue -Object $entry -Names @("DisplayName", "displayName", "Id", "id"))
+            if ([string]::IsNullOrWhiteSpace($entryDisplayName)) { $entryDisplayName = if ($entryId) { $entryId } else { "-" } }
+            $entryDisplayNameEncoded = ConvertTo-EntraFalconHtmlText $entryDisplayName -DefaultValue "-"
+            $entryLink = $entryDisplayNameEncoded
+            if ($entryType -eq "Access Package" -and -not [string]::IsNullOrWhiteSpace($entryId) -and $PackageAnchorById.Contains($entryId)) {
+                $entryLink = "<a href=#$($PackageAnchorById[$entryId])>$entryDisplayNameEncoded</a>"
+            } elseif ($entryType -eq "Group" -and -not [string]::IsNullOrWhiteSpace($entryId)) {
+                $entryLink = "<a href=Groups_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$entryId>$entryDisplayNameEncoded</a>"
+            }
+            [pscustomobject]@{
+                DisplayName = $entryLink
+                Type        = if ([string]::IsNullOrWhiteSpace($entryType)) { "-" } else { $entryType }
+            }
+        })
+        $separationOfDutiesRowsTxt = @($separationOfDutiesEntries | ForEach-Object {
+            [pscustomobject]@{
+                DisplayName = [string](Get-AccessPackageObjectValue -Object $_ -Names @("DisplayName", "displayName", "Id", "id"))
+                Type        = [string](Get-AccessPackageObjectValue -Object $_ -Names @("Type"))
+            }
+        })
 
         $policyRows = foreach ($policy in $policies) {
             $policyId = [string](Get-AccessPackageObjectValue -Object $policy -Names @("id"))
@@ -1346,6 +1817,7 @@ function Invoke-CheckAccessPackages {
             })
             [pscustomobject]@{
                 Id                  = $policyId
+                IsPolicyPlaceholder = $false
                 DisplayName         = ConvertTo-EntraFalconHtmlText (Get-AccessPackageObjectValue -Object $policy -Names @("displayName", "id")) -DefaultValue "-"
                 RawDisplayName      = [string](Get-AccessPackageObjectValue -Object $policy -Names @("displayName", "id"))
                 PolicyEnabled       = $policyEnabled
@@ -1364,6 +1836,29 @@ function Invoke-CheckAccessPackages {
                 InviteLinkedDangerousAutoAssignmentAttributes = ($inviteLinkedDangerousAutoAssignmentAttributes -join ", ")
                 SpecificTargets     = $explicitSpecificTargets.Count
             }
+        }
+        if (@($policyRows).Count -eq 0) {
+            $policyRows = @([pscustomobject]@{
+                Id                  = ""
+                IsPolicyPlaceholder = $true
+                DisplayName         = "No policy configured"
+                RawDisplayName      = "No policy configured"
+                PolicyEnabled       = "-"
+                RawAllowedTargetScope = ""
+                AllowedTargetScope  = "-"
+                BroadScope          = $false
+                SelfAddAccess       = $false
+                OnBehalfAddAccess   = $false
+                ApprovalRequired    = $false
+                Expiration          = "-"
+                AccessReview        = $false
+                AutoAssignment      = $false
+                AutoAssignmentRule  = "-"
+                HasDangerousAutoAssignmentRule = $false
+                DangerousAutoAssignmentAttributes = ""
+                InviteLinkedDangerousAutoAssignmentAttributes = ""
+                SpecificTargets     = 0
+            })
         }
         Write-Log -Level Debug -Message "[AccessPackages] Package '$displayName': Policies=$(@($policies).Count), Resources=$(@($resources).Count), Assignments=$(@($packageAssignments).Count), ResourceImpact=$resourceImpactSum, HighImpact=$hasHighImpact"
         $showResourceApiPermissionCategory = @($resources | Where-Object { $_.Type -in @("ApiAppPerms", "ApiDelegatedPerms") }).Count -gt 0
@@ -1398,6 +1893,7 @@ function Invoke-CheckAccessPackages {
         for ($policyIndex = 0; $policyIndex -lt @($policyRows).Count; $policyIndex++) {
             $policyRow = @($policyRows)[$policyIndex]
             $policy = if ($policyIndex -lt @($policies).Count) { @($policies)[$policyIndex] } else { $null }
+            $isPolicyPlaceholder = [bool]$policyRow.IsPolicyPlaceholder
             $policyId = [string]$policyRow.Id
             $policyName = [string]$policyRow.RawDisplayName
             $policySectionName = $policyName -replace "[\r\n\t]+", " "
@@ -1415,14 +1911,15 @@ function Invoke-CheckAccessPackages {
             $policyAssignments = @($targetRows | Where-Object {
                 (-not [string]::IsNullOrWhiteSpace($policyId) -and [string]$_.PolicyId -eq $policyId) -or
                 (-not [string]::IsNullOrWhiteSpace($policyName) -and [string]$_.PolicyName -eq $policyName)
-            })
-            $policyDeliveredAssignments = @($policyAssignments | Where-Object { "$($_.State)".Trim().ToLowerInvariant() -eq "delivered" })
-            $policyUserAssignments = @($policyAssignments | Where-Object { $_.TargetType -eq "User" })
-            $policyGuestAssignments = @($policyAssignments | Where-Object {
+            } | Sort-Object -Property $assignmentSortProperties)
+            $policyActiveAssignments = @($policyAssignments | Where-Object { [bool]$_.IsActive })
+            $policyExpiredAssignments = @($policyAssignments | Where-Object { [bool]$_.IsExpired })
+            $policyUserAssignments = @($policyActiveAssignments | Where-Object { $_.TargetType -eq "User" })
+            $policyGuestAssignments = @($policyActiveAssignments | Where-Object {
                 $id = [string]$_.TargetId
                 $AllUsersBasicHT.ContainsKey($id) -and [string]$AllUsersBasicHT[$id].UserType -eq "Guest"
             })
-            $policySpAssignments = @($policyAssignments | Where-Object { "$($_.TargetType)" -match "ServicePrincipal|ManagedIdentity|AgentIdentity|BlueprintPrincipal" })
+            $policySpAssignments = @($policyActiveAssignments | Where-Object { "$($_.TargetType)" -match "ServicePrincipal|ManagedIdentity|AgentIdentity|BlueprintPrincipal" })
             $policyHasExpiration = Test-AccessPackagePolicyHasExpiration -Policy $policy
 
             $policySpecificTargetRows = foreach ($target in @($policy.specificAllowedTargets)) {
@@ -1431,7 +1928,17 @@ function Invoke-CheckAccessPackages {
                 if (-not [string]::IsNullOrWhiteSpace($membershipRule)) { continue }
                 New-AccessPackageSpecificTargetRow -Policy $policy -Target $target
             }
-            $policyAssignmentDetailRows = @($policyAssignments | Select-Object Target,TargetName,TargetType,Policy,Status,Start,Expiry)
+            $policyAssignmentDetailRows = @($policyAssignments | Select-Object Target,TargetType,Status,Start,Expiry)
+            $policyAssignmentHtmlRows = @($policyAssignmentDetailRows | Select-Object -First $htmlAssignmentLimit)
+            if ($policyAssignmentDetailRows.Count -gt $htmlAssignmentLimit) {
+                $policyAssignmentHtmlRows += [pscustomobject]@{
+                    Target     = "Showing first $htmlAssignmentLimit of $($policyAssignmentDetailRows.Count) assignments. See TXT report for the full list."
+                    TargetType = "-"
+                    Status     = "-"
+                    Start      = "-"
+                    Expiry     = "-"
+                }
+            }
             $policyApprovalRows = @(Get-AccessPackageApprovalRows -Policy $policy)
 
             [void]$policyDetailContexts.Add([pscustomobject]@{
@@ -1442,12 +1949,15 @@ function Invoke-CheckAccessPackages {
                 ApprovalSettings = @($policyApprovalRows)
                 SpecificTargets = @($policySpecificTargetRows | Select-Object Target,TargetType,Protected)
                 Assignments = @($policyAssignmentDetailRows)
+                HtmlAssignments = @($policyAssignmentHtmlRows)
                 PolicyAssignments = @($policyAssignments)
-                PolicyDeliveredAssignments = @($policyDeliveredAssignments)
+                PolicyActiveAssignments = @($policyActiveAssignments)
+                PolicyExpiredAssignments = @($policyExpiredAssignments)
                 PolicyUserAssignments = @($policyUserAssignments)
                 PolicyGuestAssignments = @($policyGuestAssignments)
                 PolicySpAssignments = @($policySpAssignments)
                 PolicyHasExpiration = $policyHasExpiration
+                IsPolicyPlaceholder = $isPolicyPlaceholder
             })
         }
 
@@ -1456,51 +1966,67 @@ function Invoke-CheckAccessPackages {
             $policyId = [string]$policyContext.PolicyId
             $policyName = [string]$policyContext.PolicyName
             $policyAssignments = @($policyContext.PolicyAssignments)
-            $policyDeliveredAssignments = @($policyContext.PolicyDeliveredAssignments)
+            $policyActiveAssignments = @($policyContext.PolicyActiveAssignments)
+            $policyExpiredAssignments = @($policyContext.PolicyExpiredAssignments)
             $policyUserAssignments = @($policyContext.PolicyUserAssignments)
             $policyGuestAssignments = @($policyContext.PolicyGuestAssignments)
             $policySpAssignments = @($policyContext.PolicySpAssignments)
             $policyHasExpiration = [bool]$policyContext.PolicyHasExpiration
+            $isPolicyPlaceholder = [bool]$policyContext.IsPolicyPlaceholder
 
             $policyWarnings = [System.Collections.Generic.List[string]]::new()
-            if ($policyRow.BroadScope -and $policyRow.SelfAddAccess -and -not $policyRow.ApprovalRequired) { $policyWarnings.Add("Broad self-request without approval") }
+            if ($isPolicyPlaceholder) {
+                $policyWarnings.Add("No assignment policy configured")
+            } elseif ($policyRow.BroadScope -and $policyRow.SelfAddAccess -and -not $policyRow.ApprovalRequired) {
+                $policyWarnings.Add("Broad self-request without approval")
+            }
             $unprotectedGroupSpecificTargets = @($policyContext.SpecificTargets | Where-Object {
                 [string]$_.TargetType -eq "Group" -and ([string]$_.Protected).Trim().ToLowerInvariant() -eq "false"
             })
             $hasUnprotectedGroupSpecificTarget = ($unprotectedGroupSpecificTargets.Count -gt 0)
             $unprotectedGroupSpecificTargetText = if ($hasUnprotectedGroupSpecificTarget) { ($unprotectedGroupSpecificTargets | ForEach-Object { [string]$_.Target }) -join "<br>" } else { "" }
-            if ($policyRow.AllowedTargetScope -eq "Specific Users" -and $policyRow.SelfAddAccess -and -not $policyRow.ApprovalRequired -and $resourceImpactSum -gt 100 -and $hasUnprotectedGroupSpecificTarget) {
+            if ($policyRow.AllowedTargetScope -eq "Specific Users" -and $policyRow.SelfAddAccess -and -not $policyRow.ApprovalRequired -and $resourceImpactSum -ge 100 -and $hasUnprotectedGroupSpecificTarget) {
                 $policyWarnings.Add("Unprotected group can self-request without approval")
             }
             if ($policyRow.HasDangerousAutoAssignmentRule) { $policyWarnings.Add("Dangerous auto-assignment rule") }
 
             $policyLikelihood = 1
-            if ($policyRow.BroadScope) { $policyLikelihood += 5 }
-            if ($policyRow.SelfAddAccess) { $policyLikelihood += 5 }
-            if (-not $policyRow.ApprovalRequired) { $policyLikelihood += 5 }
-            if ($policySpAssignments.Count -gt 0) { $policyLikelihood += 2 }
-            if ($hasUnprotectedGroupSpecificTarget) { $policyLikelihood += 3 }
-            if ($policyRow.HasDangerousAutoAssignmentRule) { $policyLikelihood += 5 }
+            if (-not $isPolicyPlaceholder) {
+                if ($policyRow.BroadScope) { $policyLikelihood += 5 }
+                if ($policyRow.SelfAddAccess) { $policyLikelihood += 5 }
+                if (-not $policyRow.ApprovalRequired) { $policyLikelihood += 5 }
+                if ($policySpAssignments.Count -gt 0) { $policyLikelihood += 2 }
+                if ($hasUnprotectedGroupSpecificTarget) { $policyLikelihood += 3 }
+                if ($policyRow.HasDangerousAutoAssignmentRule) { $policyLikelihood += 5 }
+            }
             $policyRisk = [math]::Round($resourceImpactSum * $policyLikelihood, 2)
-            $policyRowId = if (-not [string]::IsNullOrWhiteSpace($policyId)) { "$packageId`_$policyId" } else { "$packageId`_$($TableOutput.Count)" }
+            $policyRowId = if ($isPolicyPlaceholder) {
+                "$packageId`_no-policy"
+            } elseif (-not [string]::IsNullOrWhiteSpace($policyId)) {
+                "$packageId`_$policyId"
+            } else {
+                "$packageId`_$($TableOutput.Count)"
+            }
             $warningsText = if ($policyWarnings.Count -gt 0) { ($policyWarnings -join " / ") } else { "" }
             $policyLinkText = if ([string]::IsNullOrWhiteSpace($policyName)) { "Unnamed Policy" } else { $policyName }
             $policyLink = "<a href=#$policyRowId>$(ConvertTo-EntraFalconHtmlText $policyLinkText -DefaultValue '-')</a>"
             $policyDetailObjectName = if ([string]::IsNullOrWhiteSpace($policyName)) { "$displayName - Policy" } else { "$displayName - $policyName" }
             $policyInformationProperties = [ordered]@{
                 Policy             = ConvertTo-EntraFalconHtmlText $policyName -DefaultValue "-"
+                PolicyId           = if ($isPolicyPlaceholder) { "-" } else { ConvertTo-EntraFalconHtmlText $policyId -DefaultValue "-" }
                 AccessPackage      = ConvertTo-EntraFalconHtmlText $displayName -DefaultValue "-"
-                Catalog            = ConvertTo-EntraFalconHtmlText $catalogName -DefaultValue "-"
+                AccessPackageId    = $packageId
+                Catalog            = $catalogDetailsLink
                 PolicyEnabled      = $policyRow.PolicyEnabled
                 CatalogEnabled     = [bool]$catalogEnabled
                 Hidden             = [bool]$package.isHidden
                 AllowedTargetScope = $policyRow.AllowedTargetScope
-                SelfAdd            = $policyRow.SelfAddAccess
-                OnBehalfAdd        = $policyRow.OnBehalfAddAccess
-                Approval           = $policyRow.ApprovalRequired
+                SelfAdd            = if ($isPolicyPlaceholder) { "-" } else { $policyRow.SelfAddAccess }
+                OnBehalfAdd        = if ($isPolicyPlaceholder) { "-" } else { $policyRow.OnBehalfAddAccess }
+                Approval           = if ($isPolicyPlaceholder) { "-" } else { $policyRow.ApprovalRequired }
                 Expiration         = $policyRow.Expiration
-                AccessReview       = $policyRow.AccessReview
-                AutoAssignment     = $policyRow.AutoAssignment
+                AccessReview       = if ($isPolicyPlaceholder) { "-" } else { $policyRow.AccessReview }
+                AutoAssignment     = if ($isPolicyPlaceholder) { "-" } else { $policyRow.AutoAssignment }
             }
             if ($policyRow.AutoAssignment) {
                 $policyInformationProperties["Rule"] = $policyRow.AutoAssignmentRule
@@ -1558,9 +2084,7 @@ function Invoke-CheckAccessPackages {
             $assignmentsTxt = @($policyContext.Assignments | ForEach-Object {
                 [pscustomobject]@{
                     Target     = ConvertTo-AccessPackagePlainText $_.Target
-                    TargetName = ConvertTo-AccessPackagePlainText $_.TargetName
                     TargetType = $_.TargetType
-                    Policy     = ConvertTo-AccessPackagePlainText $_.Policy
                     Status     = $_.Status
                     Start      = $_.Start
                     Expiry     = $_.Expiry
@@ -1572,6 +2096,10 @@ function Invoke-CheckAccessPackages {
             [void]$DetailTxtBuilder.AppendLine("================================================================================================")
             [void]$DetailTxtBuilder.AppendLine("Policy Information")
             [void]$DetailTxtBuilder.AppendLine(($policyInformationTxt | Format-List | Out-String))
+            if ($separationOfDutiesRowsTxt.Count -gt 0) {
+                [void]$DetailTxtBuilder.AppendLine("Separation of Duties")
+                [void]$DetailTxtBuilder.AppendLine(($separationOfDutiesRowsTxt | Select-Object DisplayName,Type | Format-Table | Out-String -Width 512))
+            }
             if (@($policyContext.ApprovalSettings).Count -gt 0) {
                 [void]$DetailTxtBuilder.AppendLine("Approval Settings")
                 [void]$DetailTxtBuilder.AppendLine(($approvalSettingsTxt | Select-Object Stage,ApprovalForAdd,ApprovalForUpdate,Escalation,EscalationAfter,ApproverVisibility,PrimaryApprovers,FallbackPrimaryApprovers,EscalationApprovers,FallbackEscalationApprovers | Format-Table | Out-String -Width 512))
@@ -1586,7 +2114,7 @@ function Invoke-CheckAccessPackages {
             }
             if (@($policyContext.Assignments).Count -gt 0) {
                 [void]$DetailTxtBuilder.AppendLine("Assignments")
-                [void]$DetailTxtBuilder.AppendLine(($assignmentsTxt | Select-Object Target,TargetName,TargetType,Policy,Status,Start,Expiry | Format-Table | Out-String -Width 512))
+                [void]$DetailTxtBuilder.AppendLine(($assignmentsTxt | Select-Object Target,TargetType,Status,Start,Expiry | Format-Table | Out-String -Width 512))
             }
             [void]$DetailTxtBuilder.AppendLine()
 
@@ -1594,6 +2122,9 @@ function Invoke-CheckAccessPackages {
                 "Object Name"                                  = $policyDetailObjectName
                 "Object ID"                                    = $policyRowId
                 "Policy Information"                           = $policyInformation
+            }
+            if ($separationOfDutiesRows.Count -gt 0) {
+                $detailObjectProperties["Separation of Duties"] = @($separationOfDutiesRows)
             }
             if (@($policyContext.ApprovalSettings).Count -gt 0) {
                 $detailObjectProperties["Approval Settings"] = @($policyContext.ApprovalSettings)
@@ -1603,7 +2134,7 @@ function Invoke-CheckAccessPackages {
                 $detailObjectProperties["Specific Targets"] = @($policyContext.SpecificTargets)
             }
             if (@($policyContext.Assignments).Count -gt 0) {
-                $detailObjectProperties["Assignments"] = @($policyContext.Assignments)
+                $detailObjectProperties["Assignments"] = @($policyContext.HtmlAssignments)
             }
             [void]$AllObjectDetails.Add([pscustomobject]$detailObjectProperties)
 
@@ -1614,10 +2145,12 @@ function Invoke-CheckAccessPackages {
                 PolicyId                = $policyId
                 Policy                  = $policyName
                 PolicyLink              = $policyLink
+                IsPolicyPlaceholder     = $isPolicyPlaceholder
                 PolicyEnabled           = $policyRow.PolicyEnabled
                 Catalog                 = $catalogName
                 CatalogEnabled          = [bool]$catalogEnabled
                 Hidden                  = [bool]$package.isHidden
+                SeparationOfDuties      = ($separationOfDutiesEntries.Count -gt 0)
                 Resources               = @($resources).Count
                 Groups                  = $groupResources
                 Applications            = $applicationResources
@@ -1629,21 +2162,21 @@ function Invoke-CheckAccessPackages {
                 OtherResources          = $otherResources
                 RawAllowedTargetScope   = $policyRow.RawAllowedTargetScope
                 AllowedTargetScope      = $policyRow.AllowedTargetScope
-                BroadScope              = $policyRow.BroadScope
-                SelfAddAccess           = $policyRow.SelfAddAccess
-                OnBehalfAddAccess       = $policyRow.OnBehalfAddAccess
-                ApprovalRequired        = $policyRow.ApprovalRequired
-                Expiration              = $policyHasExpiration
+                BroadScope              = if ($isPolicyPlaceholder) { "-" } else { $policyRow.BroadScope }
+                SelfAddAccess           = if ($isPolicyPlaceholder) { "-" } else { $policyRow.SelfAddAccess }
+                OnBehalfAddAccess       = if ($isPolicyPlaceholder) { "-" } else { $policyRow.OnBehalfAddAccess }
+                ApprovalRequired        = if ($isPolicyPlaceholder) { "-" } else { $policyRow.ApprovalRequired }
+                Expiration              = if ($isPolicyPlaceholder) { "-" } else { $policyHasExpiration }
                 ExpirationDetails       = $policyRow.Expiration
-                AccessReview            = $policyRow.AccessReview
-                AutoAssignment          = $policyRow.AutoAssignment
+                AccessReview            = if ($isPolicyPlaceholder) { "-" } else { $policyRow.AccessReview }
+                AutoAssignment          = if ($isPolicyPlaceholder) { "-" } else { $policyRow.AutoAssignment }
                 AutoAssignmentRule      = $policyRow.AutoAssignmentRule
                 HasDangerousAutoAssignmentRule = $policyRow.HasDangerousAutoAssignmentRule
                 DangerousAutoAssignmentAttributes = $policyRow.DangerousAutoAssignmentAttributes
                 InviteLinkedDangerousAutoAssignmentAttributes = $policyRow.InviteLinkedDangerousAutoAssignmentAttributes
                 SpecificTargets         = $policyRow.SpecificTargets
-                Assignments             = @($policyAssignments).Count
-                Delivered               = @($policyDeliveredAssignments).Count
+                ActiveAssignments       = @($policyActiveAssignments).Count
+                ExpiredAssignments      = @($policyExpiredAssignments).Count
                 Users                   = @($policyUserAssignments).Count
                 Guests                  = @($policyGuestAssignments).Count
                 ServicePrincipals       = @($policySpAssignments).Count
@@ -1655,45 +2188,65 @@ function Invoke-CheckAccessPackages {
                 Warnings                = $warningsText
                 PolicyDetails           = $policyRow
                 ResourceDetails         = @($resources)
+                SeparationOfDutiesDetails = @($separationOfDutiesEntries)
                 AssignmentDetails       = @($policyAssignments)
                 HasBroadSelfAddNoApproval = ($hasHighImpact -and $policyRow.BroadScope -and $policyRow.SelfAddAccess -and -not $policyRow.ApprovalRequired)
                 HasUnprotectedGroupSpecificTarget = $hasUnprotectedGroupSpecificTarget
                 UnprotectedGroupSpecificTargets = $unprotectedGroupSpecificTargetText
-                HasExpiration           = $policyHasExpiration
-                HasAccessReview         = $policyRow.AccessReview
+                HasExpiration           = if ($isPolicyPlaceholder) { $false } else { $policyHasExpiration }
+                HasAccessReview         = if ($isPolicyPlaceholder) { $false } else { $policyRow.AccessReview }
                 IsHighImpact            = $hasHighImpact
             }
             $TableOutput.Add($tableRow)
             $AccessPackages[$policyRowId] = $tableRow
         }
     }
-    Write-Host "[+] Processed $packageProgressCounter Access Packages and generated $($TableOutput.Count) policy rows"
+    Write-Host "[+] Processed $packageProgressCounter Access Packages and generated $($TableOutput.Count) report rows"
 
     ########################################## SECTION: Summary ##########################################
 
     if (-not $GlobalAuditSummary.ContainsKey("AccessPackages")) {
-        $GlobalAuditSummary.AccessPackages = @{ Count = 0; Policies = 0; Assignments = 0; ServicePrincipalAssignments = 0; HighImpact = 0 }
+        $GlobalAuditSummary.AccessPackages = @{ Count = 0; Policies = 0; ActiveAssignments = 0; ExpiredAssignments = 0; ServicePrincipalAssignments = 0; HighImpact = 0 }
     }
     if (-not $GlobalAuditSummary.AccessPackages.ContainsKey("Policies")) {
         $GlobalAuditSummary.AccessPackages.Policies = 0
     }
     $GlobalAuditSummary.AccessPackages.Count = @($RawAccessPackages.Packages).Count
-    $GlobalAuditSummary.AccessPackages.Policies = $TableOutput.Count
-    $GlobalAuditSummary.AccessPackages.Assignments = (@($TableOutput) | Measure-Object -Property Assignments -Sum).Sum
-    $GlobalAuditSummary.AccessPackages.ServicePrincipalAssignments = (@($TableOutput) | Measure-Object -Property ServicePrincipals -Sum).Sum
-    $GlobalAuditSummary.AccessPackages.HighImpact = @($TableOutput | Where-Object { $_.IsHighImpact }).Count
-
-    if ($TableOutput.Count -eq 0 -and @($RawAccessPackages.Packages).Count -gt 0) {
-        $Warnings.Add("Coverage note: Access Packages were enumerated, but no assignment policies were available to report.")
+    $GlobalAuditSummary.AccessPackages.Policies = $actualPolicyCount
+    $activeAssignmentCount = (@($TableOutput) | Measure-Object -Property ActiveAssignments -Sum).Sum
+    $expiredAssignmentCount = (@($TableOutput) | Measure-Object -Property ExpiredAssignments -Sum).Sum
+    if ($GlobalAuditSummary.AccessPackages -is [System.Collections.IDictionary]) {
+        $GlobalAuditSummary.AccessPackages["ActiveAssignments"] = $activeAssignmentCount
+        $GlobalAuditSummary.AccessPackages["ExpiredAssignments"] = $expiredAssignmentCount
+    } else {
+        if ($GlobalAuditSummary.AccessPackages.PSObject.Properties["ActiveAssignments"]) {
+            $GlobalAuditSummary.AccessPackages.ActiveAssignments = $activeAssignmentCount
+        } else {
+            $GlobalAuditSummary.AccessPackages | Add-Member -NotePropertyName ActiveAssignments -NotePropertyValue $activeAssignmentCount
+        }
+        if ($GlobalAuditSummary.AccessPackages.PSObject.Properties["ExpiredAssignments"]) {
+            $GlobalAuditSummary.AccessPackages.ExpiredAssignments = $expiredAssignmentCount
+        } else {
+            $GlobalAuditSummary.AccessPackages | Add-Member -NotePropertyName ExpiredAssignments -NotePropertyValue $expiredAssignmentCount
+        }
     }
-    Write-Host "[+] Access Package summary: $($GlobalAuditSummary.AccessPackages.Count) packages, $($GlobalAuditSummary.AccessPackages.Policies) policies, $($GlobalAuditSummary.AccessPackages.Assignments) assignments, $($GlobalAuditSummary.AccessPackages.HighImpact) high-impact policies"
-    Write-Log -Level Debug -Message "[AccessPackages] Summary: Packages=$($GlobalAuditSummary.AccessPackages.Count), Policies=$($GlobalAuditSummary.AccessPackages.Policies), Assignments=$($GlobalAuditSummary.AccessPackages.Assignments), ServicePrincipalAssignments=$($GlobalAuditSummary.AccessPackages.ServicePrincipalAssignments), HighImpact=$($GlobalAuditSummary.AccessPackages.HighImpact), Warnings=$($Warnings.Count)"
+    # Retain the historical summary key as an active-assignment alias for replay and external consumers.
+    $GlobalAuditSummary.AccessPackages.Assignments = $GlobalAuditSummary.AccessPackages.ActiveAssignments
+    $GlobalAuditSummary.AccessPackages.ServicePrincipalAssignments = (@($TableOutput) | Measure-Object -Property ServicePrincipals -Sum).Sum
+    $GlobalAuditSummary.AccessPackages.HighImpact = @($TableOutput | Where-Object { -not $_.IsPolicyPlaceholder -and $_.IsHighImpact }).Count
+    if ($policylessPackageCount -gt 0) {
+        Write-Log -Level Debug -Message "[AccessPackages] Added $policylessPackageCount placeholder report row(s) for packages without assignment policies."
+    }
+    $activeAssignmentSummaryText = ConvertTo-AccessPackagePluralText -Value ([int]$GlobalAuditSummary.AccessPackages.ActiveAssignments) -Unit "active assignment"
+    $expiredAssignmentSummaryText = ConvertTo-AccessPackagePluralText -Value ([int]$GlobalAuditSummary.AccessPackages.ExpiredAssignments) -Unit "expired assignment"
+    Write-Host "[+] Access Package summary: $($GlobalAuditSummary.AccessPackages.Count) packages, $($GlobalAuditSummary.AccessPackages.Policies) policies, $activeAssignmentSummaryText, $expiredAssignmentSummaryText, $($GlobalAuditSummary.AccessPackages.HighImpact) high-impact policies"
+    Write-Log -Level Debug -Message "[AccessPackages] Summary: Packages=$($GlobalAuditSummary.AccessPackages.Count), Policies=$($GlobalAuditSummary.AccessPackages.Policies), ActiveAssignments=$($GlobalAuditSummary.AccessPackages.ActiveAssignments), ExpiredAssignments=$($GlobalAuditSummary.AccessPackages.ExpiredAssignments), ServicePrincipalAssignments=$($GlobalAuditSummary.AccessPackages.ServicePrincipalAssignments), HighImpact=$($GlobalAuditSummary.AccessPackages.HighImpact), Warnings=$($Warnings.Count)"
 
     ########################################## SECTION: Write Output ##########################################
 
     Write-Host "[*] Writing Access Package reports"
-    $mainTableHtml = @($TableOutput | Select-Object @{Name = "Policy"; Expression = { $_.PolicyLink }},Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings)
-    $mainTableExport = @($TableOutput | Select-Object Policy,Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,@{Name = "Impact"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Impact }},Likelihood,@{Name = "Risk"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Risk }},Warnings)
+    $mainTableHtml = @($TableOutput | Select-Object @{Name = "Policy"; Expression = { $_.PolicyLink }},Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,SeparationOfDuties,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,ActiveAssignments,ExpiredAssignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings)
+    $mainTableExport = @($TableOutput | Select-Object Policy,Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,SeparationOfDuties,Resources,Groups,Applications,@{Name = "ApiApp"; Expression = { $_.ApiAppPerms }},@{Name = "ApiDelegated"; Expression = { $_.ApiDelegatedPerms }},SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,@{Name = "SelfAdd"; Expression = { $_.SelfAddAccess }},@{Name = "OnBehalfAdd"; Expression = { $_.OnBehalfAddAccess }},@{Name = "Approval"; Expression = { $_.ApprovalRequired }},Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,ActiveAssignments,ExpiredAssignments,Users,Guests,ServicePrincipals,@{Name = "Impact"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Impact }},Likelihood,@{Name = "Risk"; Expression = { ConvertTo-AccessPackageWholeNumber $_.Risk }},Warnings)
     $mainTableJson = if ($mainTableHtml.Count -eq 0) { "[]" } else { $mainTableHtml | ConvertTo-Json -Depth 6 -Compress }
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
 
@@ -1758,12 +2311,12 @@ Execution Warnings = $($Warnings -join ' / ')
     $htmlPath = Join-Path -Path $OutputFolder -ChildPath "$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).html"
 
     $headerTXT | Out-File -Width 512 -FilePath $txtPath -Append
-    $mainTableExport | Format-Table Policy,Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,Resources,Groups,Applications,ApiApp,ApiDelegated,SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,SelfAdd,OnBehalfAdd,Approval,Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,Assignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 $txtPath -Append
+    $mainTableExport | Format-Table Policy,Package,Catalog,PolicyEnabled,CatalogEnabled,Hidden,SeparationOfDuties,Resources,Groups,Applications,ApiApp,ApiDelegated,SharePoint,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AllowedTargetScope,BroadScope,SelfAdd,OnBehalfAdd,Approval,Expiration,ExpirationDetails,AccessReview,AutoAssignment,SpecificTargets,ActiveAssignments,ExpiredAssignments,Users,Guests,ServicePrincipals,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 $txtPath -Append
     $DetailTxtBuilder.ToString() | Out-File $txtPath -Append
 
     if ($Csv) {
         $csvPath = Join-Path -Path $OutputFolder -ChildPath "$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv"
-        $csvColumns = @("Policy","Package","Catalog","PolicyEnabled","CatalogEnabled","Hidden","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","AllowedTargetScope","BroadScope","SelfAdd","OnBehalfAdd","Approval","Expiration","ExpirationDetails","AccessReview","AutoAssignment","SpecificTargets","Assignments","Users","Guests","ServicePrincipals","Impact","Likelihood","Risk","Warnings")
+        $csvColumns = @("Policy","Package","Catalog","PolicyEnabled","CatalogEnabled","Hidden","SeparationOfDuties","Resources","Groups","Applications","ApiApp","ApiDelegated","SharePoint","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","AllowedTargetScope","BroadScope","SelfAdd","OnBehalfAdd","Approval","Expiration","ExpirationDetails","AccessReview","AutoAssignment","SpecificTargets","ActiveAssignments","ExpiredAssignments","Users","Guests","ServicePrincipals","Impact","Likelihood","Risk","Warnings")
         if ($mainTableExport.Count -eq 0) {
             ($csvColumns -join ",") | Out-File -FilePath $csvPath
         } else {
@@ -1778,4 +2331,4 @@ Execution Warnings = $($Warnings -join ' / ')
     return $AccessPackages
 }
 
-Export-ModuleMember -Function Get-AccessPackagesRawData,New-AccessPackageGroupSpecificTargetIndex,New-AccessPackageUserSpecificTargetIndex,Invoke-CheckAccessPackages
+Export-ModuleMember -Function Get-AccessPackagesRawData,New-AccessPackageGroupSpecificTargetIndex,New-AccessPackageUserSpecificTargetIndex,ConvertTo-AccessPackageMembershipRuleKey,New-AccessPackageAutoAssignmentPolicyIndex,Invoke-CheckAccessPackages

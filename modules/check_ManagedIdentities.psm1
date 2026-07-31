@@ -17,6 +17,8 @@ function Invoke-CheckManagedIdentities {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory = $true)][int]$ApiTop,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
+        [Parameter(Mandatory=$false)][hashtable]$CatalogRbacPrincipalIndex = @{},
+        [Parameter(Mandatory=$false)][bool]$CatalogRbacAssessmentAvailable = $false,
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
         [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
@@ -684,12 +686,18 @@ function Invoke-CheckManagedIdentities {
         } else {
             "?"
         }
+        $DirectCatalogRbacDetails = if ($CatalogRbacPrincipalIndex.ContainsKey([string]$item.Id)) { @($CatalogRbacPrincipalIndex[[string]$item.Id]) } else { @() }
+        $CatalogRbacDetails = @(Merge-EntraFalconCatalogRbacAssignments -DirectAssignments $DirectCatalogRbacDetails -GroupMemberships $GroupMember)
+        if (@($CatalogRbacDetails | Where-Object { [string]$_.Role -in @('Catalog Owner','Access Package Manager','Access Package Assignment Manager') }).Count -gt 0) {
+            $Warnings += "Identity Governance management role assigned"
+        }
         #Format warning messages
         $Warnings = if ($null -ne $Warnings) {
             $Warnings -join ' / '
         } else {
             ''
         }
+        $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
         #Write custom object
         $SPInfo = [PSCustomObject]@{ 
             Id = $item.Id
@@ -702,6 +710,8 @@ function Invoke-CheckManagedIdentities {
             EntraRolesEffective = $EntraRolesEffective
             EntraRoles = $EntraRolesEffective
             EntraMaxTier = $EntraMaxTier
+            CatalogRBAC = $CatalogRBAC
+            CatalogRbacDetails = $CatalogRbacDetails
             PermissionCount = ($AppAssignments | Measure-Object).count
             GroupOwnership = ($OwnedGroups | Measure-Object).count
             AppOwnership = $OwnedApplicationsCount
@@ -745,7 +755,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Generating reports"
 
     #Define output of the main table
-    $tableOutput = $AllServicePrincipal | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $AllServicePrincipal | Sort-Object -Property risk -Descending | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     
     #Define the apps to be displayed in detail and sort them by risk score
     $details = $AllServicePrincipal | Sort-Object Risk -Descending
@@ -766,6 +776,7 @@ function Invoke-CheckManagedIdentities {
         $ReportingGroupMember = @()
         $ReportingGroupOwner = @()
         $ReportingCredentials = @()
+        $ReportingCatalogRbac = @($item.CatalogRbacDetails | ForEach-Object { [pscustomobject]@{ Role=$_.Role; Catalog="<a href=Catalogs_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($_.CatalogId)>$(ConvertTo-EntraFalconHtmlText $_.Catalog -DefaultValue '-')</a>"; AssignedVia=$_.AssignedVia; CatalogEnabled=$_.CatalogEnabled } })
 
         [void]$DetailTxtBuilder.AppendLine("############################################################################################################################################`n")
 
@@ -1023,6 +1034,14 @@ function Invoke-CheckManagedIdentities {
         }
 
 
+        if (($item.CatalogRbacDetails | Measure-Object).Count -ge 1) {
+            $ReportingCatalogRbacTxt = @($item.CatalogRbacDetails | Select-Object Catalog,Role,AssignedVia,CatalogEnabled)
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Identity Governance RBAC Assignments`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingCatalogRbacTxt | Format-Table Catalog,Role,AssignedVia,CatalogEnabled | Out-String))
+        }
+
         $ObjectDetails = [pscustomobject]@{
             "Object Name"     = $item.DisplayName
             "Object ID"       = $item.Id
@@ -1037,6 +1056,7 @@ function Invoke-CheckManagedIdentities {
             "Member in Groups (transitive)" = $ReportingGroupMember
             "Owner of Groups" = $ReportingGroupOwner
             "Credentials" = $ReportingCredentials
+            "Identity Governance RBAC Assignments" = $ReportingCatalogRbac
         }
     
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
@@ -1048,7 +1068,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Writing log files"
     write-host
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1145,9 +1165,9 @@ $headerHtml = @"
 
         #Write TXT and CSV files
         $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
         }
         $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append

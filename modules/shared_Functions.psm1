@@ -382,6 +382,14 @@ $global:GLOBALJavaScript_Table = @'
                         DisplayName: "admin||subscription||owner||contributor||secret||geheim||keyvault||passwor"
                     },
                     columns: ["DisplayName", "Type", "Dynamic", "DirectOwners", "PIM", "NestedOwners", "Protected", "SecurityEnabled", "Visibility", "Users", "Guests", "SPCount", "Devices", "NestedGroups", "NestedInGroups", "AppRoles", "CAPs", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"]
+                },
+                {
+                    id: "PVG-011",
+                    group: "Identity Governance",
+                    description: "Generated dynamic groups used to evaluate automatic Access Package assignment policies",
+                    label: "Automatic Access Package Groups",
+                    filters: { APAutoAssign: "=true" },
+                    columns: ["DisplayName", "Type", "Dynamic", "SecurityEnabled", "Users", "APTarget", "APAutoAssign", "Impact", "Likelihood", "Risk", "Warnings"]
                 }
 
             ],
@@ -563,6 +571,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "Access package policies granting Tier-0 or Tier-1 resources",
                     label: "Tier-0/1 Policies",
                     filters: {
+                        Policy: "!=No policy configured",
                         EntraMaxTier: "or_Tier-0||Tier-1",
                         AzureMaxTier: "or_Tier-0||Tier-1"
                     },
@@ -575,6 +584,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies with broad self-request and no approval",
                     label: "Broad Self-Add No Approval",
                     filters: {
+                        Policy: "!=No policy configured",
                         PolicyEnabled: "=true",
                         CatalogEnabled: "=true",
                         BroadScope: "=true",
@@ -591,6 +601,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies with dangerous auto-assignment rules",
                     label: "Dangerous Auto-Assignment Rules",
                     filters: {
+                        Policy: "!=No policy configured",
                         CatalogEnabled: "=true",
                         Warnings: "Dangerous auto-assignment rule",
                         Impact: ">99"
@@ -604,6 +615,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies allowing broad non-user on-behalf assignment without approval",
                     label: "Broad Non-User On-Behalf No Approval",
                     filters: {
+                        Policy: "!=No policy configured",
                         PolicyEnabled: "=true",
                         CatalogEnabled: "=true",
                         OnBehalfAdd: "=true",
@@ -611,7 +623,7 @@ $global:GLOBALJavaScript_Table = @'
                         AllowedTargetScope: "All Service Principals||All Agent Identities",
                         Impact: ">99"
                     },
-                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AllowedTargetScope", "OnBehalfAdd", "Approval", "Expiration", "AccessReview", "Assignments", "ServicePrincipals", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AllowedTargetScope", "OnBehalfAdd", "Approval", "Expiration", "AccessReview", "ActiveAssignments", "ServicePrincipals", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -620,20 +632,22 @@ $global:GLOBALJavaScript_Table = @'
                     description: "Policies with service principal assignments",
                     label: "Service Principal Assignments",
                     filters: {
+                        Policy: "!=No policy configured",
                         ServicePrincipals: ">0"
                     },
-                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "ServicePrincipals", "Impact", "Risk", "Warnings"],
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ActiveAssignments", "ExpiredAssignments", "ServicePrincipals", "Impact", "Risk", "Warnings"],
                     sort: { column: "ServicePrincipals", direction: "desc" }
                 },
                 {
                     id: "PVAP-006",
                     group: "Assignments",
-                    description: "Policies with at least one assignment",
-                    label: "Policies With Assignments",
+                    description: "Policies with at least one active assignment",
+                    label: "Policies With Active Assignments",
                     filters: {
-                        Assignments: ">0"
+                        Policy: "!=No policy configured",
+                        ActiveAssignments: ">0"
                     },
-                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "Users", "Guests", "ServicePrincipals", "Impact", "Risk", "Warnings"],
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ActiveAssignments", "Users", "Guests", "ServicePrincipals", "Impact", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -642,11 +656,12 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact policies without meaningful expiration or access reviews",
                     label: "Persistent Access Without Review",
                     filters: {
+                        Policy: "!=No policy configured",
                         Expiration: "=false",
                         AccessReview: "=false",
                         Impact: ">99"
                     },
-                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "Expiration", "ExpirationDetails", "AccessReview", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ActiveAssignments", "Expiration", "ExpirationDetails", "AccessReview", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -655,9 +670,10 @@ $global:GLOBALJavaScript_Table = @'
                     description: "Hidden access packages",
                     label: "Hidden Packages",
                     filters: {
+                        Policy: "!=No policy configured",
                         Hidden: "=true"
                     },
-                    columns: ["Policy", "Package", "Catalog", "Hidden", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Assignments", "Impact", "Risk", "Warnings"],
+                    columns: ["Policy", "Package", "Catalog", "Hidden", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ActiveAssignments", "Impact", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -666,6 +682,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "High-impact self-request policies without approval that target unprotected groups",
                     label: "Unprotected Group Self-Request",
                     filters: {
+                        Policy: "!=No policy configured",
                         PolicyEnabled: "=true",
                         CatalogEnabled: "=true",
                         Warnings: "Unprotected group can self-request without approval"
@@ -679,6 +696,7 @@ $global:GLOBALJavaScript_Table = @'
                     description: "Policies with explicit user or group targets",
                     label: "Specific Targets",
                     filters: {
+                        Policy: "!=No policy configured",
                         SpecificTargets: ">0"
                     },
                     columns: ["Policy", "Package", "AllowedTargetScope", "SpecificTargets", "SelfAdd", "Approval", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraMaxTier", "AzureMaxTier", "Impact", "Likelihood", "Risk", "Warnings"],
@@ -690,10 +708,107 @@ $global:GLOBALJavaScript_Table = @'
                     description: "Policies granting application or delegated API permissions",
                     label: "API Permissions",
                     filters: {
+                        Policy: "!=No policy configured",
                         ApiApp: "or_>0",
                         ApiDelegated: "or_>0"
                     },
-                    columns: ["Policy", "Package", "Resources", "ApiApp", "ApiDelegated", "Applications", "AllowedTargetScope", "SelfAdd", "Approval", "Assignments", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["Policy", "Package", "Resources", "ApiApp", "ApiDelegated", "Applications", "AllowedTargetScope", "SelfAdd", "Approval", "ActiveAssignments", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-012",
+                    group: "Controls",
+                    description: "Access Packages with incompatible Access Packages or groups configured",
+                    label: "Separation-of-Duties Packages",
+                    filters: {
+                        SeparationOfDuties: "=true"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "SeparationOfDuties", "Resources", "ActiveAssignments", "Impact", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVAP-013",
+                    group: "Configuration",
+                    description: "Access Packages without an assignment policy",
+                    label: "Packages Without Assignment Policies",
+                    filters: {
+                        Policy: "=No policy configured"
+                    },
+                    columns: ["Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "Impact", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                }
+            ],
+            "Catalogs": [
+                {
+                    id: "PVCAT-001",
+                    group: "Privileges",
+                    description: "Catalogs containing Tier-0, Tier-1, or other high-impact resources",
+                    label: "High-Impact Catalogs",
+                    filters: {
+                        HighImpactEntries: ">0"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "CatalogResources", "HighImpactEntries", "EntraRoles", "EntraMaxTier", "AzureResources", "AzureMaxTier", "CatalogRBAC", "Owners", "PackageManagers", "AssignmentManagers", "Impact", "Likelihood", "Risk"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVCAT-002",
+                    group: "Privileges",
+                    description: "Catalogs containing resources without a configured Access Package role scope",
+                    label: "Unconfigured Resources",
+                    filters: {
+                        UnconfiguredResources: ">0"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "CatalogResources", "ConfiguredResources", "UnconfiguredResources", "Groups", "Applications", "API", "SharePoint", "EntraRoles", "AzureResources", "CatalogRBAC", "Owners", "PackageManagers", "Impact", "Likelihood", "Risk"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVCAT-003",
+                    group: "Delegated Control",
+                    description: "Catalogs with an Owner, Package Manager, or Assignment Manager",
+                    label: "Catalogs with Effective RBAC Control",
+                    filters: {
+                        Owners: "or_>0",
+                        PackageManagers: "or_>0",
+                        AssignmentManagers: "or_>0"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "CatalogRBAC", "Owners", "PackageManagers", "AssignmentManagers", "Readers", "NewAPConfigurable", "ConfiguredRoleScopes", "HighImpactEntries", "Impact", "Likelihood", "Risk"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVCAT-004",
+                    group: "Delegated Control",
+                    description: "Catalogs where Assignment Managers can assign existing Access Package roles",
+                    label: "Assignment Manager Exposure",
+                    filters: {
+                        AssignmentManagers: ">0",
+                        ConfiguredRoleScopes: ">0"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "ConfiguredRoleScopes", "AssignmentManagers", "HighImpactEntries", "Impact", "Likelihood", "Risk"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVCAT-005",
+                    group: "Delegated Control",
+                    description: "Disabled catalogs that still have effective catalog-scoped RBAC control",
+                    label: "Disabled but Controllable Catalogs",
+                    filters: {
+                        Enabled: "=false",
+                        Owners: "or_>0",
+                        PackageManagers: "or_>0",
+                        AssignmentManagers: "or_>0"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "ConfiguredRoleScopes", "CatalogRBAC", "Owners", "PackageManagers", "AssignmentManagers", "HighImpactEntries", "Impact", "Likelihood", "Risk"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVCAT-006",
+                    group: "Exposure",
+                    description: "Catalogs configured as visible to external users",
+                    label: "Externally Visible Catalogs",
+                    filters: {
+                        ExternallyVisible: "=true"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "CatalogResources", "HighImpactEntries", "CatalogRBAC", "Owners", "PackageManagers", "AssignmentManagers", "Impact", "Likelihood", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
                 }
             ],
@@ -1429,12 +1544,20 @@ $global:GLOBALJavaScript_Table = @'
             { reports: ["CAP"], column: "DeviceFilter", uniformValues: [0] },
             { reports: ["CAP"], column: "AuthContext", uniformValues: [0] },
             { reports: ["Users", "Groups"], column: "APTarget", uniformValues: [0] },
+            { reports: ["Groups"], column: "APAutoAssign", uniformValues: [false] },
+            { reports: ["Users", "Groups", "EA", "MI", "AgentIdentities"], column: "CatalogRBAC", uniformValues: [0, "-"] },
             { reports: ["AccessPackages"], column: "ApiApp", uniformValues: [0] },
             { reports: ["AccessPackages"], column: "ApiDelegated", uniformValues: [0] },
             { reports: ["AccessPackages"], column: "AutoAssignment", uniformValues: [false] },
             { reports: ["AccessPackages"], column: "AzureRoles", uniformValues: [0] },
             { reports: ["AccessPackages"], column: "AzureMaxTier", uniformValues: ["-", "?"] },
-            { reports: ["AccessPackages"], column: "Hidden", uniformValues: [false] }
+            { reports: ["AccessPackages"], column: "Hidden", uniformValues: [false] },
+            { reports: ["AccessPackages"], column: "SeparationOfDuties", uniformValues: [false] },
+            { reports: ["Catalogs"], column: "AzureResources", uniformValues: [0] },
+            { reports: ["Catalogs"], column: "AzureMaxTier", uniformValues: ["-", "?"] },
+            { reports: ["Catalogs"], column: "Readers", uniformValues: [0] },
+            { reports: ["Catalogs"], column: "API", uniformValues: [0] },
+            { reports: ["Catalogs"], column: "UnconfiguredResources", uniformValues: [0] }
         ];
 
         function getConditionalDefaultHiddenColumns(reportKey, data, columns) {
@@ -1467,7 +1590,7 @@ $global:GLOBALJavaScript_Table = @'
                     maxWidth: 1600,
                     columns: [
                         "DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive",
-                        "Owners", "Credentials", "AppOwn", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "Owners", "Credentials", "AppOwn", "BlueprintOwn", "SpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiDelegated",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1486,7 +1609,7 @@ $global:GLOBALJavaScript_Table = @'
                     maxWidth: 1600,
                     columns: [
                         "UPN", "Enabled", "UserType", "Agent", "OnPrem", "Protected",
-                        "GrpMem", "GrpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "GrpMem", "GrpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxTier",
                         "AppRoles", "AppRegOwn", "BlueprintOwn", "SPOwn",
                         "Inactive", "MfaCap",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -1508,7 +1631,7 @@ $global:GLOBALJavaScript_Table = @'
                     columns: [
                         "DisplayName", "Type", "OnPrem", "Dynamic",
                         "Visibility", "Protected", "PIM", "AuUnits", "DirectOwners",
-                        "Users", "SPCount","NestedGroups",
+                        "Users", "SPCount","NestedGroups", "CatalogRBAC", "APAutoAssign",
                         "AppRoles", "CAPs",  "EntraMaxTier", "AzureMaxTier",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1548,7 +1671,7 @@ $global:GLOBALJavaScript_Table = @'
                     columns: [
                         "DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive",
                         "AgentUsers", "Owners",
-                        "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "GrpMem", "GrpOwn", "AppOwn", "SpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiMisc", "ApiDelegated",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1569,7 +1692,7 @@ $global:GLOBALJavaScript_Table = @'
                     maxWidth: 1600,
                     columns: [
                         "DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership",
-                        "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxTier",
+                        "AppOwnership", "BlueprintOwn", "SpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxTier",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiMisc",
                         "Impact", "Likelihood", "Risk", "Warnings"
                     ]
@@ -1584,11 +1707,33 @@ $global:GLOBALJavaScript_Table = @'
                     ]
                 }
             },
+            "Catalogs": {
+                laptop: {
+                    maxWidth: 1600,
+                    columns: [
+                        "Catalog", "Enabled", "ExternallyVisible", "AccessPackages",
+                        "CatalogResources", "NewAPConfigurable", "ConfiguredResources",
+                        "UnconfiguredResources", "ConfiguredRoleScopes",
+                        "EntraMaxTier", "AzureMaxTier", "HighImpactEntries",
+                        "CatalogRBAC", "Owners", "PackageManagers", "AssignmentManagers",
+                        "Impact", "Likelihood", "Risk"
+                    ]
+                },
+                compact: {
+                    maxWidth: 1200,
+                    columns: [
+                        "Catalog", "Enabled", "ExternallyVisible", "AccessPackages",
+                        "CatalogResources", "ConfiguredResources", "UnconfiguredResources",
+                        "ConfiguredRoleScopes", "HighImpactEntries", "CatalogRBAC",
+                        "Impact", "Likelihood", "Risk"
+                    ]
+                }
+            },
             "AccessPackages": {
                 laptop: {
                     maxWidth: 1600,
                     columns: [
-                        "Policy", "Package", "Resources",
+                        "Policy", "Package", "SeparationOfDuties", "Resources",
                         "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint",
                         "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier",
                         "AllowedTargetScope", "SelfAdd", "OnBehalfAdd", "Approval",
@@ -1715,6 +1860,23 @@ $global:GLOBALJavaScript_Table = @'
             "SAML": "SAML as preferred SSO method",
             "CAPs": "Number of Conditional Access Policies the group is used in",
             "APTarget": "Number of distinct Access Packages where this object is targeted directly, or through group membership",
+            "APAutoAssign": "Generated dynamic group used to evaluate an automatic Access Package assignment policy",
+            "CatalogRBAC": "Number of catalog-scoped Entitlement Management RBAC roles. For users, this includes unique effective roles inherited through transitive group membership.",
+            "ExternallyVisible": "Whether the catalog is visible to external users",
+            "ConfiguredInAP": "Whether at least one role for this catalog resource is configured in an existing Access Package; not applicable to custom resources used for access reviews",
+            "CatalogResources": "Total number of distinct resources registered in the catalog",
+            "NewAPConfigurable": "Distinct catalog resources a Catalog Owner or Access Package Manager can place into a new Access Package (excludes API permissions)",
+            "ConfiguredResources": "Distinct catalog resources with at least one resource role configured in an existing Access Package",
+            "ConfiguredRoles": "Distinct resource-role combinations configured in the Access Package",
+            "ActiveAssignments": "Currently delivered, non-expired assignments to the Access Package",
+            "ConfiguredRoleScopes": "Resource-role entries configured across existing Access Packages; a resource is counted more than once when it has multiple roles or appears in multiple packages",
+            "DirectImpact": "Sum of impact scores for resources that can be placed into a new Access Package",
+            "ExistingAPImpact": "Sum of unique resource-role impact scores configured in existing Access Packages",
+            "ImpactCounted": "Whether this unique resource and role or permission contributes to ExistingAPImpact; duplicates in other Access Packages are not counted again",
+            "UnconfiguredResources": "Distinct catalog resources with no resource role configured in any existing Access Package that can be added through catalog-scoped management; excludes custom resources and API permissions",
+            "DormantPrivileged": "Entra role and API resources in the catalog without a configured Access Package role scope",
+            "AbusePath": "Configuration or assignment path available to this catalog-scoped RBAC role",
+            "HighImpactEntries": "Number of high-impact resource or role entries that can be configured through Catalog RBAC or are already configured in an existing Access Package. Identical existing grants are deduplicated across packages.",
             "AppLock": "App Instance Property Lock status",
             "DeviceReg": "Devices registered by the user",
             "DeviceOwn": "Devices owned by the user",
@@ -1749,12 +1911,15 @@ $global:GLOBALJavaScript_Table = @'
             "SharePoint": "Access Package SharePoint resources",
             "PolicyEnabled": "Access Package policy accepts new requests or assignments, or uses automatic assignment",
             "CatalogEnabled": "Access Package catalog is published",
+            "SeparationOfDuties": "Access Package has incompatible Access Packages or groups configured",
             "AllowedTargetScope": "Access Package policy target scope",
             "BroadScope": "Access Package policy allows a broad target or requestor population",
             "SelfAdd": "Targets can request access for themselves through this policy",
             "OnBehalfAdd": "On-behalf requestors can request access for another target through this policy",
             "AccessReview": "Access Package policy has access reviews enabled",
             "ExpirationDetails": "Access Package policy expiration setting",
+            "ActiveAssignments": "Fully delivered Access Package assignments whose configured schedule is currently active",
+            "ExpiredAssignments": "Access Package assignments whose state, expiration marker, or configured schedule indicates expiration",
             "Rule": "Access Package automatic assignment membership rule",
             "UserCoverage": "Percentage of tenant users covered by the policy after exclusions. External users are only approximated for b2bCollaborationGuest and do not include all types or tenant-specific selections.",
             "InheritableScopes": "Number of APIs for which the blueprint permits child agent identities to inherit delegated permission scopes",
@@ -1762,6 +1927,14 @@ $global:GLOBALJavaScript_Table = @'
             "Agent": "User object parented to an agent identity (agent user)",
             "ForeignAgent": "Agent user whose parent blueprint principal is foreign"
         };
+
+        function getColumnTooltip(column) {
+            const currentManifest = window.__reportManifest;
+            if (column === "CatalogRBAC" && currentManifest && currentManifest.currentReportKey === "Groups") {
+                return "Direct Catalog RBAC assignments. Not included in the group's Impact score.";
+            }
+            return columnTooltips[column] || "";
+        }
     
         (function () {    
             const manifestEl = document.getElementById("report-manifest");
@@ -1769,7 +1942,13 @@ $global:GLOBALJavaScript_Table = @'
             window.__reportManifest = manifest;        
 
             if (manifest && manifest.currentReportKey === "AccessPackages") {
-                ["ExpirationDetails", "Catalog", "AccessReview", "ServicePrincipals", "Users", "Guests"].forEach(col => {
+                ["ExpirationDetails", "Catalog", "AccessReview", "ExpiredAssignments", "ServicePrincipals", "Users", "Guests"].forEach(col => {
+                    if (!defaultHidden.includes(col)) defaultHidden.push(col);
+                });
+            }
+
+            if (manifest && manifest.currentReportKey === "Catalogs") {
+                ["NewAPConfigurable", "ConfiguredResources"].forEach(col => {
                     if (!defaultHidden.includes(col)) defaultHidden.push(col);
                 });
             }
@@ -2088,6 +2267,7 @@ $global:GLOBALJavaScript_Table = @'
             if (key === "AgentIdentities") return "Agent Identities";
             if (key === "AgentIdentityBlueprintsPrincipals") return "Agent Identity Blueprint Principals";
             if (key === "AgentIdentityBlueprints") return "Agent Identity Blueprints";
+            if (key === "Catalogs") return "Catalogs";
 
             var lower = name.toLowerCase();
             if (lower.indexOf("users") !== -1) return "User";
@@ -2401,7 +2581,7 @@ $global:GLOBALJavaScript_Table = @'
 
             let html = '<table class="overview-table"><thead><tr>';
             visibleCols.forEach(col => {
-                const tooltip = columnTooltips[col] || "";
+                const tooltip = getColumnTooltip(col);
                 const isSorted = currentSort.column === col;
                 const sortIcon = isSorted
                     ? `<span style="font-size: 12px;"> ${currentSort.asc ? "\u{25B2}" : "\u{25BC}"}</span>`
@@ -2440,6 +2620,7 @@ $global:GLOBALJavaScript_Table = @'
                         columnHeaderLower === "principal" ||
                         columnHeaderLower === "scope" ||
                         columnHeaderLower === "policy" ||
+                        columnHeaderLower === "catalog" ||
                         columnHeaderLower === "namelink" ||
                         columnHeaderLower === "apipermissiondescription" ||
                         columnHeaderLower.startsWith("upn") ||
@@ -3224,7 +3405,7 @@ $global:GLOBALJavaScript_Table = @'
                             detailsEl.appendChild(renderPreBlock(key, value));
                         }
                     } else if (typeof value === 'object') {
-                        if (key === "General Information" || key === "Policy Information") {
+                        if (key === "General Information" || key === "Policy Information" || key === "Catalog Information") {
                             detailsEl.appendChild(renderVerticalTable(key, value));
                         } else {
                             detailsEl.appendChild(renderDetailsTable(key, [value]));
@@ -3617,7 +3798,7 @@ $global:GLOBALJavaScript_Table = @'
 
             const isDark = document.body.classList.contains("dark-mode");
 
-            const redIfTrueHeaders = new Set(['Foreign', 'ForeignAgent', 'Inactive', 'PIM', 'Dynamic', 'SecurityEnabled', 'OnPrem', 'Conditions', 'IsBuiltIn', 'IsPrivileged', 'SAML', 'Agent', 'ActivatedViaPIM', 'SelfAdd', 'AutoAssignment', 'Hidden', 'OnBehalfAdd', 'BroadScope']);
+            const redIfTrueHeaders = new Set(['Foreign', 'ForeignAgent', 'Inactive', 'PIM', 'Dynamic', 'SecurityEnabled', 'OnPrem', 'Conditions', 'IsBuiltIn', 'IsPrivileged', 'SAML', 'Agent', 'ActivatedViaPIM', 'SelfAdd', 'AutoAssignment', 'APAutoAssign', 'Hidden', 'OnBehalfAdd', 'BroadScope', 'ExternallyVisible', 'SeparationOfDuties']);
             const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview', 'PolicyEnabled', 'CatalogEnabled']);
             const redIfContent = new Set(['all', 'alltrusted', 'report-only', 'disabled', 'public', 'guest', 'customrole', 'active', 'tier-0', 'tier-1', 'tier-2', 'all users', 'all internal users', 'all service principals', 'all agent identities', 'all external users', 'all external orgs']);
             const redIfContentHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms', 'State', 'Visibility', 'UserType', 'RoleType', 'AssignmentType', 'EntraMaxTier', 'AzureMaxTier', 'PerUserMfa', 'AllowedTargetScope']);
@@ -6048,6 +6229,10 @@ function Get-GroupDetails {
             AzureMaxTier           = $MatchingGroup.AzureMaxTier
             AzureRoleDetails       = $MatchingGroup.AzureRoleDetails
             CAPs                   = $MatchingGroup.CAPs
+            APAutoAssign           = if ($MatchingGroup.PSObject.Properties['APAutoAssign']) { [bool]$MatchingGroup.APAutoAssign } else { $false }
+            AccessPackageAutoAssignments = if ($MatchingGroup.PSObject.Properties['AccessPackageAutoAssignments']) { @($MatchingGroup.AccessPackageAutoAssignments) } else { @() }
+            CatalogRBAC            = if ($MatchingGroup.PSObject.Properties['CatalogRBAC']) { $MatchingGroup.CatalogRBAC } else { 0 }
+            CatalogRbacDetails     = if ($MatchingGroup.PSObject.Properties['CatalogRbacDetails']) { @($MatchingGroup.CatalogRbacDetails) } else { @() }
             Impact                 = $MatchingGroup.Impact
             ImpactOrg              = $MatchingGroup.ImpactOrg
             ImpactOrgActiveOnly    = $MatchingGroup.ImpactOrgActiveOnly
@@ -6056,6 +6241,68 @@ function Get-GroupDetails {
     }
 
     return $GroupDetails
+}
+
+# Merges explicit and transitive group-inherited Catalog RBAC assignments for a workload identity.
+function Merge-EntraFalconCatalogRbacAssignments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)][object[]]$DirectAssignments = @(),
+        [Parameter(Mandatory = $false)][object[]]$GroupMemberships = @()
+    )
+
+    $assignmentsByRole = @{}
+    $addAssignment = {
+        param(
+            [Parameter(Mandatory = $true)][object]$Assignment,
+            [Parameter(Mandatory = $true)][ValidateSet('Direct','Group')][string]$Source
+        )
+
+        if ($null -eq $Assignment) { return }
+        $catalogId = [string]$Assignment.CatalogId
+        $role = [string]$Assignment.Role
+        if ([string]::IsNullOrWhiteSpace($catalogId) -or [string]::IsNullOrWhiteSpace($role)) { return }
+
+        $key = "$catalogId|$role".ToLowerInvariant()
+        if (-not $assignmentsByRole.ContainsKey($key)) {
+            $assignmentsByRole[$key] = [pscustomobject]@{
+                AssignmentId   = [string]$Assignment.AssignmentId
+                CatalogId      = $catalogId
+                Catalog        = [string]$Assignment.Catalog
+                Role           = $role
+                CatalogEnabled = [bool]$Assignment.CatalogEnabled
+                Sources        = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            }
+        }
+        [void]$assignmentsByRole[$key].Sources.Add($Source)
+    }
+
+    foreach ($assignment in @($DirectAssignments)) {
+        if ($null -eq $assignment) { continue }
+        & $addAssignment -Assignment $assignment -Source 'Direct'
+    }
+    foreach ($group in @($GroupMemberships)) {
+        if ($null -eq $group -or -not $group.PSObject.Properties['CatalogRbacDetails']) { continue }
+        foreach ($assignment in @($group.CatalogRbacDetails)) {
+            if ($null -eq $assignment) { continue }
+            & $addAssignment -Assignment $assignment -Source 'Group'
+        }
+    }
+
+    return @(
+        foreach ($entry in @($assignmentsByRole.Values | Sort-Object Catalog,Role)) {
+            $hasDirect = $entry.Sources.Contains('Direct')
+            $hasGroup = $entry.Sources.Contains('Group')
+            [pscustomobject]@{
+                AssignmentId   = $entry.AssignmentId
+                CatalogId      = $entry.CatalogId
+                Catalog        = $entry.Catalog
+                Role           = $entry.Role
+                CatalogEnabled = $entry.CatalogEnabled
+                AssignedVia    = if ($hasDirect -and $hasGroup) { 'Direct and Group' } elseif ($hasDirect) { 'Direct' } else { 'Group' }
+            }
+        }
+    )
 }
 
 # Returns normalized group role metrics (count, privileged count, and max tier) for active-only or active+eligible evaluation paths.
@@ -6805,6 +7052,15 @@ function Export-EntraFalconDebugObjectDump {
         [object]$AccessPackages,
 
         [Parameter(Mandatory = $false)]
+        [object]$RawCatalogs,
+
+        [Parameter(Mandatory = $false)]
+        [object]$Catalogs,
+
+        [Parameter(Mandatory = $false)]
+        [object]$CatalogAssessment,
+
+        [Parameter(Mandatory = $false)]
         [object]$SecurityFindings,
 
         [Parameter(Mandatory = $false)]
@@ -6893,6 +7149,9 @@ function Export-EntraFalconDebugObjectDump {
             "28_SecurityFindings.clixml"                  = $SecurityFindings
             "29_IntuneRbacRoleAssignments.clixml"         = $IntuneRbacRoleAssignments
             "30_IntuneRbacState.clixml"                   = $IntuneRbacState
+            "31_RawCatalogs.clixml"                        = $RawCatalogs
+            "32_Catalogs.clixml"                           = $Catalogs
+            "33_CatalogAssessment.clixml"                  = $CatalogAssessment
         }
 
         $summaryProperties = [ordered]@{
@@ -8903,8 +9162,12 @@ function Get-IntuneRbacRoleAssignments {
         "5500eb3c-d329-45fd-b3a9-5f87c2cc5e03", # Multi Admin Approval Policy Manager
         "fb2603eb-3c87-4be3-8b5b-d58a5b4a0bc0", # Intune Role Administrator
         "0bd113fe-6be5-400c-a28f-ae5553f9c0be", # Policy and Profile Manager
-        "c1d9fcbb-cba5-40b0-bf6b-527006585f4b"  # Application Manager
+        "c1d9fcbb-cba5-40b0-bf6b-527006585f4b", # Application Manager
+        "9e0cc482-82df-4ab2-a24c-0c23a3f52e1e", # Help Desk Operator
+        "2f9f4f7e-2d13-427b-adf2-361a1eef7ae8", # School Administrator
+        "c56d53a2-73d0-4502-b6bd-4a9d3dba28d5"  # Endpoint Security Manager
     )
+
     $roleScopeTagsById = @{}
     $directoryObjectNamesById = @{}
 
@@ -9139,6 +9402,7 @@ function Initialize-TenantReportTabs {
         @{ Prop = 'PimForEntra';               Key = 'PIM';        Title = 'PIM (Entra)';                File = "PIM_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForGroups';              Key = 'PIMGroups';  Title = 'PIM (Groups)';               File = "PIM_Groups_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'AccessPackages';            Key = 'AccessPackages'; Title = 'Access Packages';       File = "AccessPackages_${StartTimestamp}_${tenantNameEscaped}.html" }
+        @{ Prop = 'Catalogs';                  Key = 'Catalogs';   Title = 'Catalogs';                   File = "Catalogs_${StartTimestamp}_${tenantNameEscaped}.html" }
     )
 
     $tabs = New-Object System.Collections.Generic.List[object]
@@ -9921,7 +10185,8 @@ function start-InitTasks {
         AgentIdentities        = @{ Count = 0; Foreign = 0; Inactive = 0; TotalAgentUsers = 0; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0 } }
         AgentIdentityBlueprintsPrincipals = @{ Count = 0; Foreign = 0 }
         AgentIdentityBlueprints = @{ Count = 0; Credentials = @{ 'Secrets' = 0; 'Certificates' = 0; 'Federated Credentials' = 0; 'None' = 0 } }
-        AccessPackages         = @{ Count = 0; Policies = 0; Assignments = 0; ServicePrincipalAssignments = 0; HighImpact = 0 }
+        AccessPackages         = @{ Count = 0; Policies = 0; Assignments = 0; ActiveAssignments = 0; ExpiredAssignments = 0; ServicePrincipalAssignments = 0; HighImpact = 0 }
+        Catalogs               = @{ Count = 0; CatalogResources = 0; RbacAssignments = 0 }
         AdministrativeUnits    = @{ Count = 0 }
         ConditionalAccess      = @{ Count = 0; Enabled = 0 }
         SecurityFindings       = @{ Vulnerable = 0; NotVulnerable = 0; Skipped = 0; Total = 0 }
@@ -10757,4 +11022,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp

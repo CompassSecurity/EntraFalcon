@@ -28,6 +28,8 @@ function Invoke-CheckUsers {
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities = @{},
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprintsPrincipals = @{},
         [Parameter(Mandatory=$false)][hashtable]$AccessPackageUserSpecificTargetIndex = @{},
+        [Parameter(Mandatory=$false)][hashtable]$CatalogRbacPrincipalIndex = @{},
+        [Parameter(Mandatory=$false)][bool]$CatalogRbacAssessmentAvailable = $false,
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
         [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false,
         [Parameter(Mandatory=$true)][ref]$ReportStateOut
@@ -1126,6 +1128,9 @@ function Invoke-CheckUsers {
             [void]$Warnings.Add("Access package self-request without approval")
         }
 
+        $CatalogRbacDetails = if ($CatalogRbacPrincipalIndex.ContainsKey([string]$item.Id)) { @($CatalogRbacPrincipalIndex[[string]$item.Id]) } else { @() }
+        $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
+
     #Format warning messages
     $Warnings = if ($null -ne $Warnings) {
             $Warnings -join ' / '
@@ -1204,6 +1209,13 @@ function Invoke-CheckUsers {
             AppRolesDetails = $UserDirectAppRoles
             AccessPackages = $AccessPackageCount
             AccessPackageSpecificTargets = $AccessPackageSpecificTargets
+            CatalogRBAC = $CatalogRBAC
+            CatalogRbacDetails = $CatalogRbacDetails
+            CatalogRbacAssessmentAvailable = $CatalogRbacAssessmentAvailable
+            CatalogRbacAssessmentStatus = if ($CatalogRbacAssessmentAvailable) { 'Pending' } else { 'Unavailable' }
+            CatalogRbacGrossImpact = 0
+            CatalogRbacExistingAccessOffset = 0
+            CatalogRbacImpact = 0
             GroupOwnerDetails = $GroupOwnerDetails
             AppRegOwnerDetails = $AppRegOwnerDetails
             BlueprintOwnerDetails = $BlueprintOwnerDetails
@@ -1302,6 +1314,385 @@ function Add-EntraFalconUserWarningText {
     return ($parts -join ' / ')
 }
 
+function Get-EntraFalconCatalogObjectValue {
+    param(
+        [Parameter(Mandatory = $false)][object]$InputObject,
+        [Parameter(Mandatory = $true)][string[]]$Names
+    )
+
+    if ($null -eq $InputObject) { return $null }
+    foreach ($name in $Names) {
+        if ($InputObject -is [System.Collections.IDictionary]) {
+            if ($InputObject.Contains($name)) { return $InputObject[$name] }
+        } elseif ($InputObject.PSObject.Properties[$name]) {
+            return $InputObject.$name
+        }
+    }
+    return $null
+}
+
+function ConvertTo-EntraFalconCatalogDateTimeOffset {
+    param([Parameter(Mandatory = $false)][object]$Value)
+
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return [datetimeoffset]$Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]([datetime]$Value) }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse($text, [ref]$parsed)) { return $parsed }
+    if ([datetimeoffset]::TryParse(
+        $text,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [System.Globalization.DateTimeStyles]::AllowWhiteSpaces,
+        [ref]$parsed
+    )) {
+        return $parsed
+    }
+    return $null
+}
+
+function Test-EntraFalconActiveAccessPackageAssignment {
+    param(
+        [Parameter(Mandatory = $true)][object]$Assignment,
+        [Parameter(Mandatory = $true)][datetimeoffset]$Now
+    )
+
+    if ([string]$Assignment.state -ine 'delivered' -or [string]$Assignment.status -ine 'Delivered') { return $false }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Assignment.expiredDateTime)) { return $false }
+
+    $schedule = Get-EntraFalconCatalogObjectValue -InputObject $Assignment -Names @('schedule')
+    if ($null -eq $schedule) { return $false }
+
+    $startValue = Get-EntraFalconCatalogObjectValue -InputObject $schedule -Names @('startDateTime')
+    $start = ConvertTo-EntraFalconCatalogDateTimeOffset -Value $startValue
+    if ($null -ne $startValue -and -not [string]::IsNullOrWhiteSpace([string]$startValue)) {
+        if ($null -eq $start) { return $false }
+        if ($start.ToUniversalTime() -gt $Now.ToUniversalTime()) { return $false }
+    }
+
+    $expiration = Get-EntraFalconCatalogObjectValue -InputObject $schedule -Names @('expiration')
+    if ($null -eq $expiration) { return $false }
+    $expirationType = [string](Get-EntraFalconCatalogObjectValue -InputObject $expiration -Names @('type'))
+    if ($expirationType -ieq 'noExpiration') { return $true }
+
+    if ($expirationType -ieq 'afterDateTime') {
+        $endValue = Get-EntraFalconCatalogObjectValue -InputObject $expiration -Names @('endDateTime','expirationDateTime')
+        $end = ConvertTo-EntraFalconCatalogDateTimeOffset -Value $endValue
+        return ($null -ne $end -and $end.ToUniversalTime() -gt $Now.ToUniversalTime())
+    }
+
+    if ($expirationType -ieq 'afterDuration') {
+        $durationText = [string](Get-EntraFalconCatalogObjectValue -InputObject $expiration -Names @('duration'))
+        if ($null -eq $start -or [string]::IsNullOrWhiteSpace($durationText)) { return $false }
+        try {
+            $duration = [System.Xml.XmlConvert]::ToTimeSpan($durationText)
+            return $start.Add($duration).ToUniversalTime() -gt $Now.ToUniversalTime()
+        } catch {
+            return $false
+        }
+    }
+
+    return $false
+}
+
+function Update-EntraFalconUserCatalogRbacImpact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Users,
+        [Parameter(Mandatory = $false)][object]$UserReportState,
+        [Parameter(Mandatory = $false)][object]$CatalogAssessment,
+        [Parameter(Mandatory = $false)][object]$RawAccessPackages,
+        [Parameter(Mandatory = $false)][hashtable]$AllGroupsDetails = @{}
+    )
+
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    if ($null -eq $Users) { return }
+    if ($null -eq $AllGroupsDetails) { $AllGroupsDetails = @{} }
+
+    $userKeyById = @{}
+    foreach ($entry in $Users.GetEnumerator()) {
+        $userId = [string]$entry.Key
+        if (-not [string]::IsNullOrWhiteSpace($userId)) { $userKeyById[$userId] = $entry.Key }
+        $user = $entry.Value
+        if ($null -eq $user) { continue }
+        $user | Add-Member -NotePropertyName CatalogRbacAssessmentAvailable -NotePropertyValue $false -Force
+        $user | Add-Member -NotePropertyName CatalogRbacAssessmentStatus -NotePropertyValue 'Unavailable' -Force
+        $user | Add-Member -NotePropertyName CatalogRbacGrossImpact -NotePropertyValue 0 -Force
+        $user | Add-Member -NotePropertyName CatalogRbacExistingAccessOffset -NotePropertyValue 0 -Force
+        $user | Add-Member -NotePropertyName CatalogRbacImpact -NotePropertyValue 0 -Force
+        $user | Add-Member -NotePropertyName CatalogRbacDetails -NotePropertyValue @() -Force
+        $user | Add-Member -NotePropertyName CatalogRBAC -NotePropertyValue '-' -Force
+    }
+
+    $rbacAvailable = ($null -ne $CatalogAssessment -and $CatalogAssessment.PSObject.Properties['RbacAvailable'] -and [bool]$CatalogAssessment.RbacAvailable)
+    if (-not $rbacAvailable) {
+        if ($null -ne $UserReportState -and $UserReportState.PSObject.Properties['WarningReport']) {
+            $warning = 'Coverage gap: Catalog RBAC impact was not assessed because catalog-scoped RBAC enumeration was unavailable.'
+            if (@($UserReportState.WarningReport) -notcontains $warning) { [void]$UserReportState.WarningReport.Add($warning) }
+        }
+        Write-Log -Level Debug -Message 'User Catalog RBAC impact: assessment unavailable; no impact added.'
+        return
+    }
+
+    $assessmentStatus = if ($CatalogAssessment.PSObject.Properties['Status']) { [string]$CatalogAssessment.Status } else { 'Complete' }
+    foreach ($user in @($Users.Values)) {
+        if ($null -eq $user) { continue }
+        $user.CatalogRbacAssessmentAvailable = $true
+        $user.CatalogRbacAssessmentStatus = $assessmentStatus
+        $user.CatalogRBAC = 0
+    }
+
+    $accessPackageDataAvailable = ($CatalogAssessment.PSObject.Properties['AccessPackageDataAvailable'] -and [bool]$CatalogAssessment.AccessPackageDataAvailable)
+    $accessPackageAssignmentsAvailable = if ($CatalogAssessment.PSObject.Properties['AccessPackageAssignmentsAvailable']) {
+        [bool]$CatalogAssessment.AccessPackageAssignmentsAvailable
+    } else {
+        $accessPackageDataAvailable
+    }
+    if (-not $accessPackageDataAvailable -and $null -ne $UserReportState -and $UserReportState.PSObject.Properties['WarningReport']) {
+        $warning = 'Coverage gap: Access Package contribution data was unavailable; Catalog RBAC new-package impact is included, but existing-package conclusions and enrollment offsets are partial.'
+        if (@($UserReportState.WarningReport) -notcontains $warning) { [void]$UserReportState.WarningReport.Add($warning) }
+    }
+    if ($accessPackageDataAvailable -and -not $accessPackageAssignmentsAvailable -and $null -ne $UserReportState -and $UserReportState.PSObject.Properties['WarningReport']) {
+        $warning = 'Coverage gap: Access Package assignments were unavailable; Catalog RBAC impact includes existing-package potential, but enrollment offsets were not applied.'
+        if (@($UserReportState.WarningReport) -notcontains $warning) { [void]$UserReportState.WarningReport.Add($warning) }
+    }
+    if ($CatalogAssessment.PSObject.Properties['ResourcesAvailable'] -and -not [bool]$CatalogAssessment.ResourcesAvailable -and $null -ne $UserReportState -and $UserReportState.PSObject.Properties['WarningReport']) {
+        $warning = 'Coverage gap: One or more catalog resource collections were unavailable; Catalog RBAC new-package impact is partial.'
+        if (@($UserReportState.WarningReport) -notcontains $warning) { [void]$UserReportState.WarningReport.Add($warning) }
+    }
+
+    $effectiveRolesByUser = @{}
+    $assignmentsProcessed = 0
+    $transitiveEdges = 0
+    $unresolvedPrincipals = 0
+    foreach ($assignment in @($CatalogAssessment.Assignments)) {
+        if ($null -eq $assignment) { continue }
+        $assignmentsProcessed++
+        $principalId = [string]$assignment.PrincipalId
+        $effectiveUserIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $source = if (-not [string]::IsNullOrWhiteSpace([string]$assignment.PrincipalName)) { [string]$assignment.PrincipalName } else { $principalId }
+
+        if ($userKeyById.ContainsKey($principalId)) {
+            [void]$effectiveUserIds.Add($principalId)
+            $source = 'Direct'
+        } elseif ($AllGroupsDetails.ContainsKey($principalId)) {
+            $group = $AllGroupsDetails[$principalId]
+            foreach ($member in @($group.Userdetails)) {
+                $memberId = [string](Get-EntraFalconCatalogObjectValue -InputObject $member -Names @('Id','id','objectId'))
+                if (-not [string]::IsNullOrWhiteSpace($memberId) -and $userKeyById.ContainsKey($memberId)) {
+                    if ($effectiveUserIds.Add($memberId)) { $transitiveEdges++ }
+                }
+            }
+        } else {
+            $unresolvedPrincipals++
+            continue
+        }
+
+        foreach ($effectiveUserId in $effectiveUserIds) {
+            $userKey = $userKeyById[$effectiveUserId]
+            if (-not $effectiveRolesByUser.ContainsKey($userKey)) { $effectiveRolesByUser[$userKey] = @{} }
+            $roleKey = "$([string]$assignment.CatalogId)|$([string]$assignment.Role)".ToLowerInvariant()
+            if (-not $effectiveRolesByUser[$userKey].ContainsKey($roleKey)) {
+                $effectiveRolesByUser[$userKey][$roleKey] = [pscustomobject]@{
+                    Key            = $roleKey
+                    CatalogId      = [string]$assignment.CatalogId
+                    Catalog        = [string]$assignment.Catalog
+                    CatalogEnabled = [bool]$assignment.CatalogEnabled
+                    Role           = [string]$assignment.Role
+                    Sources        = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                }
+            }
+            [void]$effectiveRolesByUser[$userKey][$roleKey].Sources.Add($source)
+        }
+    }
+    if ($unresolvedPrincipals -gt 0 -and $null -ne $UserReportState -and $UserReportState.PSObject.Properties['WarningReport']) {
+        $warning = "Coverage gap: $unresolvedPrincipals Catalog RBAC principal or group assignment(s) could not be resolved to Users."
+        if (@($UserReportState.WarningReport) -notcontains $warning) { [void]$UserReportState.WarningReport.Add($warning) }
+    }
+
+    $activePackagesByUser = @{}
+    if ($accessPackageAssignmentsAvailable -and $null -ne $RawAccessPackages) {
+        $now = [datetimeoffset]::UtcNow
+        foreach ($assignment in @($RawAccessPackages.Assignments)) {
+            if ($null -eq $assignment -or -not (Test-EntraFalconActiveAccessPackageAssignment -Assignment $assignment -Now $now)) { continue }
+            $target = Get-EntraFalconCatalogObjectValue -InputObject $assignment -Names @('target')
+            $targetId = [string](Get-EntraFalconCatalogObjectValue -InputObject $target -Names @('objectId','userId','principalId','targetId','id'))
+            if (-not $userKeyById.ContainsKey($targetId)) { continue }
+            $package = Get-EntraFalconCatalogObjectValue -InputObject $assignment -Names @('accessPackage')
+            $packageId = [string](Get-EntraFalconCatalogObjectValue -InputObject $package -Names @('id'))
+            if ([string]::IsNullOrWhiteSpace($packageId)) { continue }
+            $userKey = $userKeyById[$targetId]
+            if (-not $activePackagesByUser.ContainsKey($userKey)) {
+                $activePackagesByUser[$userKey] = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            }
+            [void]$activePackagesByUser[$userKey].Add($packageId)
+        }
+    }
+
+    $catalogsById = if ($CatalogAssessment.PSObject.Properties['CatalogsById'] -and $null -ne $CatalogAssessment.CatalogsById) { $CatalogAssessment.CatalogsById } else { @{} }
+    $roleCalculationCache = @{}
+    $resultCache = @{}
+    $enrollmentOffsets = 0
+    $contributionRecords = 0
+
+    $calculateRoleSet = {
+        param([object[]]$Roles)
+        $direct = @{}
+        $grants = @{}
+        foreach ($roleEntry in @($Roles)) {
+            $catalogId = [string]$roleEntry.CatalogId
+            if (-not $catalogsById.ContainsKey($catalogId)) { continue }
+            $catalog = $catalogsById[$catalogId]
+            $roleName = [string]$roleEntry.Role
+            $includeNew = $roleName -in @('Catalog Owner','Access Package Manager')
+            $includeAllExisting = $accessPackageDataAvailable -and $roleName -eq 'Access Package Assignment Manager'
+            $includeRestrictedExisting = $accessPackageDataAvailable -and $roleName -in @('Catalog Owner','Access Package Manager')
+
+            if ($includeNew) {
+                foreach ($contribution in @($catalog.NewAPContributions)) {
+                    $key = [string]$contribution.ResourceKey
+                    if ([string]::IsNullOrWhiteSpace($key)) { continue }
+                    if (-not $direct.ContainsKey($key) -or [double]$contribution.Impact -gt [double]$direct[$key].Impact) { $direct[$key] = $contribution }
+                }
+            }
+            if ($includeAllExisting -or $includeRestrictedExisting) {
+                $existingContributions = if (
+                    $includeAllExisting -and
+                    $catalog.PSObject.Properties['AssignmentManagerExistingAPContributions']
+                ) {
+                    @($catalog.AssignmentManagerExistingAPContributions)
+                } else {
+                    # Older assessment objects do not contain the role-specific set.
+                    @($catalog.ExistingAPContributions)
+                }
+                foreach ($contribution in $existingContributions) {
+                    if ($includeRestrictedExisting -and [bool]$contribution.DirectConfigurableType) { continue }
+                    $key = [string]$contribution.GrantKey
+                    if ([string]::IsNullOrWhiteSpace($key)) { continue }
+                    if (-not $grants.ContainsKey($key)) {
+                        $grants[$key] = [pscustomobject]@{
+                            Kind                   = 'ExistingAP'
+                            ResourceKey            = [string]$contribution.ResourceKey
+                            GrantKey               = $key
+                            Impact                 = [double]$contribution.Impact
+                            DirectConfigurableType = [bool]$contribution.DirectConfigurableType
+                            AccessPackageIds       = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                        }
+                    } elseif ([double]$contribution.Impact -gt [double]$grants[$key].Impact) {
+                        $grants[$key].Impact = [double]$contribution.Impact
+                    }
+                    foreach ($packageId in @($contribution.AccessPackageIds)) {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$packageId)) { [void]$grants[$key].AccessPackageIds.Add([string]$packageId) }
+                    }
+                }
+            }
+        }
+
+        foreach ($grantKey in @($grants.Keys)) {
+            $grant = $grants[$grantKey]
+            if ($grant.DirectConfigurableType -and $direct.ContainsKey([string]$grant.ResourceKey)) { $grants.Remove($grantKey) }
+        }
+        $allContributions = @($direct.Values) + @($grants.Values)
+        $allPackageIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($contribution in @($grants.Values)) {
+            foreach ($packageId in @($contribution.AccessPackageIds)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$packageId)) { [void]$allPackageIds.Add([string]$packageId) }
+            }
+        }
+        $gross = ($allContributions | Measure-Object -Property Impact -Sum).Sum
+        if ($null -eq $gross) { $gross = 0 }
+        [pscustomobject]@{
+            Contributions = $allContributions
+            GrossImpact    = [double]$gross
+            PackageIds     = $allPackageIds
+        }
+    }
+
+    foreach ($userKey in @($effectiveRolesByUser.Keys)) {
+        $user = $Users[$userKey]
+        if ($null -eq $user) { continue }
+        $roles = @($effectiveRolesByUser[$userKey].Values)
+        $roleSignature = (@($roles | ForEach-Object { $_.Key } | Sort-Object) -join ';')
+        if (-not $roleCalculationCache.ContainsKey($roleSignature)) {
+            $roleCalculationCache[$roleSignature] = & $calculateRoleSet $roles
+            $contributionRecords += @($roleCalculationCache[$roleSignature].Contributions).Count
+        }
+        $roleCalculation = $roleCalculationCache[$roleSignature]
+
+        $relevantPackageIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        if ($activePackagesByUser.ContainsKey($userKey)) {
+            foreach ($packageId in $activePackagesByUser[$userKey]) {
+                if ($roleCalculation.PackageIds.Contains([string]$packageId)) { [void]$relevantPackageIds.Add([string]$packageId) }
+            }
+        }
+        $packageSignature = (@($relevantPackageIds | Sort-Object) -join ',')
+        $resultKey = "$roleSignature|$packageSignature"
+        if (-not $resultCache.ContainsKey($resultKey)) {
+            $offset = 0
+            foreach ($contribution in @($roleCalculation.Contributions)) {
+                if ([string]$contribution.Kind -ne 'ExistingAP') { continue }
+                $offsetContribution = $false
+                foreach ($packageId in @($contribution.AccessPackageIds)) {
+                    if ($relevantPackageIds.Contains([string]$packageId)) { $offsetContribution = $true; break }
+                }
+                if ($offsetContribution) { $offset += [double]$contribution.Impact; $enrollmentOffsets++ }
+            }
+            $resultCache[$resultKey] = [pscustomobject]@{
+                Gross  = [math]::Round([double]$roleCalculation.GrossImpact)
+                Offset = [math]::Round([double]$offset)
+                Net    = [math]::Round([math]::Max(0, [double]$roleCalculation.GrossImpact - [double]$offset))
+            }
+        }
+        $result = $resultCache[$resultKey]
+
+        $detailRows = foreach ($role in ($roles | Sort-Object Catalog,Role)) {
+            $singleRoleSignature = [string]$role.Key
+            if (-not $roleCalculationCache.ContainsKey($singleRoleSignature)) {
+                $roleCalculationCache[$singleRoleSignature] = & $calculateRoleSet @($role)
+                $contributionRecords += @($roleCalculationCache[$singleRoleSignature].Contributions).Count
+            }
+            $sources = @($role.Sources | Sort-Object)
+            $hasDirectSource = $sources -contains 'Direct'
+            $hasGroupSource = @($sources | Where-Object { [string]$_ -ne 'Direct' }).Count -gt 0
+            $assignedVia = if ($hasDirectSource -and $hasGroupSource) {
+                'Direct and Group'
+            } elseif ($hasDirectSource) {
+                'Direct'
+            } else {
+                'Group'
+            }
+            $catalogAssessmentEntry = if ($catalogsById.ContainsKey([string]$role.CatalogId)) { $catalogsById[[string]$role.CatalogId] } else { $null }
+            [pscustomobject]@{
+                CatalogId          = [string]$role.CatalogId
+                Catalog            = [string]$role.Catalog
+                Role               = [string]$role.Role
+                CatalogEnabled     = [bool]$role.CatalogEnabled
+                AssignmentSource   = $assignedVia
+                AssignmentSources  = @($sources | Select-Object -First 10)
+                AdditionalSources  = [math]::Max(0, $sources.Count - 10)
+                RolePotentialImpact = [math]::Round([double]$roleCalculationCache[$singleRoleSignature].GrossImpact)
+                CatalogResources   = if ($catalogAssessmentEntry -and $catalogAssessmentEntry.PSObject.Properties['CatalogResources']) { [int]$catalogAssessmentEntry.CatalogResources } else { '-' }
+                AccessPackages     = if ($catalogAssessmentEntry -and $catalogAssessmentEntry.PSObject.Properties['AccessPackages']) { [int]$catalogAssessmentEntry.AccessPackages } else { '-' }
+                Warnings           = if ($catalogAssessmentEntry -and $catalogAssessmentEntry.PSObject.Properties['Warnings']) { [string]$catalogAssessmentEntry.Warnings } else { '' }
+            }
+        }
+
+        $user.CatalogRBAC = $roles.Count
+        $user.CatalogRbacGrossImpact = $result.Gross
+        $user.CatalogRbacExistingAccessOffset = $result.Offset
+        $user.CatalogRbacImpact = $result.Net
+        $user.CatalogRbacDetails = @($detailRows)
+        if (@($roles | Where-Object { [string]$_.Role -in @('Catalog Owner','Access Package Manager','Access Package Assignment Manager') }).Count -gt 0) {
+            $user | Add-Member -NotePropertyName Warnings -NotePropertyValue (Add-EntraFalconUserWarningText -ExistingWarnings ([string]$user.Warnings) -NewWarning "Identity Governance management role assigned") -Force
+        }
+    }
+
+    $timer.Stop()
+    Write-Log -Level Debug -Message "User Catalog RBAC impact: CatalogAssignmentsProcessed=$assignmentsProcessed, TransitiveUserRoleEdges=$transitiveEdges, AffectedUsers=$($effectiveRolesByUser.Count), UniqueRoleSignatures=$($roleCalculationCache.Count), UniqueRoleEnrollmentSignatures=$($resultCache.Count), ContributionRecords=$contributionRecords, EnrollmentOffsets=$enrollmentOffsets, ElapsedSeconds=$([math]::Round($timer.Elapsed.TotalSeconds, 3)), UnresolvedPrincipalsOrGroups=$unresolvedPrincipals"
+}
+
 function Update-EntraFalconUserBlueprintOwnershipImpact {
     [CmdletBinding()]
     param(
@@ -1393,16 +1784,7 @@ function Update-EntraFalconUserBlueprintOwnershipImpact {
         $user | Add-Member -NotePropertyName BlueprintOwnerImpact -NotePropertyValue 0 -Force
         $user | Add-Member -NotePropertyName BlueprintOwnerDetails -NotePropertyValue @() -Force
         $user | Add-Member -NotePropertyName BlueprintOwn -NotePropertyValue 0 -Force
-        $user | Add-Member -NotePropertyName Impact -NotePropertyValue ([math]::Round($baselineImpact)) -Force
-        $user | Add-Member -NotePropertyName Risk -NotePropertyValue ([math]::Round($baselineRisk)) -Force
-        $user | Add-Member -NotePropertyName Warnings -NotePropertyValue $baselineWarnings -Force
-
-        if (-not $BlueprintDetailsByUserId.ContainsKey($entry.Key)) {
-            continue
-        }
-
-        $details = @($BlueprintDetailsByUserId[$entry.Key].Values | Sort-Object -Property @(@{ Expression = 'Impact'; Descending = $true }, 'DisplayName'))
-        $blueprintOwnerImpact = [double](($details | Measure-Object -Property Impact -Sum).Sum)
+        $catalogRbacImpact = if ($user.PSObject.Properties.Name -contains 'CatalogRbacImpact' -and $null -ne $user.CatalogRbacImpact) { [double]$user.CatalogRbacImpact } else { 0 }
         $likelihood = if ($user.PSObject.Properties.Name -contains 'Likelihood' -and $null -ne $user.Likelihood) {
             [double]$user.Likelihood
         } elseif ($baselineImpact -ne 0) {
@@ -1410,14 +1792,29 @@ function Update-EntraFalconUserBlueprintOwnershipImpact {
         } else {
             0
         }
+        $impactWithoutBlueprint = [math]::Round($baselineImpact + $catalogRbacImpact)
+        $composedWarnings = $baselineWarnings
+        $catalogRbacWarningDetails = if ($user.PSObject.Properties.Name -contains 'CatalogRbacDetails') { @($user.CatalogRbacDetails) } else { @() }
+        if (@($catalogRbacWarningDetails | Where-Object { [string]$_.Role -in @('Catalog Owner','Access Package Manager','Access Package Assignment Manager') }).Count -gt 0) {
+            $composedWarnings = Add-EntraFalconUserWarningText -ExistingWarnings $composedWarnings -NewWarning "Identity Governance management role assigned"
+        }
+        $user | Add-Member -NotePropertyName Impact -NotePropertyValue $impactWithoutBlueprint -Force
+        $user | Add-Member -NotePropertyName Risk -NotePropertyValue ([math]::Round($impactWithoutBlueprint * $likelihood)) -Force
+        $user | Add-Member -NotePropertyName Warnings -NotePropertyValue $composedWarnings -Force
 
+        if (-not $BlueprintDetailsByUserId.ContainsKey($entry.Key)) {
+            continue
+        }
+
+        $details = @($BlueprintDetailsByUserId[$entry.Key].Values | Sort-Object -Property @(@{ Expression = 'Impact'; Descending = $true }, 'DisplayName'))
+        $blueprintOwnerImpact = [double](($details | Measure-Object -Property Impact -Sum).Sum)
         $user.BlueprintOwnerDetails = $details
         $user.BlueprintOwn = @($details).Count
         $user.BlueprintOwnerImpact = [math]::Round($blueprintOwnerImpact)
-        $finalImpact = [math]::Round($baselineImpact + $blueprintOwnerImpact)
+        $finalImpact = [math]::Round($baselineImpact + $blueprintOwnerImpact + $catalogRbacImpact)
         $user | Add-Member -NotePropertyName Impact -NotePropertyValue $finalImpact -Force
         $user | Add-Member -NotePropertyName Risk -NotePropertyValue ([math]::Round($finalImpact * $likelihood)) -Force
-        $user | Add-Member -NotePropertyName Warnings -NotePropertyValue (Add-EntraFalconUserWarningText -ExistingWarnings $baselineWarnings -NewWarning "User is owner of $($user.BlueprintOwn) Agent Identity Blueprint(s)") -Force
+        $user | Add-Member -NotePropertyName Warnings -NotePropertyValue (Add-EntraFalconUserWarningText -ExistingWarnings $composedWarnings -NewWarning "User is owner of $($user.BlueprintOwn) Agent Identity Blueprint(s)") -Force
         $usersUpdated++
         $totalBlueprintOwnerImpact += [double]$user.BlueprintOwnerImpact
     }
@@ -1490,6 +1887,20 @@ function Write-EntraFalconUsersReport {
     $AllObjectDetailsHTML = [System.Collections.ArrayList]::new()
     $UserCounter = 0
 
+    # Older replay dumps predate Catalog RBAC. Preserve replay compatibility without reporting a false zero.
+    foreach ($user in @($AllUsersDetails)) {
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRBAC') {
+            $legacyCatalogRbac = if ($user.PSObject.Properties.Name -contains 'IGRBAC') { $user.IGRBAC } else { '-' }
+            $user | Add-Member -NotePropertyName CatalogRBAC -NotePropertyValue $legacyCatalogRbac
+        }
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRbacDetails') { $user | Add-Member -NotePropertyName CatalogRbacDetails -NotePropertyValue @() }
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRbacAssessmentAvailable') { $user | Add-Member -NotePropertyName CatalogRbacAssessmentAvailable -NotePropertyValue $false }
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRbacAssessmentStatus') { $user | Add-Member -NotePropertyName CatalogRbacAssessmentStatus -NotePropertyValue 'Unavailable' }
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRbacGrossImpact') { $user | Add-Member -NotePropertyName CatalogRbacGrossImpact -NotePropertyValue 0 }
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRbacExistingAccessOffset') { $user | Add-Member -NotePropertyName CatalogRbacExistingAccessOffset -NotePropertyValue 0 }
+        if ($user.PSObject.Properties.Name -notcontains 'CatalogRbacImpact') { $user | Add-Member -NotePropertyName CatalogRbacImpact -NotePropertyValue 0 }
+    }
+
     $PmDataPostProcessing = [System.Diagnostics.Stopwatch]::StartNew()
 
     $blueprintOwnerUserCount = @($Users.Values | Where-Object { $_.PSObject.Properties.Name -contains 'BlueprintOwn' -and $null -ne $_.BlueprintOwn -and [double]$_.BlueprintOwn -gt 0 }).Count
@@ -1500,7 +1911,7 @@ function Write-EntraFalconUsersReport {
     write-host "[*] Processing results"
 
     #Define output of the main table
-    $tableOutput = $AllUsersDetails | Sort-Object Risk -Descending | select-object UPN,UPNlink,Enabled,UserType,Agent,ForeignAgent,OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,@{Name = "APTarget"; Expression = { $_.AccessPackages }},AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $AllUsersDetails | Sort-Object Risk -Descending | select-object UPN,UPNlink,Enabled,UserType,Agent,ForeignAgent,OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,CatalogRBAC,@{Name = "APTarget"; Expression = { $_.AccessPackages }},AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
     
     # Apply result limit for the main table
     if ($LimitResults -and $LimitResults -gt 0) {
@@ -1519,6 +1930,14 @@ function Write-EntraFalconUsersReport {
     # Get the total count of group memberships. If this is to high the amount groups in the HTML report will be limited
     $TotalMemberGroups = $($AllUsersDetails.UserMemberGroups).count
     Write-Log -Level Debug -Message "Total transitive group memberships across all users: $TotalMemberGroups"
+    $ShowMemberGroupCatalogRbac = @($AllUsersDetails | Where-Object {
+        $_.PSObject.Properties['CatalogRbacAssessmentAvailable'] -and [bool]$_.CatalogRbacAssessmentAvailable
+    }).Count -gt 0
+    if (-not $ShowMemberGroupCatalogRbac) {
+        $ShowMemberGroupCatalogRbac = @($AllGroupsDetails.Values | Where-Object {
+            $_.PSObject.Properties['CatalogRBAC'] -and [string]$_.CatalogRBAC -ne '-' -and [double]$_.CatalogRBAC -gt 0
+        }).Count -gt 0
+    }
     if ($TotalMemberGroups -ge 50000) {
         $LimitGroupMembers = $true
         $WarningReport.Add("GroupMembership: Only 10 groups are displayed to ensure HTML performance.")
@@ -1561,6 +1980,24 @@ function Write-EntraFalconUsersReport {
         $ReportingAdminUnits = @()
         $ReportingAppRoles = @()
         $ReportingAccessPackageSpecificTargets = [System.Collections.Generic.List[object]]::new()
+        $ReportingCatalogRbac = @($item.CatalogRbacDetails | ForEach-Object {
+            $assignmentSourceText = [string]$_.AssignmentSource
+            $assignedVia = if ($assignmentSourceText -eq 'Direct') {
+                'Direct'
+            } elseif ($assignmentSourceText -eq 'Direct and Group' -or $assignmentSourceText -match '(?i)(^|,\s*)Direct($|,\s*)') {
+                'Direct and Group'
+            } else {
+                'Group'
+            }
+            [pscustomobject]@{
+                Catalog = "<a href=Catalogs_$($StartTimestamp)_$($EscapedTenantName).html#$($_.CatalogId)>$(ConvertTo-EntraFalconHtmlText $_.Catalog -DefaultValue '-')</a>"
+                Role = $_.Role
+                'Assigned Via' = $assignedVia
+                CatalogResources = if ($_.PSObject.Properties['CatalogResources']) { $_.CatalogResources } else { '-' }
+                AccessPackages = if ($_.PSObject.Properties['AccessPackages']) { $_.AccessPackages } else { '-' }
+                Warnings = if ($_.PSObject.Properties['Warnings']) { $_.Warnings } else { '' }
+            }
+        })
         $ReportingMemberGroup = [System.Collections.Generic.List[object]]::new()
         $ReportingAzureRoles = @()
 
@@ -1646,6 +2083,22 @@ function Write-EntraFalconUsersReport {
             [void]$DetailTxtBuilder.AppendLine("Last interactive log-in attempt: $lastInteractive")
             [void]$DetailTxtBuilder.AppendLine("Last non-interactive log-in: $lastNonInteractive")
             [void]$DetailTxtBuilder.AppendLine()
+        }
+
+        if ($ReportingCatalogRbac.Count -gt 0) {
+            [void]$DetailTxtBuilder.AppendLine("-----------------------------------------------------------------")
+            [void]$DetailTxtBuilder.AppendLine("Identity Governance RBAC Assignments")
+            [void]$DetailTxtBuilder.AppendLine("-----------------------------------------------------------------")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingCatalogRbac | ForEach-Object {
+                [pscustomobject]@{
+                    Catalog = ([string]$_.Catalog -replace '<[^>]+>','')
+                    Role = $_.Role
+                    'Assigned Via' = $_.'Assigned Via'
+                    CatalogResources = $_.CatalogResources
+                    AccessPackages = $_.AccessPackages
+                    Warnings = $_.Warnings
+                }
+            } | Format-Table | Out-String -Width 512))
         }
 
         
@@ -2107,17 +2560,25 @@ function Write-EntraFalconUsersReport {
                     "Impact" = $object.Impact
                     "Warnings" = $warnings
                 }
+                if ($ShowMemberGroupCatalogRbac) {
+                    $catalogRbacValue = if ($MatchingGroup.PSObject.Properties['CatalogRBAC'] -and $null -ne $MatchingGroup.CatalogRBAC) { $MatchingGroup.CatalogRBAC } else { 0 }
+                    $obj | Add-Member -NotePropertyName CatalogRBAC -NotePropertyValue $catalogRbacValue
+                }
                 [void]$MatchingGroupRaw.Add($obj)
             }
 
+            $memberGroupTextProperties = @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "IntuneRoles")
+            if ($ShowMemberGroupCatalogRbac) { $memberGroupTextProperties += "CatalogRBAC" }
+            $memberGroupTextProperties += @("CAPs", "APTarget", "Users", "Impact", "Warnings")
+            $memberGroupColumnWidths = @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; IntuneRoles = 12; CatalogRBAC = 11; CAPs = 4; APTarget = 8; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
             $formattedText = Format-ReportSection -Title "Member of Groups" `
             -Objects $MatchingGroupRaw `
-            -Properties @("AssignmentType", "Displayname", "Type", "OnPrem", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "AppRoles", "IntuneRoles", "CAPs", "APTarget", "Users", "Impact", "Warnings") `
-            -ColumnWidths @{ AssignmentType = 15; Displayname = [Math]::Min($maxDisplayNameLength, 60); Type = 15; OnPrem = 7; EntraRoles = 10; EntraMaxTier = 11; AzureRoles = 10; AzureMaxTier = 11; AppRoles = 8; IntuneRoles = 12; CAPs = 4; APTarget = 8; Users = 5; Impact = 6; Warnings = [Math]::Min($maxWarningsLength, 60) }
+            -Properties $memberGroupTextProperties `
+            -ColumnWidths $memberGroupColumnWidths
             [void]$DetailTxtBuilder.AppendLine($formattedText)
         
             foreach ($obj in $MatchingGroupRaw) {
-                $ReportingMemberGroup.Add([pscustomobject]@{
+                $memberGroupRow = [pscustomobject]@{
                     AssignmentType          = $obj.AssignmentType
                     DisplayName             = $obj.DisplayNameLink
                     Type                    = $obj.Type
@@ -2128,12 +2589,16 @@ function Write-EntraFalconUsersReport {
                     AzureMaxTier            = $obj.AzureMaxTier
                     AppRoles                = $obj.AppRoles
                     IntuneRoles             = $obj.IntuneRoles
-                    CAPs                    = $obj.CAPs
-                    APTarget                = $obj.APTarget
-                    Users                   = $obj.Users
-                    Impact                  = $obj.Impact
-                    Warnings                = $obj.Warnings
-                })
+                }
+                if ($ShowMemberGroupCatalogRbac) {
+                    $memberGroupRow | Add-Member -NotePropertyName CatalogRBAC -NotePropertyValue $obj.CatalogRBAC
+                }
+                $memberGroupRow | Add-Member -NotePropertyName CAPs -NotePropertyValue $obj.CAPs
+                $memberGroupRow | Add-Member -NotePropertyName APTarget -NotePropertyValue $obj.APTarget
+                $memberGroupRow | Add-Member -NotePropertyName Users -NotePropertyValue $obj.Users
+                $memberGroupRow | Add-Member -NotePropertyName Impact -NotePropertyValue $obj.Impact
+                $memberGroupRow | Add-Member -NotePropertyName Warnings -NotePropertyValue $obj.Warnings
+                $ReportingMemberGroup.Add($memberGroupRow)
 
             }
         }
@@ -2173,6 +2638,7 @@ function Write-EntraFalconUsersReport {
             "Administrative Units" = $ReportingAdminUnits
             "Directly Assigned AppRoles" = $ReportingAppRoles
             "Access Package Policy Targets" = $ReportingAccessPackageSpecificTargets
+            "Identity Governance RBAC Assignments" = $ReportingCatalogRbac
             "Member of Groups (Transitive)" = $ReportingMemberGroup
             "Azure IAM assignments" = $ReportingAzureRoles
         }
@@ -2232,7 +2698,7 @@ Execution Warnings = $($WarningReport  -join ' / ')
     write-host "[+] Writing log files"
     write-host ""
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "UPN"; Expression = { $_.UPNlink}},Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "UPN"; Expression = { $_.UPNlink}},Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,CatalogRBAC,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -2256,9 +2722,9 @@ $headerHtml = @"
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Csv) {
-        $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
+        $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,CatalogRBAC,APTarget,AppRegOwn,BlueprintOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation
     }
-    $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,APTarget,AppRegOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | format-table | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+    $tableOutput | select-object UPN,Enabled,UserType,Agent,@{Name = "ForeignAgent"; Expression = { if ($null -eq $_.ForeignAgent -or [string]::IsNullOrWhiteSpace([string]$_.ForeignAgent)) { "-" } else { $_.ForeignAgent } }},OnPrem,Licenses,LicenseStatus,Protected,GrpMem,GrpOwn,AuUnits,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AppRoles,IntuneRoles,CatalogRBAC,APTarget,AppRegOwn,SPOwn,DeviceOwn,DeviceReg,Inactive,LastSignInDays,CreatedDays,MfaCap,PerUserMfa,Impact,Likelihood,Risk,Warnings | format-table | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     $DetailOutputTxt | Out-File -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
 
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
@@ -2351,3 +2817,5 @@ $headerHtml = @"
     Write-Log -Level Debug -Message ("Total Script Time:    {0:N2} s" -f $PmScript.Elapsed.TotalSeconds)
 
 }
+
+Export-ModuleMember -Function Invoke-CheckUsers,Add-EntraFalconUserWarningText,Get-EntraFalconCatalogObjectValue,ConvertTo-EntraFalconCatalogDateTimeOffset,Test-EntraFalconActiveAccessPackageAssignment,Update-EntraFalconUserCatalogRbacImpact,Update-EntraFalconUserBlueprintOwnershipImpact,Write-EntraFalconUsersReport

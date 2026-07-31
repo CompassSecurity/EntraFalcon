@@ -1319,6 +1319,17 @@ Execution Warnings = $($WarningList -join ' / ')
     $AgentIdentityItems = @($AgentIdentities.Values | Sort-Object Risk -Descending)
     foreach ($item in $AgentIdentityItems) {
         $parentBlueprintPrincipalLink = if ($item.ParentBlueprintPrincipalId) { "<a href=AgentIdentityBlueprintsPrincipals_$($StartTimestamp)_$EscapedTenantName.html#$($item.ParentBlueprintPrincipalId)>$($item.ParentBlueprintPrincipalDisplayName)</a>" } else { "-" }
+        $catalogRbacDetails = if ($item.PSObject.Properties['CatalogRbacDetails']) { @($item.CatalogRbacDetails) } else { @() }
+        $ReportingCatalogRbac = @(
+            foreach ($assignment in $catalogRbacDetails) {
+                [pscustomobject]@{
+                    Catalog = "<a href=Catalogs_$($StartTimestamp)_$EscapedTenantName.html#$($assignment.CatalogId)>$(ConvertTo-EntraFalconHtmlText $assignment.Catalog -DefaultValue '-')</a>"
+                    Role = $assignment.Role
+                    AssignedVia = $assignment.AssignedVia
+                    CatalogEnabled = $assignment.CatalogEnabled
+                }
+            }
+        )
         $lastSignInOverall = if ($item.AppsignInData.lastSignIn -and $item.AppsignInData.lastSignIn -ne "-") { "$($item.AppsignInData.lastSignIn) ($($item.AppsignInData.lastSignInDays) days ago)" } else { "-" }
         $lastSignInAppClient = if ($item.AppsignInData.lastSignInAppAsClient -and $item.AppsignInData.lastSignInAppAsClient -ne "-") { "$($item.AppsignInData.lastSignInAppAsClient) ($($item.AppsignInData.lastSignInAppAsClientDays) days ago)" } else { "-" }
         $lastSignInAppResource = if ($item.AppsignInData.lastSignInAppAsResource -and $item.AppsignInData.lastSignInAppAsResource -ne "-") { "$($item.AppsignInData.lastSignInAppAsResource) ($($item.AppsignInData.lastSignInAppAsResourceDays) days ago)" } else { "-" }
@@ -1510,6 +1521,20 @@ Execution Warnings = $($WarningList -join ' / ')
             [void]$AgentIdentityTxt.AppendLine("Child Agent Users")
             [void]$AgentIdentityTxt.AppendLine(($item.AgentUsersDetails | Format-Table UPN,Enabled,Impact,Warnings | Out-String))
         }
+        if (($ReportingCatalogRbac | Measure-Object).Count -ge 1) {
+            $ReportingCatalogRbacTxt = @(
+                foreach ($assignment in $ReportingCatalogRbac) {
+                    [pscustomobject]@{
+                        Catalog = ConvertTo-AgentReportPlainText $assignment.Catalog
+                        Role = $assignment.Role
+                        AssignedVia = $assignment.AssignedVia
+                        CatalogEnabled = $assignment.CatalogEnabled
+                    }
+                }
+            )
+            [void]$AgentIdentityTxt.AppendLine("Identity Governance RBAC Assignments")
+            [void]$AgentIdentityTxt.AppendLine(($ReportingCatalogRbacTxt | Format-Table Catalog,Role,AssignedVia,CatalogEnabled | Out-String))
+        }
         if (($ReportingEffectiveAppPermissions | Measure-Object).Count -ge 1) {
             [void]$AgentIdentityTxt.AppendLine("Effective Application API Permissions")
             [void]$AgentIdentityTxt.AppendLine(($ReportingEffectiveAppPermissions | Format-Table -Wrap | Out-String -Width 320))
@@ -1581,6 +1606,7 @@ Execution Warnings = $($WarningList -join ' / ')
                     }
                 }
             )
+            "Identity Governance RBAC Assignments" = $ReportingCatalogRbac
             "Effective Application API Permissions"  = $ReportingEffectiveAppPermissions
             "Effective Delegated API Permissions"    = $ReportingEffectiveDelegatedPermissions
         })
@@ -1613,7 +1639,7 @@ Appendix: Used API Permission Reference
     $GlobalAuditSummary.AgentIdentities.ApiCategorization.Misc = @($AgentIdentityItems | Where-Object { $_.ApiMisc -gt 0 }).Count
 
     if ($AgentIdentityItems.Count -gt 0) {
-        New-ReportFileSet -Title "AgentIdentities" -ReportKey "AgentIdentities" -ReportName "Agent Identities Enumeration (BETA)" -HtmlTitle "EF - Agent Identities" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $AgentIdentityItems -MainTable ($AgentIdentityItems | Select-Object @{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},AppRoleRequired,PublisherName,DefaultMS,Foreign,Enabled,Inactive,LastSignInDays,CreationInDays,AgentUsers,Owners,Sponsors,AppRoles,GrpMem,GrpOwn,AppOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous,ApiHigh,ApiMedium,ApiLow,ApiMisc,ApiDelegated,ApiDelegatedDangerous,ApiDelegatedHigh,ApiDelegatedMedium,ApiDelegatedLow,ApiDelegatedMisc,Impact,Likelihood,Risk,Warnings) -AllObjectDetailsHTML $AgentIdentityDetails -Data $AgentIdentityItems -DetailOutputTxt $AgentIdentityTxt.ToString() -TxtColumns @('DisplayName','AppRoleRequired','PublisherName','DefaultMS','Foreign','Enabled','Inactive','LastSignInDays','CreationInDays','AgentUsers','Owners','Sponsors','AppRoles','GrpMem','GrpOwn','AppOwn','SpOwn','EntraRoles','EntraMaxTier','AzureRoles','AzureMaxTier','ApiDangerous','ApiHigh','ApiMedium','ApiLow','ApiMisc','ApiDelegated','ApiDelegatedDangerous','ApiDelegatedHigh','ApiDelegatedMedium','ApiDelegatedLow','ApiDelegatedMisc','Impact','Likelihood','Risk','Warnings') -WarningList $AgentIdentityWarnings -AppendixTxt $AgentIdentityAppendixTxt -AppendixHtml $AgentIdentityAppendixHtml -Csv:$Csv -ExportDataJson:$ExportDataJson
+        New-ReportFileSet -Title "AgentIdentities" -ReportKey "AgentIdentities" -ReportName "Agent Identities Enumeration (BETA)" -HtmlTitle "EF - Agent Identities" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $AgentIdentityItems -MainTable ($AgentIdentityItems | Select-Object @{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},AppRoleRequired,PublisherName,DefaultMS,Foreign,Enabled,Inactive,LastSignInDays,CreationInDays,AgentUsers,Owners,Sponsors,AppRoles,GrpMem,GrpOwn,AppOwn,SpOwn,CatalogRBAC,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous,ApiHigh,ApiMedium,ApiLow,ApiMisc,ApiDelegated,ApiDelegatedDangerous,ApiDelegatedHigh,ApiDelegatedMedium,ApiDelegatedLow,ApiDelegatedMisc,Impact,Likelihood,Risk,Warnings) -AllObjectDetailsHTML $AgentIdentityDetails -Data $AgentIdentityItems -DetailOutputTxt $AgentIdentityTxt.ToString() -TxtColumns @('DisplayName','AppRoleRequired','PublisherName','DefaultMS','Foreign','Enabled','Inactive','LastSignInDays','CreationInDays','AgentUsers','Owners','Sponsors','AppRoles','GrpMem','GrpOwn','AppOwn','SpOwn','CatalogRBAC','EntraRoles','EntraMaxTier','AzureRoles','AzureMaxTier','ApiDangerous','ApiHigh','ApiMedium','ApiLow','ApiMisc','ApiDelegated','ApiDelegatedDangerous','ApiDelegatedHigh','ApiDelegatedMedium','ApiDelegatedLow','ApiDelegatedMisc','Impact','Likelihood','Risk','Warnings') -WarningList $AgentIdentityWarnings -AppendixTxt $AgentIdentityAppendixTxt -AppendixHtml $AgentIdentityAppendixHtml -Csv:$Csv -ExportDataJson:$ExportDataJson
     } else {
         Write-Host "[*] No agent identities found. Skipping Agent Identities report output."
     }

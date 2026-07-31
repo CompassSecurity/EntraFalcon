@@ -35,9 +35,9 @@ Findings are presented in interactive HTML reports to support efficient explorat
     - Enterprise Applications
     - App Registrations
     - Managed Identities
-    - Agent identities (BETA)
-    - Agent identity blueprint principals (BETA)
-    - Agent identity blueprints (BETA)
+    - Agent identities
+    - Agent identity blueprint principals
+    - Agent identity blueprints
     - PIM assignments:
         - PIM for Entra Roles
         - PIM for Groups
@@ -46,6 +46,8 @@ Findings are presented in interactive HTML reports to support efficient explorat
     - Azure Role Assignments
     - Intune RBAC Assignments
     - Access Packages
+    - Entitlement Management Catalogs
+    - Catalog RBAC
     - Conditional Access Policies
     - Administrative Units
     - PIM settings:
@@ -95,13 +97,13 @@ For normal assessments, use one of the full-coverage flows:
 <details>
 <summary>Fallback Authentication Flows</summary>
 
-Due to the lack of pre-consented first-party applications, the fallback flows cannot perform the full enumeration (`PIM for Groups`, `Access Packages`). Therefore, they currently remain fallback options only.
+Due to the lack of pre-consented first-party applications, the fallback flows cannot perform the full enumeration (`PIM for Groups`, `Access Packages`, `Catalogs`). Therefore, they currently remain fallback options only.
 
 | Flow | Use Only When | Platform | Limitations |
 |-|-|-|-|
-| `AuthCode` | Legacy compatibility is required | Windows | Partial coverage. No standalone `PIM for Groups` or `Access Packages` report. |
-| `DeviceCode` | Browser-based authentication is not possible | Windows, Linux, macOS | Partial coverage. No standalone `PIM for Groups` or `Access Packages` report. Some Security Findings checks run with reduced depth. |
-| `ManualCode` | Authentication must be completed through a separate browser session | Windows, Linux, macOS | Partial coverage. No standalone `PIM for Groups` or `Access Packages` report. |
+| `AuthCode` | Legacy compatibility is required | Windows | Partial coverage. No standalone `PIM for Groups`, `Access Packages`, or `Catalogs` report. |
+| `DeviceCode` | Browser-based authentication is not possible | Windows, Linux, macOS | Partial coverage. No standalone `PIM for Groups`, `Access Packages`, or `Catalogs` report. Some Security Findings checks run with reduced depth. |
+| `ManualCode` | Authentication must be completed through a separate browser session | Windows, Linux, macOS | Partial coverage. No standalone `PIM for Groups`, `Access Packages`, or `Catalogs` report. |
 
 </details>
 
@@ -698,6 +700,12 @@ The following table roughly summarizes the checks performed, along with their im
 |AccessPackages|Self-request through unprotected group targets|Yes|Yes|
 |AccessPackages|Broad non-user on-behalf assignment without approval|Yes|No|
 |AccessPackages|Service principal assignments|Yes|No|
+|Catalogs|Catalog metadata, state, and external visibility|No|No|
+|Catalogs|Catalog resources|No|No|
+|Catalogs|Resources configurable in new Access Packages|Yes|No|
+|Catalogs|Resources and roles configured in existing Access Packages|Yes|No|
+|Catalogs|Unconfigured catalog resources|Yes|No|
+|Catalogs|Catalog RBAC assignments|Yes|Yes|
 |CAP|No or misconfigured policy for legacy authentication|-|Yes|
 |CAP|No or misconfigured policy for blocking device code flow|-|Yes|
 |CAP|No or misconfigured policy for limiting the registrations of security information|-|Yes|

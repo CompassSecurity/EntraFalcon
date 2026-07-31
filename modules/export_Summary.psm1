@@ -541,6 +541,13 @@ return @"
     }
 
     ############################## Script section ########################
+    if ($GlobalAuditSummary -is [System.Collections.IDictionary]) {
+        if (-not $GlobalAuditSummary.Contains('Catalogs')) {
+            $GlobalAuditSummary['Catalogs'] = @{ Count = 0; CatalogResources = 0; RbacAssignments = 0 }
+        }
+    } elseif ($GlobalAuditSummary.PSObject.Properties.Name -notcontains 'Catalogs') {
+        $GlobalAuditSummary | Add-Member -NotePropertyName Catalogs -NotePropertyValue ([pscustomobject]@{ Count = 0; CatalogResources = 0; RbacAssignments = 0 })
+    }
 
     #Define basic variables
     $Title = "EntraFalcon Enumeration Summary"
@@ -669,6 +676,7 @@ return @"
             "Conditional Access Policies" = $($GlobalAuditSummary.ConditionalAccess.Count)
             "Access Packages"             = $($GlobalAuditSummary.AccessPackages.Count)
             "Access Package Policies"     = $($GlobalAuditSummary.AccessPackages.Policies)
+            "Catalog RBAC Assignments"     = $($GlobalAuditSummary.Catalogs.RbacAssignments)
             "Domains"                     = @($TenantDomains).Count
             "PIM Settings"                = $($GlobalAuditSummary.PimSettings.Count)
             "Security Findings"           = $securityFindingsSummary.Vulnerable
@@ -1850,6 +1858,7 @@ Enumeration Results:
     - Entra Role Assignments:      $($GlobalAuditSummary.EntraRoleAssignments.Count) ($($GlobalAuditSummary.EntraRoleAssignments.Eligible) Eligible)
     - Azure Role Assignments:      $($GlobalAuditSummary.AzureRoleAssignments.Count) ($($GlobalAuditSummary.AzureRoleAssignments.Eligible) Eligible)
     - Access Packages:             $($GlobalAuditSummary.AccessPackages.Count) ($($GlobalAuditSummary.AccessPackages.Policies) Policies)
+    - Catalog RBAC Assignments:    $($GlobalAuditSummary.Catalogs.RbacAssignments)
     - PIM Settings:                $($GlobalAuditSummary.PimSettings.Count)
     - Findings:                    $findingsStatusLine
 "@
@@ -2010,9 +2019,13 @@ Enumeration Results:
             accessPackages                    = [ordered]@{
                 count                       = $GlobalAuditSummary.AccessPackages.Count
                 policies                    = $GlobalAuditSummary.AccessPackages.Policies
-                assignments                 = $GlobalAuditSummary.AccessPackages.Assignments
+                activeAssignments           = $GlobalAuditSummary.AccessPackages.ActiveAssignments
+                expiredAssignments          = $GlobalAuditSummary.AccessPackages.ExpiredAssignments
                 servicePrincipalAssignments = $GlobalAuditSummary.AccessPackages.ServicePrincipalAssignments
                 highImpact                  = $GlobalAuditSummary.AccessPackages.HighImpact
+            }
+            catalogs                          = [ordered]@{
+                rbacAssignments = $GlobalAuditSummary.Catalogs.RbacAssignments
             }
             pimSettings                       = [ordered]@{
                 count = $GlobalAuditSummary.PimSettings.Count

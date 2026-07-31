@@ -186,7 +186,7 @@ Param (
 )
 
 #Constants
-$EntraFalconVersion = "V20260714_PRE"
+$EntraFalconVersion = "V20260731_PRE"
 
 # Import shared functions
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -201,6 +201,7 @@ Import-Module (Join-Path $ScriptRoot 'modules\check_ManagedIdentities.psm1') -Fo
 Import-Module (Join-Path $ScriptRoot 'modules\check_Roles.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_CAPs.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\check_AccessPackages.psm1') -Force
+Import-Module (Join-Path $ScriptRoot 'modules\check_Catalogs.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphBatchRequest.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphRequest.psm1') -Force
 Import-Module (Join-Path $ScriptRoot 'modules\export_Summary.psm1') -Force
@@ -363,11 +364,16 @@ if (-not (Test-Path -Path $OutputFolder)) {
 }
 
 $RawAccessPackages = Get-AccessPackagesRawData -AuthFlow $AuthFlow -ApiTop $ApiTop
+$RawCatalogs = Get-CatalogsRawData -AuthFlow $AuthFlow -ApiTop $ApiTop
+$CatalogRbacPrincipalIndex = New-CatalogRbacPrincipalIndex -RawCatalogs $RawCatalogs
+Write-Log -Level Debug -Message ("[Catalogs] Collection summary: Catalogs=$(@($RawCatalogs.Catalogs).Count), Resources=$(@($RawCatalogs.ResourcesByCatalog.Values | ForEach-Object { @($_) }).Count), RBACAssignments=$(@($RawCatalogs.RoleAssignments).Count), ResourcesAvailable=$([bool]$RawCatalogs.ResourcesAvailable), RbacAvailable=$([bool]$RawCatalogs.RbacAvailable), Warnings=$(@($RawCatalogs.Warnings).Count)")
 $AccessPackageGroupSpecificTargetIndex = @{}
 $AccessPackageUserSpecificTargetIndex = @{}
+$AccessPackageAutoAssignmentPolicyIndex = @{}
 if ($RawAccessPackages.IsAvailable -and -not $RawAccessPackages.IsSkipped) {
     $AccessPackageGroupSpecificTargetIndex = New-AccessPackageGroupSpecificTargetIndex -RawAccessPackages $RawAccessPackages
     $AccessPackageUserSpecificTargetIndex = New-AccessPackageUserSpecificTargetIndex -RawAccessPackages $RawAccessPackages
+    $AccessPackageAutoAssignmentPolicyIndex = New-AccessPackageAutoAssignmentPolicyIndex -RawAccessPackages $RawAccessPackages
 }
 
 $AdminUnitWithMembers = Get-AdministrativeUnitsWithMembers
@@ -448,6 +454,7 @@ $TenantReports = [pscustomobject]@{
     AgentIdentityBlueprintsPrincipals = $false
     AgentIdentityBlueprints   = $false
     AccessPackages            = $false
+    Catalogs                  = $false
     ConditionalAccessPolicies = $false
     EntraRoles                = $true
     AzureRoles                = $false
@@ -469,6 +476,7 @@ $TenantReports.ConditionalAccessPolicies = ($null -ne $Caps -and $Caps.Count -gt
 $TenantReports.PimForEntra               = ($null -ne $TenantPimRoleAssignments -and $TenantPimRoleAssignments.Count -gt 0)
 $TenantReports.PimForGroups              = ($GLOBALPimForGroupsChecked -and $GLOBALPimForGroupsPolicySettingsSupported -and $null -ne $GLOBALPimForGroupsResources -and @($GLOBALPimForGroupsResources).Count -gt 0)
 $TenantReports.AccessPackages            = ($RawAccessPackages.IsAvailable -and $null -ne $RawAccessPackages.Packages -and @($RawAccessPackages.Packages).Count -gt 0)
+$TenantReports.Catalogs                  = ($RawCatalogs.IsAvailable -and $null -ne $RawCatalogs.Catalogs -and @($RawCatalogs.Catalogs).Count -gt 0)
 $TenantReports.AzureRoles                = ($null -ne $AzureIAMAssignments -and $AzureIAMAssignments.Count -gt 0)
 $TenantReports.Groups           = $ReportsBasedOnObjects.Groups
 $TenantReports.AppRegistrations = $ReportsBasedOnObjects.AppRegistrations
@@ -489,47 +497,104 @@ Write-Log -Level Debug -Message ("Reports:{0}" -f $TenantReportsText)
 $ServicePrincipalSignInActivityLookup = Get-ServicePrincipalSignInActivityLookup -ApiTop $ApiTop
 
 # Main enumeration
-write-host "`n********************************** [1/17] Enumerating Groups **********************************"
-$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex @optionalParamsUserandGroup @optionalParamsOutput
+write-host "`n********************************** [1/18] Enumerating Groups **********************************"
+$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex -AccessPackageAutoAssignmentPolicyIndex $AccessPackageAutoAssignmentPolicyIndex -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable ([bool]$RawCatalogs.RbacAvailable) @optionalParamsUserandGroup @optionalParamsOutput
 
-write-host "`n********************************** [2/17] Enumerating Enterprise Apps **********************************"
+write-host "`n********************************** [2/18] Enumerating Enterprise Apps **********************************"
 $AppRoleReferenceCache = @{}
-$EnterpriseApps = Invoke-CheckEnterpriseApps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup -AppRoleReferenceCacheOut ([ref]$AppRoleReferenceCache) @optionalParamsET @optionalParamsOutput
+$EnterpriseApps = Invoke-CheckEnterpriseApps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup -AppRoleReferenceCacheOut ([ref]$AppRoleReferenceCache) -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable ([bool]$RawCatalogs.RbacAvailable) @optionalParamsET @optionalParamsOutput
 
-write-host "`n********************************** [3/17] Enumerating Managed Identities **********************************"
-$ManagedIdentities = Invoke-CheckManagedIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AgentObjectBasics $AgentObjectBasics -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -ApiTop $ApiTop @optionalParamsOutput
+write-host "`n********************************** [3/18] Enumerating Managed Identities **********************************"
+$ManagedIdentities = Invoke-CheckManagedIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AgentObjectBasics $AgentObjectBasics -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -ApiTop $ApiTop -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable ([bool]$RawCatalogs.RbacAvailable) @optionalParamsOutput
 
-write-host "`n********************************** [4/17] Enumerating App Registrations **********************************"
+write-host "`n********************************** [4/18] Enumerating App Registrations **********************************"
 $AppRegistrations = Invoke-CheckAppRegistrations -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AgentObjectBasics $AgentObjectBasics -TenantRoleAssignments $TenantRoleAssignments -OutputFolder $OutputFolder @optionalParamsOutput
 
-write-host "`n********************************** [5/17] Enumerating Agent Identities **********************************"
-$AgentIdentities = Invoke-AgentIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -AllUsersBasicHT $AllUsersBasicHT -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup @optionalParamsET
+write-host "`n********************************** [5/18] Enumerating Agent Identities **********************************"
+$AgentIdentities = Invoke-AgentIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -AllUsersBasicHT $AllUsersBasicHT -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable ([bool]$RawCatalogs.RbacAvailable) @optionalParamsET
 
-write-host "`n********************************** [6/17] Enumerating Agent Identity Blueprint Principals **********************************"
+write-host "`n********************************** [6/18] Enumerating Agent Identity Blueprint Principals **********************************"
 $AgentIdentityBlueprintsPrincipals = Invoke-AgentIdentityBlueprintsPrincipals -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -AgentIdentities $AgentIdentities -AllUsersBasicHT $AllUsersBasicHT -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup @optionalParamsET
 
-write-host "`n********************************** [7/17] Enumerating Agent Identity Blueprints **********************************"
+write-host "`n********************************** [7/18] Enumerating Agent Identity Blueprints **********************************"
 $AgentIdentityBlueprints = Invoke-AgentIdentityBlueprints -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AppRoleReferenceCache $AppRoleReferenceCache -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals
 
-write-host "`n********************************** [8/17] Enumerating Users **********************************"
+write-host "`n********************************** [8/18] Enumerating Users **********************************"
 $UserReportState = $null
-$Users = Invoke-CheckUsers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -UserAuthMethodsTable $UserAuthMethodsTable -Devices $Devices -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -ApiTop $ApiTop -AccessPackageUserSpecificTargetIndex $AccessPackageUserSpecificTargetIndex -ReportStateOut ([ref]$UserReportState) @optionalParamsUserandGroup @optionalParamsOutput
+$Users = Invoke-CheckUsers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -UserAuthMethodsTable $UserAuthMethodsTable -Devices $Devices -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -ApiTop $ApiTop -AccessPackageUserSpecificTargetIndex $AccessPackageUserSpecificTargetIndex -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable ([bool]$RawCatalogs.RbacAvailable) -ReportStateOut ([ref]$UserReportState) @optionalParamsUserandGroup @optionalParamsOutput
 
-write-host "`n********************************** [9/17] Finalizing Agent Objects **********************************"
+write-host "`n********************************** [9/18] Finalizing Agent Objects **********************************"
 Invoke-CheckAgentsFinalize -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -Users $Users -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -AgentIdentityBlueprints $AgentIdentityBlueprints @optionalParamsOutput
 
-write-host "`n********************************** [10/17] Finalizing Users Report **********************************"
+write-host "`n********************************** [10/18] Enumerating Access Packages **********************************"
+if ($TenantReports.AccessPackages) {
+    $AccessPackages = Invoke-CheckAccessPackages -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -RawAccessPackages $RawAccessPackages -AllUsersBasicHT $AllUsersBasicHT -AllGroupsDetails $AllGroupsDetails -TenantRoleAssignments $TenantRoleAssignments -AppRoleReferenceCache $AppRoleReferenceCache -EnterpriseApps $EnterpriseApps -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals @optionalParamsOutput
+} else {
+    if ($RawAccessPackages.Warnings) {
+        foreach ($accessPackageWarning in @($RawAccessPackages.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$accessPackageWarning)) {
+                Write-Host "[!] $accessPackageWarning"
+            }
+        }
+    } else {
+        Write-Host "[*] No Access Packages found. Skipping Access Packages report..."
+    }
+    $AccessPackages = @{}
+}
+
+write-host "`n********************************** [11/18] Enumerating Catalogs **********************************"
+$CatalogAssessment = $null
+if ($TenantReports.Catalogs) {
+    $Catalogs = Invoke-CheckCatalogs -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -RawCatalogs $RawCatalogs -RawAccessPackages $RawAccessPackages -AllUsersBasicHT $AllUsersBasicHT -AllGroupsDetails $AllGroupsDetails -EnterpriseApps $EnterpriseApps -AppRoleReferenceCache $AppRoleReferenceCache -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -AssessmentOut ([ref]$CatalogAssessment) @optionalParamsOutput
+    $catalogResourceCount = (@($Catalogs) | Measure-Object -Property CatalogResources -Sum).Sum
+    $configuredResourceCount = (@($Catalogs) | Measure-Object -Property ConfiguredResources -Sum).Sum
+    $unconfiguredResourceCount = (@($Catalogs) | Measure-Object -Property UnconfiguredResources -Sum).Sum
+    $highImpactEntryCount = (@($Catalogs) | Measure-Object -Property HighImpactEntries -Sum).Sum
+    Write-Log -Level Debug -Message ("[Catalogs] Assessment summary: Status=$($CatalogAssessment.Status), CatalogsProcessed=$(@($Catalogs).Count), CatalogResources=$catalogResourceCount, ConfiguredResources=$configuredResourceCount, UnconfiguredResources=$unconfiguredResourceCount, HighImpactEntries=$highImpactEntryCount, Warnings=$(@($CatalogAssessment.Warnings).Count)")
+} else {
+    foreach ($catalogWarning in @($RawCatalogs.Warnings)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$catalogWarning)) { Write-Host "[!] $catalogWarning" }
+    }
+    if (-not $RawCatalogs.Warnings) { Write-Host "[*] No Entitlement Management catalogs found. Skipping Catalogs report..." }
+    $Catalogs = @()
+    $catalogDataAvailable = if ($RawCatalogs.PSObject.Properties['IsAvailable']) { [bool]$RawCatalogs.IsAvailable } else { $true }
+    $accessPackageDataAvailable = if ($RawAccessPackages -and $RawAccessPackages.PSObject.Properties['IsAvailable']) {
+        $rawAccessPackagesAvailable = [bool]$RawAccessPackages.IsAvailable -and -not [bool]$RawAccessPackages.IsSkipped
+        $rawAccessPackagesAvailable -and (-not $RawAccessPackages.PSObject.Properties['ResourceRoleScopesAvailable'] -or [bool]$RawAccessPackages.ResourceRoleScopesAvailable)
+    } else {
+        $false
+    }
+    $accessPackageAssignmentsAvailable = $accessPackageDataAvailable -and (-not $RawAccessPackages.PSObject.Properties['AssignmentsAvailable'] -or [bool]$RawAccessPackages.AssignmentsAvailable)
+    $catalogResourcesAvailable = if ($RawCatalogs.PSObject.Properties['ResourcesAvailable']) { [bool]$RawCatalogs.ResourcesAvailable } else { $catalogDataAvailable }
+    $CatalogAssessment = [pscustomobject]@{
+        IsAvailable                = $catalogDataAvailable
+        RbacAvailable              = $catalogDataAvailable -and [bool]$RawCatalogs.RbacAvailable
+        ResourcesAvailable         = $catalogResourcesAvailable
+        AccessPackageDataAvailable = $accessPackageDataAvailable
+        AccessPackageAssignmentsAvailable = $accessPackageAssignmentsAvailable
+        UnconfiguredResourceDetailsAvailable = ($catalogDataAvailable -and $catalogResourcesAvailable -and $accessPackageDataAvailable)
+        Status                     = if (-not ($catalogDataAvailable -and [bool]$RawCatalogs.RbacAvailable)) { 'Unavailable' } elseif (-not $accessPackageDataAvailable -or -not $accessPackageAssignmentsAvailable) { 'Partial' } else { 'NoCatalogs' }
+        Warnings                   = @($RawCatalogs.Warnings)
+        CatalogsById               = @{}
+        Assignments                = @()
+    }
+}
+
+Write-Host "[*] Applying effective Catalog RBAC impact to Users"
+Update-EntraFalconUserCatalogRbacImpact -Users $Users -UserReportState $UserReportState -CatalogAssessment $CatalogAssessment -RawAccessPackages $RawAccessPackages -AllGroupsDetails $AllGroupsDetails
+
+write-host "`n********************************** [12/18] Finalizing Users Report **********************************"
 Write-Host "[*] Applying finalized Agent Identity Blueprint ownership impact to Users"
 Update-EntraFalconUserBlueprintOwnershipImpact -Users $Users -AgentIdentityBlueprints $AgentIdentityBlueprints
 Write-EntraFalconUsersReport -UserReportState $UserReportState -Users $Users
 
-write-host "`n********************************** [11/17] Generating Role Assignments **********************************"
+write-host "`n********************************** [13/18] Generating Role Assignments **********************************"
 Invoke-CheckRoles -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -Users $Users -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder @optionalParamsOutput
 
-write-host "`n********************************** [12/17] Enumerating Conditional Access Policies **********************************"
+write-host "`n********************************** [14/18] Enumerating Conditional Access Policies **********************************"
 $AllCaps = Invoke-CheckCaps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AllGroupsDetails $AllGroupsDetails -Users $Users -OutputFolder $OutputFolder -TenantRoleAssignments $TenantRoleAssignments @optionalParamsOutput @optionalParamsCap
 
-write-host "`n********************************** [13/17] Enumerating PIM Role Settings **********************************"
+write-host "`n********************************** [15/18] Enumerating PIM Role Settings **********************************"
 if ($GLOBALPIMForEntraRolesChecked) {
     $PimforEntraRoles = Invoke-CheckPIM -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllGroupsDetails $AllGroupsDetails -Users $Users -TenantRoleAssignments $TenantRoleAssignments -AllCaps $AllCaps @optionalParamsOutput
 } else {
@@ -537,7 +602,7 @@ if ($GLOBALPIMForEntraRolesChecked) {
     $PimforEntraRoles = @{}
 }
 
-write-host "`n********************************** [14/17] Enumerating PIM for Groups Settings **********************************"
+write-host "`n********************************** [16/18] Enumerating PIM for Groups Settings **********************************"
 if ($TenantReports.PimForGroups) {
     $PimforGroups = Invoke-CheckPIMGroups -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -AllGroupsDetails $AllGroupsDetails -AllCaps $AllCaps @optionalParamsOutput
 } else {
@@ -557,27 +622,11 @@ if ($TenantReports.PimForGroups) {
     $PimforGroups = @{}
 }
 
-write-host "`n********************************** [15/17] Enumerating Access Packages **********************************"
-if ($TenantReports.AccessPackages) {
-    $AccessPackages = Invoke-CheckAccessPackages -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -RawAccessPackages $RawAccessPackages -AllUsersBasicHT $AllUsersBasicHT -AllGroupsDetails $AllGroupsDetails -TenantRoleAssignments $TenantRoleAssignments -AppRoleReferenceCache $AppRoleReferenceCache -EnterpriseApps $EnterpriseApps -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals @optionalParamsOutput
-} else {
-    if ($RawAccessPackages.Warnings) {
-        foreach ($accessPackageWarning in @($RawAccessPackages.Warnings)) {
-            if (-not [string]::IsNullOrWhiteSpace([string]$accessPackageWarning)) {
-                Write-Host "[!] $accessPackageWarning"
-            }
-        }
-    } else {
-        Write-Host "[*] No Access Packages found. Skipping Access Packages report..."
-    }
-    $AccessPackages = @{}
-}
-
-write-host "`n********************************** [16/17] Enumerating Security Findings **********************************"
+write-host "`n********************************** [17/18] Enumerating Security Findings **********************************"
 $AccessPackagesAssessmentAvailable = ($RawAccessPackages.IsAvailable -and -not $RawAccessPackages.IsSkipped)
-$SecurityFindings = Invoke-CheckTenant -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -EnterpriseApps $EnterpriseApps -AppRegistrations $AppRegistrations -ManagedIdentities $ManagedIdentities -AllCaps $AllCaps -PimforEntraRoles $PimforEntraRoles -AllGroupsDetails $AllGroupsDetails -Users $Users -Devices $Devices -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -AgentIdentityBlueprints $AgentIdentityBlueprints -AgentIdentities $AgentIdentities -AccessPackages $AccessPackages -AccessPackagesAssessmentAvailable $AccessPackagesAssessmentAvailable
+$SecurityFindings = Invoke-CheckTenant -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -EnterpriseApps $EnterpriseApps -AppRegistrations $AppRegistrations -ManagedIdentities $ManagedIdentities -AllCaps $AllCaps -PimforEntraRoles $PimforEntraRoles -AllGroupsDetails $AllGroupsDetails -Users $Users -Devices $Devices -TenantRoleAssignments $TenantRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -AgentIdentityBlueprints $AgentIdentityBlueprints -AgentIdentities $AgentIdentities -AccessPackages $AccessPackages -AccessPackagesAssessmentAvailable $AccessPackagesAssessmentAvailable -CatalogAssessment $CatalogAssessment
 
-write-host "`n********************************** [17/17] Generating Summary Report **********************************"
+write-host "`n********************************** [18/18] Generating Summary Report **********************************"
 # Show assessment summary and generate summary HTML report
 Export-Summary -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TenantDomains $TenantDomains -Users $Users -EntraFalconVersion $EntraFalconVersion -ExportDataJson:$ExportDataJson
 
@@ -595,6 +644,7 @@ if ($ExportDataJson) {
         PimForEntra                        = $PimforEntraRoles
         PimForGroups                       = $PimforGroups
         AccessPackages                     = $AccessPackages
+        Catalogs                           = $Catalogs
         AgentIdentities                    = $AgentIdentities
         AgentIdentityBlueprints            = $AgentIdentityBlueprints
         AgentIdentityBlueprintsPrincipals  = $AgentIdentityBlueprintsPrincipals
@@ -648,6 +698,9 @@ if ($DebugObjectDump) {
         AgentIdentityBlueprints               = $AgentIdentityBlueprints
         RawAccessPackages                     = $RawAccessPackages
         AccessPackages                        = $AccessPackages
+        RawCatalogs                           = $RawCatalogs
+        Catalogs                              = $Catalogs
+        CatalogAssessment                     = $CatalogAssessment
         SecurityFindings                      = $SecurityFindings
     }
 

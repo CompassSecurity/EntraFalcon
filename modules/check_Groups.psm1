@@ -27,6 +27,9 @@ function Invoke-CheckGroups {
         [Parameter(Mandatory = $true)][int]$ApiTop,
         [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
         [Parameter(Mandatory=$false)][hashtable]$AccessPackageGroupSpecificTargetIndex = @{},
+        [Parameter(Mandatory=$false)][object]$AccessPackageAutoAssignmentPolicyIndex = @{},
+        [Parameter(Mandatory=$false)][hashtable]$CatalogRbacPrincipalIndex = @{},
+        [Parameter(Mandatory=$false)][bool]$CatalogRbacAssessmentAvailable = $false,
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
         [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
@@ -211,6 +214,7 @@ function Invoke-CheckGroups {
     $AllObjectDetailsHTML = [System.Collections.ArrayList]::new()
     $EscapedTenantName = $CurrentTenant.FileSafeDisplayNameEncoded
     if ($null -eq $AccessPackageGroupSpecificTargetIndex) { $AccessPackageGroupSpecificTargetIndex = @{} }
+    if ($null -eq $AccessPackageAutoAssignmentPolicyIndex) { $AccessPackageAutoAssignmentPolicyIndex = @{} }
 
     if (-not $GLOBALGraphExtendedChecks) {$GroupScriptWarningList.Add("Coverage gap: eligible role assignments not assessed; only active assignments are included.")}
     if (-not ($GLOBALIntuneRbacAvailable)) {
@@ -616,6 +620,10 @@ function Invoke-CheckGroups {
     $PmDataCollection.Stop()
     ########################################## SECTION: Group Processing ##########################################
     $PmDataProcessing = [System.Diagnostics.Stopwatch]::StartNew()
+    $AutoAssignmentCorrelationTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    $AutoAssignmentCandidateGroups = 0
+    $AutoAssignmentMatchedGroups = 0
+    $AutoAssignmentAmbiguousGroups = 0
 
     #Calc dynamic update interval
     $StatusUpdateInterval = [Math]::Max([Math]::Floor($GroupsTotalCount / 10), 1)
@@ -1383,6 +1391,39 @@ function Invoke-CheckGroups {
                 [void]$Warnings.Add("Access package self-request without approval")
             }
         }
+        $AccessPackageAutoAssignments = @()
+        $APAutoAssign = $false
+        if ([bool]$group.Dynamic -and [string]$group.DisplayName -like "AutoAssignment_*" -and -not [string]::IsNullOrWhiteSpace([string]$group.MembershipRule)) {
+            $AutoAssignmentCandidateGroups++
+            $ruleKey = ConvertTo-AccessPackageMembershipRuleKey -MembershipRule ([string]$group.MembershipRule)
+            if (-not [string]::IsNullOrWhiteSpace($ruleKey) -and $AccessPackageAutoAssignmentPolicyIndex.ContainsKey($ruleKey)) {
+                $policyCandidates = @($AccessPackageAutoAssignmentPolicyIndex[$ruleKey])
+                if ($policyCandidates.Count -gt 0) {
+                    $APAutoAssign = $true
+                    $matchStatus = if ($policyCandidates.Count -eq 1) { "Matched" } else { "Possible" }
+                    $AccessPackageAutoAssignments = @($policyCandidates | ForEach-Object {
+                        [pscustomobject]@{
+                            PackageId           = [string]$_.PackageId
+                            Package             = [string]$_.Package
+                            PolicyId            = [string]$_.PolicyId
+                            Policy              = [string]$_.Policy
+                            MatchStatus         = $matchStatus
+                            MembershipRule      = [string]$_.MembershipRule
+                            ConfiguredResources = $_.ConfiguredResources
+                            ConfiguredRoles     = $_.ConfiguredRoles
+                        }
+                    })
+                    $AutoAssignmentMatchedGroups++
+                    if ($policyCandidates.Count -gt 1) { $AutoAssignmentAmbiguousGroups++ }
+                    [void]$Warnings.Add("Automatic Access Package assignment group")
+                }
+            }
+        }
+        $CatalogRbacDetails = if ($CatalogRbacPrincipalIndex.ContainsKey([string]$group.Id)) { @($CatalogRbacPrincipalIndex[[string]$group.Id]) } else { @() }
+        $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
+        if (@($CatalogRbacDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Role) -and [string]$_.Role -ne 'Catalog Reader' }).Count -gt 0) {
+            [void]$Warnings.Add("Identity Governance management role assigned")
+        }
 
         #Format warning messages after all warning sources have been evaluated.
         $Warnings = ($Warnings -join ' / ')
@@ -1408,6 +1449,10 @@ function Invoke-CheckGroups {
             CAPs = $CAPCount
             AccessPackages = $AccessPackageCount
             AccessPackageSpecificTargets = $AccessPackageSpecificTargets
+            APAutoAssign = $APAutoAssign
+            AccessPackageAutoAssignments = $AccessPackageAutoAssignments
+            CatalogRBAC = $CatalogRBAC
+            CatalogRbacDetails = $CatalogRbacDetails
             AzureRoles = $AzureRoleCount
             AzureMaxTier = $AzureMaxTier
             AzureRoleDetails = $azureRoleDetails
@@ -1461,6 +1506,8 @@ function Invoke-CheckGroups {
     }
     #endregion
 
+    $AutoAssignmentCorrelationTimer.Stop()
+    Write-Log -Level Debug -Message ("[Groups] Automatic Access Package assignment correlation: CandidateGroups={0}, MatchedGroups={1}, AmbiguousGroups={2}, RuleKeys={3}, Elapsed={4:N3}s." -f $AutoAssignmentCandidateGroups, $AutoAssignmentMatchedGroups, $AutoAssignmentAmbiguousGroups, $AccessPackageAutoAssignmentPolicyIndex.Count, $AutoAssignmentCorrelationTimer.Elapsed.TotalSeconds)
     $PmDataProcessing.Stop()
     ########################################## SECTION: POST-PROCESSING ##########################################
     $PmDataPostProcessing = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1648,12 +1695,13 @@ function Invoke-CheckGroups {
 
     write-host "[*] Generating Details Section"
 
-    $GroupOverviewProperties = @("DisplayName","DisplayNameLink","Type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","IntuneRoles","CAPs")
+    $GroupOverviewProperties = @("DisplayName","DisplayNameLink","Type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","IntuneRoles","CAPs","CatalogRBAC")
     $GroupOverviewProperties += @{Name = "APTarget"; Expression = { $_.AccessPackages }}
+    $GroupOverviewProperties += "APAutoAssign"
     $GroupOverviewProperties += @("EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
 
-    $GroupOutputProperties = @("DisplayName","Type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","IntuneRoles","CAPs","APTarget","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
-    $GroupMainTableProperties = @(@{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},"type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","IntuneRoles","CAPs","APTarget","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
+    $GroupOutputProperties = @("DisplayName","Type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","IntuneRoles","CAPs","CatalogRBAC","APTarget","APAutoAssign","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
+    $GroupMainTableProperties = @(@{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},"type","SecurityEnabled","RoleAssignable","OnPrem","Dynamic","Visibility","Protected","PIM","AuUnits","DirectOwners","NestedOwners","OwnersSynced","Users","Guests","SPCount","Devices","NestedGroups","NestedInGroups","AppRoles","IntuneRoles","CAPs","CatalogRBAC","APTarget","APAutoAssign","EntraRoles","EntraMaxTier","AzureRoles","AzureMaxTier","Impact","Likelihood","Risk","Warnings")
 
     #Define output of the main table
     $tableOutput = $AllGroupsDetails | Sort-Object Risk -Descending | Select-Object -Property $GroupOverviewProperties
@@ -1679,6 +1727,7 @@ function Invoke-CheckGroups {
                 IntuneRoles     = $group.IntuneRoles
                 EntraMaxTier    = $group.EntraMaxTier
                 MembershipRule  = $group.MembershipRule
+                APAutoAssign    = $group.APAutoAssign
                 Warnings        = $group.Warnings
             })
         }
@@ -1740,6 +1789,8 @@ $tableOutput | Format-table -Property $GroupOutputProperties | Out-File -Width 5
         $ReportingIntuneRolesRaw = [System.Collections.Generic.List[object]]::new()
         $ReportingCAPs = [System.Collections.Generic.List[object]]::new()
         $ReportingAccessPackageSpecificTargets = [System.Collections.Generic.List[object]]::new()
+        $ReportingAccessPackageAutoAssignments = [System.Collections.Generic.List[object]]::new()
+        $ReportingCatalogRbac = @($item.CatalogRbacDetails | ForEach-Object { [pscustomobject]@{ Role=$_.Role; Catalog="<a href=Catalogs_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($_.CatalogId)>$(ConvertTo-EntraFalconHtmlText $_.Catalog -DefaultValue '-')</a>"; CatalogEnabled=$_.CatalogEnabled } })
         $AppRoles = [System.Collections.Generic.List[object]]::new()
         $OwnerUser = [System.Collections.Generic.List[object]]::new()
         $OwnerGroups = [System.Collections.Generic.List[object]]::new()
@@ -2012,6 +2063,40 @@ $tableOutput | Format-table -Property $GroupOutputProperties | Out-File -Width 5
                     DirectAzureRoles = $obj.DirectAzureRoles
                 })
             }
+        }
+
+        ############### Automatic Access Package Assignments
+        if ($item.PSObject.Properties["AccessPackageAutoAssignments"] -and @($item.AccessPackageAutoAssignments).Count -ge 1) {
+            $AccessPackageAutoAssignmentsRaw = [System.Collections.Generic.List[object]]::new()
+
+            foreach ($object in @($item.AccessPackageAutoAssignments)) {
+                $policyAnchor = if (-not [string]::IsNullOrWhiteSpace([string]$object.PolicyId)) { "$($object.PackageId)_$($object.PolicyId)" } else { "" }
+                $reportTarget = if (-not [string]::IsNullOrWhiteSpace($policyAnchor)) {
+                    "AccessPackages_$($StartTimestamp)_$($EscapedTenantName).html#$policyAnchor"
+                } else {
+                    "AccessPackages_$($StartTimestamp)_$($EscapedTenantName).html"
+                }
+                [void]$AccessPackageAutoAssignmentsRaw.Add([pscustomobject]@{
+                    AccessPackage      = [string]$object.Package
+                    Policy             = [string]$object.Policy
+                    MatchStatus        = [string]$object.MatchStatus
+                    ConfiguredResources = $object.ConfiguredResources
+                    ConfiguredRoles     = $object.ConfiguredRoles
+                })
+                [void]$ReportingAccessPackageAutoAssignments.Add([pscustomobject]@{
+                    AccessPackage      = "<a href=$reportTarget>$(ConvertTo-EntraFalconHtmlText $object.Package -DefaultValue '-')</a>"
+                    Policy             = "<a href=$reportTarget>$(ConvertTo-EntraFalconHtmlText $object.Policy -DefaultValue '-')</a>"
+                    MatchStatus        = [string]$object.MatchStatus
+                    ConfiguredResources = $object.ConfiguredResources
+                    ConfiguredRoles     = $object.ConfiguredRoles
+                })
+            }
+
+            $formattedText = Format-ReportSection -Title "Automatic Access Package Assignments" `
+                -Objects $AccessPackageAutoAssignmentsRaw `
+                -Properties @("AccessPackage", "Policy", "MatchStatus", "ConfiguredResources", "ConfiguredRoles") `
+                -ColumnWidths @{ AccessPackage = 40; Policy = 40; MatchStatus = 12; ConfiguredResources = 19; ConfiguredRoles = 15 }
+            [void]$DetailTxtBuilder.AppendLine($formattedText)
         }
 
         ############### App Roles
@@ -2696,6 +2781,8 @@ $tableOutput | Format-table -Property $GroupOutputProperties | Out-File -Width 5
             "Intune RBAC Role Assignments" = $ReportingIntuneRoles
             "Conditional Access Policies" = $ReportingCAPs
             "Access Package Policy Targets" = $ReportingAccessPackageSpecificTargets
+            "Automatic Access Package Assignments" = $ReportingAccessPackageAutoAssignments
+            "Identity Governance RBAC Assignments" = $ReportingCatalogRbac
             "Application Roles" = $AppRoles
             "Owners (User)" = $OwnerUser
             "Owners (Groups)" = $OwnerGroups
@@ -2902,6 +2989,10 @@ $headerHtml = @"
             NestedOwners = $group.NestedOwners
             AccessPackages = $group.AccessPackages
             AccessPackageSpecificTargets = $group.AccessPackageSpecificTargets
+            APAutoAssign = $group.APAutoAssign
+            AccessPackageAutoAssignments = $group.AccessPackageAutoAssignments
+            CatalogRBAC = $group.CatalogRBAC
+            CatalogRbacDetails = $group.CatalogRbacDetails
         }
         $AllGroupsDetailsHT[$group.Id] = $groupLookupObject
     }

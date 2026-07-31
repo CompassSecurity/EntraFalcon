@@ -22,6 +22,8 @@ function Invoke-AgentIdentities {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory = $true)][int]$ApiTop,
         [Parameter(Mandatory=$true)][hashtable]$ServicePrincipalSignInActivityLookup,
+        [Parameter(Mandatory=$false)][hashtable]$CatalogRbacPrincipalIndex = @{},
+        [Parameter(Mandatory=$false)][bool]$CatalogRbacAssessmentAvailable = $false,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp
     )
 
@@ -1103,6 +1105,13 @@ function Invoke-AgentIdentities {
             }
         }
 
+        $DirectCatalogRbacDetails = if ($CatalogRbacPrincipalIndex.ContainsKey([string]$item.Id)) { @($CatalogRbacPrincipalIndex[[string]$item.Id]) } else { @() }
+        $CatalogRbacDetails = @(Merge-EntraFalconCatalogRbacAssignments -DirectAssignments $DirectCatalogRbacDetails -GroupMemberships $GroupMember)
+        $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
+        if (@($CatalogRbacDetails | Where-Object { [string]$_.Role -in @('Catalog Owner','Access Package Manager','Access Package Assignment Manager') }).Count -gt 0) {
+            $Warnings += "Identity Governance management role assigned"
+        }
+
         #Format warning messages
         $Warnings = if ($null -ne $Warnings) {
             $Warnings -join ' / '
@@ -1132,6 +1141,8 @@ function Invoke-AgentIdentities {
             AppOwn = $OwnedApplicationsCount
             OwnedApplicationsDetails = $OwnedApplications
             SpOwn = $OwnedSPCount
+            CatalogRBAC = $CatalogRBAC
+            CatalogRbacDetails = $CatalogRbacDetails
             OwnedSPDetails = $OwnedSP
             GroupMember = $GroupMember
             AppOwnerOrganizationId = $appOwnerOrganizationId

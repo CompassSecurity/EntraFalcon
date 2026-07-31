@@ -24,7 +24,8 @@ function Invoke-CheckTenant {
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprints,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities,
         [Parameter(Mandatory=$false)][hashtable]$AccessPackages,
-        [Parameter(Mandatory=$false)][bool]$AccessPackagesAssessmentAvailable = $false
+        [Parameter(Mandatory=$false)][bool]$AccessPackagesAssessmentAvailable = $false,
+        [Parameter(Mandatory=$false)][object]$CatalogAssessment
     )
     #endregion
 
@@ -49,6 +50,50 @@ function Invoke-CheckTenant {
         if ($null -eq $Value) { return 0 }
         [int]::TryParse("$Value", [ref]$n) | Out-Null
         return $n
+    }
+
+    function Get-CatalogRolePotentialImpact {
+        param(
+            [string]$CatalogId,
+            [string]$Role
+        )
+
+        if ([string]::IsNullOrWhiteSpace($CatalogId) -or [string]::IsNullOrWhiteSpace($Role) -or
+            $null -eq $CatalogAssessment -or -not $CatalogAssessment.PSObject.Properties['CatalogsById'] -or
+            $null -eq $CatalogAssessment.CatalogsById -or -not $CatalogAssessment.CatalogsById.ContainsKey($CatalogId)) {
+            return 0
+        }
+
+        $catalogEntry = $CatalogAssessment.CatalogsById[$CatalogId]
+        if ($catalogEntry.PSObject.Properties['RolePotentialImpactByRole'] -and $null -ne $catalogEntry.RolePotentialImpactByRole) {
+            $lookup = $catalogEntry.RolePotentialImpactByRole
+            if ($lookup -is [System.Collections.IDictionary] -and $lookup.Contains($Role)) {
+                return [double]$lookup[$Role]
+            }
+            if ($lookup.PSObject.Properties[$Role]) {
+                return [double]$lookup.PSObject.Properties[$Role].Value
+            }
+        }
+
+        # Backward-compatible fallback for assessment objects created before the role lookup existed.
+        if ($Role -eq 'Catalog Reader') { return 0 }
+        $newImpact = 0
+        $existingImpact = 0
+        foreach ($contribution in @($catalogEntry.NewAPContributions)) {
+            $newImpact += [double]$contribution.Impact
+        }
+        foreach ($contribution in @($catalogEntry.ExistingAPContributions)) {
+            if ($Role -eq 'Access Package Assignment Manager' -or -not [bool]$contribution.DirectConfigurableType) {
+                $existingImpact += [double]$contribution.Impact
+            }
+        }
+        if ($Role -in @('Catalog Owner','Access Package Manager')) {
+            return [math]::Round([double]($newImpact + $existingImpact))
+        }
+        if ($Role -eq 'Access Package Assignment Manager') {
+            return [math]::Round([double]$existingImpact)
+        }
+        return 0
     }
 
     function Test-GroupHasEligibleOnlyPimAccessPath {
@@ -1480,7 +1525,7 @@ function Invoke-CheckTenant {
   {
     "FindingId": "APK-001",
     "Title": "Broad Self-Request Without Approval for High-Impact Access",
-    "Category": "Access Packages",
+    "Category": "Identity Governance",
     "Severity": 3,
     "Description": "",
     "Threat": "",
@@ -1492,7 +1537,7 @@ function Invoke-CheckTenant {
   {
     "FindingId": "APK-002",
     "Title": "Persistent High-Impact Access Without Review",
-    "Category": "Access Packages",
+    "Category": "Identity Governance",
     "Severity": 1,
     "Description": "",
     "Threat": "",
@@ -1504,7 +1549,7 @@ function Invoke-CheckTenant {
   {
     "FindingId": "APK-003",
     "Title": "Potentially Dangerous Auto-Assignment Rules in Access Packages",
-    "Category": "Access Packages",
+    "Category": "Identity Governance",
     "Severity": 3,
     "Description": "",
     "Threat": "",
@@ -1516,7 +1561,7 @@ function Invoke-CheckTenant {
   {
     "FindingId": "APK-004",
     "Title": "Unprotected Groups Can Self-Request High-Impact Access Packages",
-    "Category": "Access Packages",
+    "Category": "Identity Governance",
     "Severity": 3,
     "Description": "",
     "Threat": "",
@@ -1528,13 +1573,49 @@ function Invoke-CheckTenant {
   {
     "FindingId": "APK-005",
     "Title": "Broad Non-User On-Behalf Access Without Approval",
-    "Category": "Access Packages",
+    "Category": "Identity Governance",
     "Severity": 2,
     "Description": "",
     "Threat": "",
     "Status": "NotVulnerable",
     "Remediation": "",
     "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "CAT-001",
+    "Title": "High-Impact Catalog RBAC Assigned to Non-Tier-0 Users",
+    "Category": "Identity Governance",
+    "Severity": 3,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "CAT-002",
+    "Title": "Guests with Effective Catalog Management Access",
+    "Category": "Identity Governance",
+    "Severity": 3,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "CAT-003",
+    "Title": "Unused Resources in Entitlement Management Catalogs",
+    "Category": "Identity Governance",
+    "Severity": 1,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
     "AffectedObjects": []
   },
   {
@@ -2056,8 +2137,8 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
     $GRP005VariantProps = @{
         Default = @{
-            Threat = '<p>Various roles (for example, Knowledge Manager, Groups Administrator, or User Administrator) and applications with permissions such as <code>Group.ReadWrite.All</code> can manage the membership of these groups. Additionally, several administrative roles can reset credentials or MFA methods for users who are active members of the group (for example, Authentication Administrator, Helpdesk Administrator, or User Administrator). An attacker with one of these roles may therefore add themselves or another account to a highly privileged group.</p><p>An attacker might be able to:</p><ul><li>Exclude accounts from Conditional Access if exclusions rely on an unprotected group.</li><li>Gain elevated Entra ID privileges if unprotected groups are eligible members of groups with Entra ID roles (PIM for Groups).</li><li>Obtain elevated privileges on Azure resources.</li></ul>'
-            Remediation = '<p>Protect sensitive groups (for example, Tier-0 Azure role assignments or groups used in Conditional Access policies).</p><p>Consider the following hardening measures:</p><ul><li>Add the group to a Restricted Management Administrative Unit and assign scoped administrative roles only to dedicated administrators. This limits who can modify group membership.</li><li>Alternatively, recreate the group as a <code>role-assignable</code> group, even if no roles are currently assigned. This ensures that only privileged roles or group owners can manage membership and modify authentication methods of active members.</li></ul><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/admin-units-restricted-management" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/admin-units-restricted-management</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept#how-are-role-assignable-groups-protected" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept#how-are-role-assignable-groups-protected</a></li><li><a href="https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/concept-pim-for-groups#what-are-entra-id-role-assignable-groups" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/concept-pim-for-groups#what-are-entra-id-role-assignable-groups</a></li></ul>'
+            Threat = '<p>Various roles (for example, Knowledge Manager, Groups Administrator, or User Administrator) and applications with permissions such as <code>Group.ReadWrite.All</code> can manage the membership of these groups. Additionally, several administrative roles can reset credentials or MFA methods for users who are active members of the group (for example, Authentication Administrator, Helpdesk Administrator, or User Administrator). An attacker with one of these roles may therefore add themselves or another account to a highly privileged group.</p><p>An attacker might be able to:</p><ul><li>Exclude accounts from Conditional Access if exclusions rely on an unprotected group.</li><li>Gain elevated Entra ID privileges if unprotected groups are eligible members of groups with Entra ID roles (PIM for Groups).</li><li>Obtain elevated privileges on Azure resources.</li><li>Inherit high-impact Catalog RBAC and configure or assign resources through Access Packages.</li></ul>'
+            Remediation = '<p>Protect sensitive groups (for example, Tier-0 Azure role assignments, high-impact Catalog RBAC, or groups used in Conditional Access policies).</p><p>Consider the following hardening measures:</p><ul><li>Add the group to a Restricted Management Administrative Unit and assign scoped administrative roles only to dedicated administrators. This limits who can modify group membership.</li><li>Alternatively, recreate the group as a <code>role-assignable</code> group, even if no roles are currently assigned. This ensures that only privileged roles or group owners can manage membership and modify authentication methods of active members.</li><li>Remove unnecessary Catalog RBAC assignments and review which catalog resources or existing Access Packages the role can control.</li></ul><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/admin-units-restricted-management" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/admin-units-restricted-management</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept#how-are-role-assignable-groups-protected" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept#how-are-role-assignable-groups-protected</a></li><li><a href="https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/concept-pim-for-groups#what-are-entra-id-role-assignable-groups" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/concept-pim-for-groups#what-are-entra-id-role-assignable-groups</a></li></ul>'
         }
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
@@ -2819,6 +2900,67 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Description = "<p>No high-impact access package policies identified that allow on-behalf assignment to broad non-user identity scopes without approval.</p>"
         }
     }
+    $catalogFindingsSkippedProps = @{
+        Status = "Skipped"
+        Description = "<p>Catalog RBAC was not assessed in this run. Catalog-scoped Identity Governance delegation paths may therefore be missing.</p>"
+        Threat = "<p>Catalog-scoped roles can allow principals to configure resources in Access Packages or assign access already configured in existing Access Packages.</p>"
+        Remediation = "<p>Run EntraFalcon with an authentication flow and permissions that allow Entitlement Management catalogs and their role assignments to be enumerated.</p>"
+        AffectedObjects = @()
+        RelatedReportUrl = ""
+    }
+    $catalogFindingsPartialNoMatchProps = @{
+        Status = "Skipped"
+        Description = "<p>The Catalog RBAC assessment was partial and no matching exposure could be established from the available data. This result must not be interpreted as confirmation that no exposure exists.</p>"
+        AffectedObjects = @()
+        RelatedReportUrl = ""
+    }
+    $CAT001VariantProps = @{
+        Default = @{
+            Threat = "<p>Affected users may be able to escalate their access through privileged Catalog RBAC assignments:</p><ul><li><strong>Catalog Owners</strong> and <strong>Access Package Managers</strong> can create or modify Access Packages using resources that are already available in the catalog. This includes Entra ID roles, which can be added via the Microsoft Graph API even when the operation is not available in the portal. API permissions require separate resource-ownership validation and cannot be added solely through these catalog-scoped roles. The role holder may then create an assignment policy and direct assignments to bypass the configured request and approval process.</li><li><strong>Access Package Assignment Managers</strong> can directly assign existing Access Packages that have an assignment policy and bypass the configured request and approval process.</li></ul><p>As a result, affected users may be able to obtain access to privileged groups, Entra ID roles, applications, SharePoint sites, Azure resources, or other sensitive resources available through the catalog.</p>"
+            Remediation = "<p>Review whether each affected user requires the assigned Catalog RBAC role and whether that role is appropriate for the resources available in the catalog.</p><p>Remove unnecessary assignments and use dedicated administrative identities for privileged Catalog RBAC roles. Protect these identities with phishing-resistant MFA and appropriate device-based access controls.</p><p>Additionally, monitor changes to privileged Access Packages and catalogs, as well as Access Package assignments and activity that bypasses the configured request or approval process.</p>"
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No enabled non-Tier-0 users with Catalog RBAC roles assigned to catalogs containing privileged resources were identified.</p>"
+        }
+    }
+    $CAT002VariantProps = @{
+        Default = @{
+            Threat = "<p>Guest users are external identities whose lifecycle and authentication controls may be managed outside the tenant. If an enabled guest receives a privileged Catalog RBAC role directly or through group membership, the guest may be able to increase its access:</p><ul><li><strong>Catalog Owners</strong> and <strong>Access Package Managers</strong> can create or modify Access Packages using resources that are already available in the catalog. This includes Entra ID roles, which can be added via the Microsoft Graph API even when the operation is not available in the portal. API permissions require separate resource-ownership validation and cannot be added solely through these catalog-scoped roles. The role holder may then create an assignment policy and direct assignments to bypass the configured request and approval process.</li><li><strong>Access Package Assignment Managers</strong> can directly assign existing Access Packages that have an assignment policy and bypass the configured request and approval process.</li></ul><p>As a result, an external identity may obtain access to privileged groups, Entra ID roles, applications, SharePoint sites, Azure resources, or other sensitive resources available through the catalog.</p>"
+            Remediation = "<p>Review whether each affected guest requires the assigned Catalog RBAC role. Remove unnecessary direct assignments and remove guests from groups that provide Catalog RBAC when that inherited access is not required.</p><p>Prefer dedicated internal administrative identities for privileged Catalog RBAC roles. If guest administration is required, document the business owner and purpose, limit the role to the minimum required catalogs, and regularly review the guest account, its group memberships, and the resources available through those catalogs.</p><p>Protect retained administrative access with phishing-resistant MFA and appropriate device-based access controls. Monitor changes to privileged Access Packages and catalogs, as well as Access Package assignments and activity that bypasses the configured request or approval process.</p>"
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No enabled guest users with Catalog RBAC roles assigned to catalogs containing resources were identified.</p>"
+        }
+    }
+    $catalogResourceFindingSkippedProps = @{
+        Status = "Skipped"
+        Description = "<p>Catalog resources or their Access Package resource-role references were not fully assessed in this run. Unused catalog resources therefore cannot be determined reliably.</p>"
+        AffectedObjects = @()
+        RelatedReportUrl = ""
+    }
+    $CAT003VariantProps = @{
+        Default = @{
+            Threat = "<p>Resources that remain in an Entitlement Management catalog without being used by an Access Package unnecessarily expand the catalog's attack surface.</p><p><strong>Catalog Owners</strong> and <strong>Access Package Managers</strong> can add supported catalog resources to new or modified Access Packages. Identities holding the <strong>Identity Governance Administrator</strong> role and service principals holding <code>EntitlementManagement.ReadWrite.All</code> can also manage these resources across Entitlement Management. This includes Entra ID roles that are already present in the catalog, because those roles can be added via the Microsoft Graph API even when the operation is not available in the portal. API permissions are excluded from this finding because adding them requires separate resource-ownership validation.</p><p>If these administrative identities or service principals are compromised or misused, unused resources may be configured into Access Packages and granted without a current business requirement.</p>"
+            Remediation = '<p>Review every catalog resource that is not referenced by an Access Package. If the resource is not required by any current or planned Access Package, remove it from the catalog to reduce unnecessary administrative and privilege exposure.</p><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-catalog-create#remove-resources-from-a-catalog" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-catalog-create#remove-resources-from-a-catalog</a></li></ul>'
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Sure"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No supported catalog resources were identified that are unused by all existing Access Packages. Custom resources and API permissions are excluded from this assessment.</p>"
+        }
+    }
     #endregion
     #region PIM VariantProps
     $PIM001VariantProps = @{
@@ -2959,6 +3101,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "APK-003" = $APK003VariantProps.Default
         "APK-004" = $APK004VariantProps.Default
         "APK-005" = $APK005VariantProps.Default
+        "CAT-001" = $CAT001VariantProps.Default
+        "CAT-002" = $CAT002VariantProps.Default
+        "CAT-003" = $CAT003VariantProps.Default
         "PIM-001" = $PIM001VariantProps.Default
         "PIM-002" = $PIM002VariantProps.Default
         "PIM-003" = $PIM003VariantProps.Default
@@ -3456,8 +3601,18 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $hasEntraRolesUsage = $entraRolesCount -gt 0
                 $hasAzureRolesUsage = $azureRolesCount -gt 0 -and @("0", "1", "Uncategorized") -contains $azureMaxTierNormalized
                 $hasIntuneRolesUsage = $intuneRolesCount -gt 0
+                $hasCatalogRbacUsage = $false
+                foreach ($catalogRole in @($group.CatalogRbacDetails)) {
+                    $catalogRoleName = [string]$catalogRole.Role
+                    if ($catalogRoleName -eq 'Catalog Reader') { continue }
+                    $catalogRoleImpact = Get-CatalogRolePotentialImpact -CatalogId ([string]$catalogRole.CatalogId) -Role $catalogRoleName
+                    if ($catalogRoleImpact -ge 100) {
+                        $hasCatalogRbacUsage = $true
+                        break
+                    }
+                }
 
-                if ($hasCapsUsage -or $hasEntraRolesUsage -or $hasAzureRolesUsage -or $hasIntuneRolesUsage) {
+                if ($hasCapsUsage -or $hasEntraRolesUsage -or $hasAzureRolesUsage -or $hasIntuneRolesUsage -or $hasCatalogRbacUsage) {
                     $unprotectedSensitiveGroups.Add([pscustomobject]@{
                         Id = $entry.Key
                         Group = $group
@@ -3465,6 +3620,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                         HasAzureRolesUsage = $hasAzureRolesUsage
                         HasEntraRolesUsage = $hasEntraRolesUsage
                         HasIntuneRolesUsage = $hasIntuneRolesUsage
+                        HasCatalogRbacUsage = $hasCatalogRbacUsage
                     })
                 }
             }
@@ -8222,9 +8378,10 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             [string]$Policy.PackageId
         }
         $policyName = if ([string]::IsNullOrWhiteSpace([string]$Policy.Policy)) { "Unnamed Policy" } else { [string]$Policy.Policy }
+        $encodedPolicyName = ConvertTo-EntraFalconHtmlText $policyName -DefaultValue "Unnamed Policy"
 
         $affected = [ordered]@{
-            "Policy" = "<a href=`"AccessPackages_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$policyAnchor`" target=`"_blank`">$policyName</a>"
+            "Policy" = "<a href=`"AccessPackages_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$policyAnchor`" target=`"_blank`">$encodedPolicyName</a>"
             "Package" = $Policy.Package
             "Resources" = $Policy.Resources
         }
@@ -8247,7 +8404,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             "APK-002" {
                 $affected["Expiration"] = $Policy.Expiration
                 $affected["AccessReview"] = $Policy.AccessReview
-                $affected["Assignments"] = $Policy.Assignments
+                $affected["ActiveAssignments"] = $Policy.ActiveAssignments
             }
             "APK-003" {
                 $affected["Rule"] = $Policy.AutoAssignmentRule
@@ -8306,7 +8463,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         param($Policy)
 
         if ($null -eq $Policy) { return $false }
-        if ((Get-IntSafe $Policy.Assignments) -gt 0) { return $true }
+        if ((Get-IntSafe $Policy.ActiveAssignments) -gt 0) { return $true }
         if ($Policy.AutoAssignment -eq $true) { return $true }
         return (Test-AccessPackagePolicyStatusNotFalse -Policy $Policy -PropertyName "PolicyEnabled")
     }
@@ -8375,7 +8532,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
         }
     } else {
-        $allAccessPackagePolicies = @($AccessPackages.Values)
+        $allAccessPackagePolicies = @($AccessPackages.Values | Where-Object {
+            -not ($_.PSObject.Properties["IsPolicyPlaceholder"] -and [bool]$_.IsPolicyPlaceholder)
+        })
         $apBroadSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.HasBroadSelfAddNoApproval -and (Test-AccessPackageRequestPathEnabled -Policy $_) })
         $apPersistentWithoutReview = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and -not $_.HasExpiration -and -not $_.HasAccessReview -and (Test-AccessPackagePersistentExposure -Policy $_) })
         $apUnprotectedGroupSelfAddNoApproval = @($allAccessPackagePolicies | Where-Object { $_.IsHighImpact -and $_.SelfAddAccess -eq $true -and -not $_.ApprovalRequired -and $_.HasUnprotectedGroupSpecificTarget -and (Test-AccessPackageRequestPathEnabled -Policy $_) })
@@ -8460,9 +8619,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Write-Log -Level Verbose -Message "[APK-002] Found $($apPersistentWithoutReview.Count) active or assignable high-impact access package policies without meaningful expiration or access reviews."
             Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Vulnerable
             Set-FindingOverride -FindingId "APK-002" -Props @{
-                Description = "<p>$($apPersistentWithoutReview.Count) active or assignable high-impact access package policies allow persistent access without meaningful expiration or access reviews. Disabled policies are retained when they have existing assignments or use automatic assignment.</p>"
+                Description = "<p>$($apPersistentWithoutReview.Count) active or assignable high-impact access package policies allow persistent access without meaningful expiration or access reviews. Disabled policies are retained when they have active assignments or use automatic assignment.</p>"
                 AffectedObjects = @($apPersistentWithoutReview | ForEach-Object { New-AccessPackagePolicyAffectedObject -Policy $_ -FindingId "APK-002" @apk002RoleColumns })
-                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Expiration=false&AccessReview=false" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","Resources") -ColumnsAfterRoleFields @("AutoAssignment","Assignments","Expiration","ExpirationDetails","AccessReview","Impact","Risk","Warnings") @apk002RoleColumns
+                RelatedReportUrl = Get-AccessPackageFindingReportUrl -Query "Expiration=false&AccessReview=false" -ColumnsBeforeRoleFields @("Policy","PolicyEnabled","Package","Catalog","CatalogEnabled","Resources") -ColumnsAfterRoleFields @("AutoAssignment","ActiveAssignments","Expiration","ExpirationDetails","AccessReview","Impact","Risk","Warnings") @apk002RoleColumns
             }
         } else {
             Set-FindingOverride -FindingId "APK-002" -Props $APK002VariantProps.Secure
@@ -8539,6 +8698,219 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
     }
 
+    #endregion
+
+    #region Catalog RBAC Evaluation
+    $catalogRbacAssessmentAvailable = (
+        $null -ne $CatalogAssessment -and
+        $CatalogAssessment.PSObject.Properties['RbacAvailable'] -and
+        [bool]$CatalogAssessment.RbacAvailable
+    )
+    $catalogAssessmentPartial = (
+        $catalogRbacAssessmentAvailable -and
+        $CatalogAssessment.PSObject.Properties['Status'] -and
+        [string]$CatalogAssessment.Status -eq 'Partial'
+    )
+
+    if (-not $catalogRbacAssessmentAvailable) {
+        Write-Log -Level Verbose -Message "[CAT] Skipping Catalog findings because Catalog RBAC assessment data is unavailable."
+        Set-FindingOverride -FindingId "CAT-001" -Props $catalogFindingsSkippedProps
+        Set-FindingOverride -FindingId "CAT-002" -Props $catalogFindingsSkippedProps
+    } else {
+        $cat001Affected = [System.Collections.Generic.List[object]]::new()
+        $cat002Affected = [System.Collections.Generic.List[object]]::new()
+        $cat002RoleAssignmentCount = 0
+
+        foreach ($entry in $Users.GetEnumerator()) {
+            $user = $entry.Value
+            if ($null -eq $user) { continue }
+            $isEnabled = ($user.Enabled -eq $true -or [string]$user.Enabled -eq 'true')
+            if (-not $isEnabled) { continue }
+
+            $userId = if ($user.PSObject.Properties['Id']) { [string]$user.Id } else { [string]$entry.Key }
+            $userName = if (-not [string]::IsNullOrWhiteSpace([string]$user.UPN)) { [string]$user.UPN } elseif (-not [string]::IsNullOrWhiteSpace([string]$user.DisplayName)) { [string]$user.DisplayName } else { $userId }
+            $encodedUserName = ConvertTo-EntraFalconHtmlText $userName -DefaultValue '-'
+            $userLink = "<a href=`"Users_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$userId`" target=`"_blank`">$encodedUserName</a>"
+            $details = @($user.CatalogRbacDetails)
+            $catalogRbacImpact = if ($user.PSObject.Properties['CatalogRbacImpact']) { [double]$user.CatalogRbacImpact } else { 0 }
+
+            if ([string]$user.EntraMaxTier -ne 'Tier-0' -and $catalogRbacImpact -ge 100) {
+                $contributingCatalogRoles = @($details | Where-Object {
+                    $role = [string]$_.Role
+                    $role -in @('Catalog Owner','Access Package Manager','Access Package Assignment Manager') -and
+                    (Get-CatalogRolePotentialImpact -CatalogId ([string]$_.CatalogId) -Role $role) -gt 0
+                })
+                $catalogRoleLines = @($contributingCatalogRoles |
+                    Sort-Object Catalog,Role |
+                    ForEach-Object {
+                        $catalogLabel = ConvertTo-EntraFalconHtmlText ([string]$_.Catalog) -DefaultValue '-'
+                        $catalogId = [string]$_.CatalogId
+                        $catalogDisplay = if ([string]::IsNullOrWhiteSpace($catalogId)) {
+                            $catalogLabel
+                        } else {
+                            "<a href=`"Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$catalogId`" target=`"_blank`">$catalogLabel</a>"
+                        }
+                        $roleLabel = ConvertTo-EntraFalconHtmlText ([string]$_.Role) -DefaultValue '-'
+                        "$roleLabel on $catalogDisplay"
+                    } |
+                    Select-Object -Unique)
+
+                [void]$cat001Affected.Add([pscustomobject][ordered]@{
+                    "User" = $userLink
+                    "EntraMaxTier" = [string]$user.EntraMaxTier
+                    "CatalogRBAC" = $user.CatalogRBAC
+                    "CatalogRoles" = $catalogRoleLines -join '<br>'
+                    "CatalogRbacImpact" = [math]::Round($catalogRbacImpact)
+                    "_SortCatalogRbacImpact" = $catalogRbacImpact
+                })
+            }
+
+            if ([string]$user.UserType -ieq 'Guest') {
+                $qualifyingGuestRoles = [System.Collections.Generic.List[object]]::new()
+                foreach ($detail in $details) {
+                    $role = [string]$detail.Role
+                    if ($role -notin @('Catalog Owner','Access Package Manager','Access Package Assignment Manager')) { continue }
+                    $rolePotentialImpact = Get-CatalogRolePotentialImpact -CatalogId ([string]$detail.CatalogId) -Role $role
+                    if ($rolePotentialImpact -le 0) { continue }
+                    [void]$qualifyingGuestRoles.Add($detail)
+                }
+                if ($qualifyingGuestRoles.Count -gt 0) {
+                    $cat002RoleAssignmentCount += $qualifyingGuestRoles.Count
+                    $guestCatalogRoleLines = @($qualifyingGuestRoles |
+                        Sort-Object Catalog,Role |
+                        ForEach-Object {
+                            $catalogLabel = ConvertTo-EntraFalconHtmlText ([string]$_.Catalog) -DefaultValue '-'
+                            $catalogId = [string]$_.CatalogId
+                            $catalogDisplay = if ([string]::IsNullOrWhiteSpace($catalogId)) {
+                                $catalogLabel
+                            } else {
+                                "<a href=`"Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$catalogId`" target=`"_blank`">$catalogLabel</a>"
+                            }
+                            $roleLabel = ConvertTo-EntraFalconHtmlText ([string]$_.Role) -DefaultValue '-'
+                            "$roleLabel on $catalogDisplay"
+                        } |
+                        Select-Object -Unique)
+                    $catalogPotentialImpact = if ($user.PSObject.Properties['CatalogRbacGrossImpact']) {
+                        [double]$user.CatalogRbacGrossImpact
+                    } else {
+                        [double](@($qualifyingGuestRoles | ForEach-Object {
+                            Get-CatalogRolePotentialImpact -CatalogId ([string]$_.CatalogId) -Role ([string]$_.Role)
+                        } | Measure-Object -Sum).Sum)
+                    }
+                    [void]$cat002Affected.Add([pscustomobject][ordered]@{
+                        "User" = $userLink
+                        "CatalogRBAC" = $user.CatalogRBAC
+                        "CatalogRoles" = $guestCatalogRoleLines -join '<br>'
+                        "CatalogPotentialImpact" = [math]::Round($catalogPotentialImpact)
+                        "_SortPotentialImpact" = $catalogPotentialImpact
+                    })
+                }
+            }
+        }
+
+        if ($cat001Affected.Count -gt 0) {
+            Write-Log -Level Verbose -Message "[CAT-001] Found $($cat001Affected.Count) enabled non-Tier-0 users with a net Catalog RBAC impact of at least 100."
+            Set-FindingOverride -FindingId "CAT-001" -Props $CAT001VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "CAT-001" -Props @{
+                Description = "<p>There are $($cat001Affected.Count) enabled non-Tier-0 users with Catalog RBAC roles assigned on catalogs that contain privileged resources.</p><p><strong>Important:</strong> This finding requires manual verification. Some affected role holders may already possess an equivalent or higher level of access through other role assignments.</p>"
+                AffectedObjects = @($cat001Affected)
+                AffectedSortKey = "_SortCatalogRbacImpact"
+                AffectedSortDir = "DESC"
+                RelatedReportUrl = "Users_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Enabled=true&CatalogRBAC=%3E0&EntraMaxTier=%21%3DTier-0&columns=UPN%2CEnabled%2CUserType%2CEntraMaxTier%2CCatalogRBAC%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
+            }
+        } elseif ($catalogAssessmentPartial) {
+            Set-FindingOverride -FindingId "CAT-001" -Props $catalogFindingsPartialNoMatchProps
+        } else {
+            Set-FindingOverride -FindingId "CAT-001" -Props $CAT001VariantProps.Secure
+        }
+
+        if ($cat002Affected.Count -gt 0) {
+            Write-Log -Level Verbose -Message "[CAT-002] Found $($cat002Affected.Count) enabled guest users holding $cat002RoleAssignmentCount effective Catalog management role assignments with non-zero potential impact."
+            $cat002GuestCount = $cat002Affected.Count
+            $cat002GuestLabel = if ($cat002GuestCount -eq 1) { 'guest user' } else { 'guest users' }
+            $cat002AssignmentLabel = if ($cat002RoleAssignmentCount -eq 1) { 'role assignment' } else { 'role assignments' }
+            Set-FindingOverride -FindingId "CAT-002" -Props $CAT002VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "CAT-002" -Props @{
+                Description = "<p>There are $cat002GuestCount enabled $cat002GuestLabel holding $cat002RoleAssignmentCount effective privileged Catalog RBAC $cat002AssignmentLabel with a non-zero potential impact.</p><p>The assignments may be direct or inherited through transitive group membership.</p>"
+                AffectedObjects = @($cat002Affected)
+                AffectedSortKey = "_SortPotentialImpact"
+                AffectedSortDir = "DESC"
+                RelatedReportUrl = "Users_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Enabled=true&UserType=Guest&CatalogRBAC=%3E0&columns=UPN%2CEnabled%2CUserType%2CCatalogRBAC%2CEntraMaxTier%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
+            }
+        } elseif ($catalogAssessmentPartial) {
+            Set-FindingOverride -FindingId "CAT-002" -Props $catalogFindingsPartialNoMatchProps
+        } else {
+            Set-FindingOverride -FindingId "CAT-002" -Props $CAT002VariantProps.Secure
+        }
+    }
+
+    $catalogResourceAssessmentAvailable = (
+        $null -ne $CatalogAssessment -and
+        $CatalogAssessment.PSObject.Properties['IsAvailable'] -and
+        [bool]$CatalogAssessment.IsAvailable -and
+        $CatalogAssessment.PSObject.Properties['ResourcesAvailable'] -and
+        [bool]$CatalogAssessment.ResourcesAvailable -and
+        $CatalogAssessment.PSObject.Properties['AccessPackageDataAvailable'] -and
+        [bool]$CatalogAssessment.AccessPackageDataAvailable -and
+        $CatalogAssessment.PSObject.Properties['UnconfiguredResourceDetailsAvailable'] -and
+        [bool]$CatalogAssessment.UnconfiguredResourceDetailsAvailable -and
+        $CatalogAssessment.PSObject.Properties['CatalogsById'] -and
+        $null -ne $CatalogAssessment.CatalogsById
+    )
+
+    if (-not $catalogResourceAssessmentAvailable) {
+        Write-Log -Level Verbose -Message "[CAT-003] Skipping unused Catalog resource assessment because Catalog resources or Access Package resource-role references are unavailable."
+        Set-FindingOverride -FindingId "CAT-003" -Props $catalogResourceFindingSkippedProps
+    } else {
+        $cat003Affected = [System.Collections.Generic.List[object]]::new()
+        $cat003UnusedResourceCount = 0
+
+        foreach ($catalogAssessmentEntry in @($CatalogAssessment.CatalogsById.GetEnumerator())) {
+            $catalog = $catalogAssessmentEntry.Value
+            if ($null -eq $catalog -or -not $catalog.PSObject.Properties['UnconfiguredResourceDetails']) { continue }
+
+            $unusedResourceDetails = @($catalog.UnconfiguredResourceDetails)
+            if ($unusedResourceDetails.Count -eq 0) { continue }
+
+            $catalogId = [string]$catalog.CatalogId
+            $catalogName = if ([string]::IsNullOrWhiteSpace([string]$catalog.Catalog)) { $catalogId } else { [string]$catalog.Catalog }
+            $encodedCatalogName = ConvertTo-EntraFalconHtmlText $catalogName -DefaultValue '-'
+            $catalogLink = "<a href=`"Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$catalogId`" target=`"_blank`">$encodedCatalogName</a>"
+            $resourceLines = @($unusedResourceDetails |
+                Sort-Object Type,Resource,OriginId |
+                ForEach-Object {
+                    $resourceName = ConvertTo-EntraFalconHtmlText ([string]$_.Resource) -DefaultValue '-'
+                    $resourceType = ConvertTo-EntraFalconHtmlText ([string]$_.Type) -DefaultValue 'Unknown'
+                    "$resourceName ($resourceType)"
+                } |
+                Select-Object -Unique)
+
+            $cat003UnusedResourceCount += $unusedResourceDetails.Count
+            [void]$cat003Affected.Add([pscustomobject][ordered]@{
+                "Catalog" = $catalogLink
+                "UnusedResources" = $unusedResourceDetails.Count
+                "Resources" = $resourceLines -join '<br>'
+                "_SortUnusedResources" = $unusedResourceDetails.Count
+                "_SortCatalog" = $catalogName
+            })
+        }
+
+        if ($cat003Affected.Count -gt 0) {
+            $catalogLabel = if ($cat003Affected.Count -eq 1) { 'catalog contains' } else { 'catalogs contain' }
+            $resourceLabel = if ($cat003UnusedResourceCount -eq 1) { 'resource that is' } else { 'resources that are' }
+            Write-Log -Level Verbose -Message "[CAT-003] Found $cat003UnusedResourceCount unused resources across $($cat003Affected.Count) Catalogs."
+            Set-FindingOverride -FindingId "CAT-003" -Props $CAT003VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "CAT-003" -Props @{
+                Description = "<p>$($cat003Affected.Count) $catalogLabel $cat003UnusedResourceCount $resourceLabel not referenced by any existing Access Package.</p>"
+                AffectedObjects = @($cat003Affected | Sort-Object @{ Expression = { [int]$_.UnusedResources }; Descending = $true }, @{ Expression = { [string]$_._SortCatalog }; Ascending = $true })
+                AffectedSortKey = "_SortUnusedResources"
+                AffectedSortDir = "DESC"
+                RelatedReportUrl = "Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?UnconfiguredResources=%3E0&columns=Catalog%2CEnabled%2CAccessPackages%2CCatalogResources%2CUnconfiguredResources%2CCatalogRBAC%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=UnconfiguredResources&sortDir=desc"
+            }
+        } else {
+            Set-FindingOverride -FindingId "CAT-003" -Props $CAT003VariantProps.Secure
+        }
+    }
     #endregion
 
     #region PIM Evaluation
@@ -10104,7 +10476,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "GRP-004" -Props $GRP004VariantProps.Secure
     }
 
-    # GRP-005: Unprotected groups used in sensitive contexts (CAP/Azure/Entra role assignments).
+    # GRP-005: Unprotected groups used in sensitive contexts (CAP/Azure/Entra/Intune/Catalog RBAC).
     # Reuse pre-evaluated results from the shared group enumeration loop.
     if ($unprotectedSensitiveGroups.Count -gt 0) {
         Write-Log -Level Verbose -Message "[GRP-005] Found $($unprotectedSensitiveGroups.Count) unprotected sensitive groups."
@@ -10114,6 +10486,10 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         $groupsUsedInAzureRoles = 0
         $groupsUsedInEntraRoles = 0
         $groupsUsedInIntuneRoles = 0
+        $groupsUsedInCatalogRbac = 0
+        $showCatalogRbacColumn = @($unprotectedSensitiveGroups | Where-Object {
+            (Get-IntSafe $_.Group.CatalogRBAC) -gt 0
+        }).Count -gt 0
 
         foreach ($entry in $unprotectedSensitiveGroups) {
             $group = $entry.Group
@@ -10124,8 +10500,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             if ($entry.HasAzureRolesUsage) { $groupsUsedInAzureRoles += 1 }
             if ($entry.HasEntraRolesUsage) { $groupsUsedInEntraRoles += 1 }
             if ($entry.HasIntuneRolesUsage) { $groupsUsedInIntuneRoles += 1 }
+            if ($entry.HasCatalogRbacUsage) { $groupsUsedInCatalogRbac += 1 }
 
-            $grp005Affected.Add([pscustomobject][ordered]@{
+            $affectedGroup = [ordered]@{
                 "DisplayName" = "<a href=`"Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($entry.Id)`" target=`"_blank`">$groupDisplayName</a>"
                 "Protected" = $group.Protected
                 "Entra Roles" = $group.EntraRoles
@@ -10134,15 +10511,27 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 "Azure Tier" = $group.AzureMaxTier
                 "Intune Roles" = $group.IntuneRoles
                 "CAPs" = $group.CAPs
-                "Warnings" = $group.Warnings
-                "_SortImpact" = $group.Impact
-            })
+            }
+            if ($showCatalogRbacColumn) {
+                $affectedGroup["CatalogRBAC"] = $group.CatalogRBAC
+            }
+            $affectedGroup["Warnings"] = $group.Warnings
+            $affectedGroup["_SortImpact"] = $group.Impact
+            $grp005Affected.Add([pscustomobject]$affectedGroup)
         }
+
+        $catalogUsageDescription = if ($showCatalogRbacColumn) {
+            "<li>$groupsUsedInCatalogRbac groups hold Catalog RBAC roles with a potential impact of at least 100</li>"
+        } else {
+            ""
+        }
+        $catalogRbacFilter = if ($showCatalogRbacColumn) { "&or_CatalogRBAC=%3E0" } else { "" }
+        $catalogRbacColumn = if ($showCatalogRbacColumn) { "%2CCatalogRBAC" } else { "" }
 
         Set-FindingOverride -FindingId "GRP-005" -Props $GRP005VariantProps.Vulnerable
         Set-FindingOverride -FindingId "GRP-005" -Props @{
-            Description = "<p>There are $($unprotectedSensitiveGroups.Count) sensitive groups that are insufficiently protected. They are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p>Unprotected group usage:</p><ul><li>$groupsUsedInCaps groups are used in Conditional Access policies</li><li>$groupsUsedInAzureRoles groups are used for Azure role assignments with a highest tier of Tier-0, Tier-1, or Uncategorized</li><li>$groupsUsedInEntraRoles groups are used for Entra ID role assignments</li><li>$groupsUsedInIntuneRoles groups are used for Intune RBAC role assignments</li></ul><p><strong>Important:</strong> This finding requires manual verification. Assess the impact if a lower-tier administrator or application can manage the membership of these groups.</p>"
-            RelatedReportUrl = "Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Protected=%3Dfalse&or_EntraRoles=%3E0&or_AzureMaxTier=Tier-0%7C%7CTier-1%7C%7CUncategorized&or_IntuneRoles=%3E0&or_CAPs=%3E0&columns=DisplayName%2CType%2CSecurityEnabled%2CDynamic%2CVisibility%2CProtected%2CUsers%2CEntraMaxTier%2CAzureMaxTier%2CNestedInGroups%2CAppRoles%2CIntuneRoles%2CCAPs%2CEntraRoles%2CAzureRoles%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
+            Description = "<p>There are $($unprotectedSensitiveGroups.Count) sensitive groups that are insufficiently protected. They are:</p><ul><li>Not synchronized from on-premises</li><li>Not configured as role-assignable</li><li>Not protected by a Restricted Management Administrative Unit</li></ul><p>Unprotected group usage:</p><ul><li>$groupsUsedInCaps groups are used in Conditional Access policies</li><li>$groupsUsedInAzureRoles groups are used for Azure role assignments with a highest tier of Tier-0, Tier-1, or Uncategorized</li><li>$groupsUsedInEntraRoles groups are used for Entra ID role assignments</li><li>$groupsUsedInIntuneRoles groups are used for Intune RBAC role assignments</li>$catalogUsageDescription</ul><p><strong>Important:</strong> This finding requires manual verification. Assess the impact if a lower-tier administrator or application can manage the membership of these groups.</p>"
+            RelatedReportUrl = "Groups_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Protected=%3Dfalse&or_EntraRoles=%3E0&or_AzureMaxTier=Tier-0%7C%7CTier-1%7C%7CUncategorized&or_IntuneRoles=%3E0&or_CAPs=%3E0$catalogRbacFilter&columns=DisplayName%2CType%2CSecurityEnabled%2CDynamic%2CVisibility%2CProtected%2CUsers%2CEntraMaxTier%2CAzureMaxTier%2CNestedInGroups%2CAppRoles%2CIntuneRoles%2CCAPs$catalogRbacColumn%2CEntraRoles%2CAzureRoles%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
             AffectedSortKey = "_SortImpact"
             AffectedSortDir = "DESC"
             AffectedObjects = $grp005Affected
@@ -10258,7 +10647,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     }
 
-    .export-menu {
+    .finding-export-menu {
         position: relative;
         display: inline-block;
     }
@@ -15309,7 +15698,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
       </div>
     </div>
     <div id="visibleCount" class="finding-count">Visible findings: 0</div>
-    <div class="export-menu">
+    <div class="finding-export-menu">
       <button id="btnExport" type="button" aria-haspopup="true" aria-expanded="false">Export</button>
       <div id="exportMenu" class="export-menu-panel hidden" role="menu">
         <button id="exportCsvFiltered" type="button" role="menuitem">CSV (Filtered)</button>
