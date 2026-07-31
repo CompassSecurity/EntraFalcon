@@ -6022,7 +6022,7 @@ $global:GLOBALCss = @"
     }
     .section-sep{ display:none; }
 
-    @media (min-width: 901px) and (max-width: 1600px) {
+    @media (min-width: 901px) and (max-width: 2000px) {
         .tabstrip-inner {
             flex-wrap: wrap;
             align-content: center;
@@ -9401,8 +9401,8 @@ function Initialize-TenantReportTabs {
         @{ Prop = 'AzureRoles';                Key = 'RoleAz';     Title = 'Roles (Azure)';  File = "Role_Assignments_Azure_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForEntra';               Key = 'PIM';        Title = 'PIM (Entra)';                File = "PIM_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'PimForGroups';              Key = 'PIMGroups';  Title = 'PIM (Groups)';               File = "PIM_Groups_${StartTimestamp}_${tenantNameEscaped}.html" }
-        @{ Prop = 'AccessPackages';            Key = 'AccessPackages'; Title = 'Access Packages';       File = "AccessPackages_${StartTimestamp}_${tenantNameEscaped}.html" }
         @{ Prop = 'Catalogs';                  Key = 'Catalogs';   Title = 'Catalogs';                   File = "Catalogs_${StartTimestamp}_${tenantNameEscaped}.html" }
+        @{ Prop = 'AccessPackages';            Key = 'AccessPackages'; Title = 'Access Packages';       File = "AccessPackages_${StartTimestamp}_${tenantNameEscaped}.html" }
     )
 
     $tabs = New-Object System.Collections.Generic.List[object]
