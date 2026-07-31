@@ -1639,7 +1639,7 @@ Appendix: Used API Permission Reference
     $GlobalAuditSummary.AgentIdentities.ApiCategorization.Misc = @($AgentIdentityItems | Where-Object { $_.ApiMisc -gt 0 }).Count
 
     if ($AgentIdentityItems.Count -gt 0) {
-        New-ReportFileSet -Title "AgentIdentities" -ReportKey "AgentIdentities" -ReportName "Agent Identities Enumeration (BETA)" -HtmlTitle "EF - Agent Identities" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $AgentIdentityItems -MainTable ($AgentIdentityItems | Select-Object @{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},AppRoleRequired,PublisherName,DefaultMS,Foreign,Enabled,Inactive,LastSignInDays,CreationInDays,AgentUsers,Owners,Sponsors,AppRoles,GrpMem,GrpOwn,AppOwn,SpOwn,CatalogRBAC,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous,ApiHigh,ApiMedium,ApiLow,ApiMisc,ApiDelegated,ApiDelegatedDangerous,ApiDelegatedHigh,ApiDelegatedMedium,ApiDelegatedLow,ApiDelegatedMisc,Impact,Likelihood,Risk,Warnings) -AllObjectDetailsHTML $AgentIdentityDetails -Data $AgentIdentityItems -DetailOutputTxt $AgentIdentityTxt.ToString() -TxtColumns @('DisplayName','AppRoleRequired','PublisherName','DefaultMS','Foreign','Enabled','Inactive','LastSignInDays','CreationInDays','AgentUsers','Owners','Sponsors','AppRoles','GrpMem','GrpOwn','AppOwn','SpOwn','CatalogRBAC','EntraRoles','EntraMaxTier','AzureRoles','AzureMaxTier','ApiDangerous','ApiHigh','ApiMedium','ApiLow','ApiMisc','ApiDelegated','ApiDelegatedDangerous','ApiDelegatedHigh','ApiDelegatedMedium','ApiDelegatedLow','ApiDelegatedMisc','Impact','Likelihood','Risk','Warnings') -WarningList $AgentIdentityWarnings -AppendixTxt $AgentIdentityAppendixTxt -AppendixHtml $AgentIdentityAppendixHtml -Csv:$Csv -ExportDataJson:$ExportDataJson
+        New-ReportFileSet -Title "AgentIdentities" -ReportKey "AgentIdentities" -ReportName "Agent Identities Enumeration" -HtmlTitle "EF - Agent Identities" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $AgentIdentityItems -MainTable ($AgentIdentityItems | Select-Object @{Name = "DisplayName"; Expression = { $_.DisplayNameLink }},AppRoleRequired,PublisherName,DefaultMS,Foreign,Enabled,Inactive,LastSignInDays,CreationInDays,AgentUsers,Owners,Sponsors,AppRoles,GrpMem,GrpOwn,AppOwn,SpOwn,CatalogRBAC,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,ApiDangerous,ApiHigh,ApiMedium,ApiLow,ApiMisc,ApiDelegated,ApiDelegatedDangerous,ApiDelegatedHigh,ApiDelegatedMedium,ApiDelegatedLow,ApiDelegatedMisc,Impact,Likelihood,Risk,Warnings) -AllObjectDetailsHTML $AgentIdentityDetails -Data $AgentIdentityItems -DetailOutputTxt $AgentIdentityTxt.ToString() -TxtColumns @('DisplayName','AppRoleRequired','PublisherName','DefaultMS','Foreign','Enabled','Inactive','LastSignInDays','CreationInDays','AgentUsers','Owners','Sponsors','AppRoles','GrpMem','GrpOwn','AppOwn','SpOwn','CatalogRBAC','EntraRoles','EntraMaxTier','AzureRoles','AzureMaxTier','ApiDangerous','ApiHigh','ApiMedium','ApiLow','ApiMisc','ApiDelegated','ApiDelegatedDangerous','ApiDelegatedHigh','ApiDelegatedMedium','ApiDelegatedLow','ApiDelegatedMisc','Impact','Likelihood','Risk','Warnings') -WarningList $AgentIdentityWarnings -AppendixTxt $AgentIdentityAppendixTxt -AppendixHtml $AgentIdentityAppendixHtml -Csv:$Csv -ExportDataJson:$ExportDataJson
     } else {
         Write-Host "[*] No agent identities found. Skipping Agent Identities report output."
     }
@@ -1893,7 +1893,7 @@ Appendix: Used API Permission Reference
     )
 
     if ($PrincipalItems.Count -gt 0) {
-        New-ReportFileSet -Title "AgentIdentityBlueprintsPrincipals" -ReportKey "AgentIdentityBlueprintsPrincipals" -ReportName "Agent Identity Blueprint Principals Enumeration (BETA)" -HtmlTitle "EF - Agent Blueprint Principals" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $PrincipalTableOutput -MainTable $PrincipalMainTable -AllObjectDetailsHTML $PrincipalDetails -Data $PrincipalItems -DetailOutputTxt $PrincipalTxt.ToString() -TxtColumns @('DisplayName','ParentBlueprintDisplayName','AppRoleRequired','PublisherName','DefaultMS','Foreign','Enabled','Inactive','LastSignInDays','CreationInDays','AgentIdentities','AgentUsers','Owners','AppRoles','ApiDangerous','ApiHigh','ApiMedium','ApiLow','ApiMisc','ApiDelegated','ApiDelegatedDangerous','ApiDelegatedHigh','ApiDelegatedMedium','ApiDelegatedLow','ApiDelegatedMisc','Impact','Likelihood','Risk','Warnings') -WarningList $PrincipalWarnings -AppendixTxt $PrincipalAppendixTxt -AppendixHtml $PrincipalAppendixHtml -Csv:$Csv -ExportDataJson:$ExportDataJson
+        New-ReportFileSet -Title "AgentIdentityBlueprintsPrincipals" -ReportKey "AgentIdentityBlueprintsPrincipals" -ReportName "Agent Identity Blueprint Principals Enumeration" -HtmlTitle "EF - Agent Blueprint Principals" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $PrincipalTableOutput -MainTable $PrincipalMainTable -AllObjectDetailsHTML $PrincipalDetails -Data $PrincipalItems -DetailOutputTxt $PrincipalTxt.ToString() -TxtColumns @('DisplayName','ParentBlueprintDisplayName','AppRoleRequired','PublisherName','DefaultMS','Foreign','Enabled','Inactive','LastSignInDays','CreationInDays','AgentIdentities','AgentUsers','Owners','AppRoles','ApiDangerous','ApiHigh','ApiMedium','ApiLow','ApiMisc','ApiDelegated','ApiDelegatedDangerous','ApiDelegatedHigh','ApiDelegatedMedium','ApiDelegatedLow','ApiDelegatedMisc','Impact','Likelihood','Risk','Warnings') -WarningList $PrincipalWarnings -AppendixTxt $PrincipalAppendixTxt -AppendixHtml $PrincipalAppendixHtml -Csv:$Csv -ExportDataJson:$ExportDataJson
     } else {
         Write-Host "[*] No agent identity blueprint principals found. Skipping Agent Blueprint Principals report output."
     }
@@ -1910,11 +1910,11 @@ Appendix: Used API Permission Reference
         }
         if (($item.LinkedAgentIdentitiesDetails | Measure-Object).Count -ge 1) {
             [void]$BlueprintTxt.AppendLine("Child Agent Identities")
-            [void]$BlueprintTxt.AppendLine(($item.LinkedAgentIdentitiesDetails | Format-Table ParentPrincipalDisplayName,DisplayName,Enabled,Impact,Warnings | Out-String))
+            [void]$BlueprintTxt.AppendLine(($item.LinkedAgentIdentitiesDetails | Format-Table DisplayName,ParentPrincipalDisplayName,Enabled,Impact,Warnings | Out-String))
         }
         if (($item.AgentUsersDetails | Measure-Object).Count -ge 1) {
             [void]$BlueprintTxt.AppendLine("Child Agent Users")
-            [void]$BlueprintTxt.AppendLine(($item.AgentUsersDetails | Format-Table ParentPrincipalDisplayName,ParentAgentIdentityDisplayName,UPN,Enabled,Impact,Warnings | Out-String))
+            [void]$BlueprintTxt.AppendLine(($item.AgentUsersDetails | Format-Table UPN,ParentPrincipalDisplayName,ParentAgentIdentityDisplayName,Enabled,Impact,Warnings | Out-String))
         }
         if (($item.Oauth2PermissionScopesDetails | Measure-Object).Count -ge 1) {
             [void]$BlueprintTxt.AppendLine("OAuth2 Permission Scopes")
@@ -1987,8 +1987,8 @@ Appendix: Used API Permission Reference
             "Child Agent Identities" = @(
                 foreach ($agentIdentity in @($item.LinkedAgentIdentitiesDetails)) {
                     [pscustomobject]@{
-                        ParentPrincipal = "<a href=AgentIdentityBlueprintsPrincipals_$($StartTimestamp)_$EscapedTenantName.html#$($agentIdentity.ParentPrincipalId)>$($agentIdentity.ParentPrincipalDisplayName)</a>"
                         DisplayName = "<a href=AgentIdentities_$($StartTimestamp)_$EscapedTenantName.html#$($agentIdentity.Id)>$($agentIdentity.DisplayName)</a>"
+                        ParentPrincipal = "<a href=AgentIdentityBlueprintsPrincipals_$($StartTimestamp)_$EscapedTenantName.html#$($agentIdentity.ParentPrincipalId)>$($agentIdentity.ParentPrincipalDisplayName)</a>"
                         Enabled = $agentIdentity.Enabled
                         Impact = $agentIdentity.Impact
                         Warnings = $agentIdentity.Warnings
@@ -1998,9 +1998,9 @@ Appendix: Used API Permission Reference
             "Child Agent Users" = @(
                 foreach ($agentUser in @($item.AgentUsersDetails)) {
                     [pscustomobject]@{
+                        UserPrincipalName = "<a href=Users_$($StartTimestamp)_$EscapedTenantName.html#$($agentUser.Id)>$($agentUser.UPN)</a>"
                         ParentPrincipal = "<a href=AgentIdentityBlueprintsPrincipals_$($StartTimestamp)_$EscapedTenantName.html#$($agentUser.ParentPrincipalId)>$($agentUser.ParentPrincipalDisplayName)</a>"
                         ParentAgentIdentity = "<a href=AgentIdentities_$($StartTimestamp)_$EscapedTenantName.html#$($agentUser.ParentAgentIdentityId)>$($agentUser.ParentAgentIdentityDisplayName)</a>"
-                        UserPrincipalName = "<a href=Users_$($StartTimestamp)_$EscapedTenantName.html#$($agentUser.Id)>$($agentUser.UPN)</a>"
                         Enabled = $agentUser.Enabled
                         Impact = $agentUser.Impact
                         Warnings = $agentUser.Warnings
@@ -2102,7 +2102,7 @@ Appendix: Agent Identity Blueprints with Client Secrets
     )
 
     if ($BlueprintItems.Count -gt 0) {
-        New-ReportFileSet -Title "AgentIdentityBlueprints" -ReportKey "AgentIdentityBlueprints" -ReportName "Agent Identity Blueprints Enumeration (BETA)" -HtmlTitle "EF - Agent Blueprints" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $BlueprintTableOutput -MainTable $BlueprintMainTable -AllObjectDetailsHTML $BlueprintDetails -Data $BlueprintItems -DetailOutputTxt $BlueprintTxt.ToString() -TxtColumns @('DisplayName','SignInAudience','Enabled','CreationInDays','BlueprintPrincipals','AgentIdentities','AgentUsers','AppRoles','Owners','Sponsors','InheritableScopes','InheritableRoles','FederatedCreds','SecretsCount','CertsCount','Impact','Likelihood','Risk','Warnings') -WarningList $BlueprintWarnings -AppendixTxt $BlueprintAppendixTxt -AppendixHtml $BlueprintAppendixHtml -AdditionalCsvExports $BlueprintAdditionalCsvExports -Csv:$Csv -ExportDataJson:$ExportDataJson
+        New-ReportFileSet -Title "AgentIdentityBlueprints" -ReportKey "AgentIdentityBlueprints" -ReportName "Agent Identity Blueprints Enumeration" -HtmlTitle "EF - Agent Blueprints" -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -OutputFolder $OutputFolder -TableOutput $BlueprintTableOutput -MainTable $BlueprintMainTable -AllObjectDetailsHTML $BlueprintDetails -Data $BlueprintItems -DetailOutputTxt $BlueprintTxt.ToString() -TxtColumns @('DisplayName','SignInAudience','Enabled','CreationInDays','BlueprintPrincipals','AgentIdentities','AgentUsers','AppRoles','Owners','Sponsors','InheritableScopes','InheritableRoles','FederatedCreds','SecretsCount','CertsCount','Impact','Likelihood','Risk','Warnings') -WarningList $BlueprintWarnings -AppendixTxt $BlueprintAppendixTxt -AppendixHtml $BlueprintAppendixHtml -AdditionalCsvExports $BlueprintAdditionalCsvExports -Csv:$Csv -ExportDataJson:$ExportDataJson
     } else {
         Write-Host "[*] No agent identity blueprints found. Skipping Agent Blueprints report output."
     }
