@@ -1563,7 +1563,9 @@ function Invoke-CheckAccessPackages {
                 $applicationPermission = Resolve-AppRoleAssignmentRecord -AppRoleReferenceCache $AppRoleReferenceCache -PermissionId $permissionId -ResourceAppId $originId -ApiNameOverride $resourceName
                 if ($applicationPermission) {
                     $apiPermissionCategory = [string]$applicationPermission.ApiPermissionCategorization
-                    if (-not [string]::IsNullOrWhiteSpace([string]$applicationPermission.ApiPermissionDisplayname) -and [string]$applicationPermission.ApiPermissionDisplayname -ne "-") {
+                    if (-not [string]::IsNullOrWhiteSpace([string]$applicationPermission.ApiPermission) -and [string]$applicationPermission.ApiPermission -ne "-") {
+                        $roleName = [string]$applicationPermission.ApiPermission
+                    } elseif (-not [string]::IsNullOrWhiteSpace([string]$applicationPermission.ApiPermissionDisplayname) -and [string]$applicationPermission.ApiPermissionDisplayname -ne "-") {
                         $roleName = [string]$applicationPermission.ApiPermissionDisplayname
                     }
                     $impact = (Get-ApiPermissionImpactSummary -ApplicationPermissions @($applicationPermission)).Impact
