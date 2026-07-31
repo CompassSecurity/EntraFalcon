@@ -2548,7 +2548,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $AGT005VariantProps = @{
         Default = @{
             Threat = "<p>If the external tenant of the corresponding parent blueprint is compromised or its client credentials are leaked, attackers may gain control of the agent identity and abuse its Azure role assignments. As agent identities authenticate without an interactive user, such a compromise could directly affect privileged Azure resources.</p>"
-            Remediation = "<p>Restrict foreign agent identities to the minimum privileges required for their intended functionality. Regularly review assigned permissions and remove any that are not strictly necessary. Assess whether highly privileged foreign access to the tenant is justified and remove such access where it is not.</p><p>If the justification is unclear, contact the publisher to validate the required permissions and confirm the expected usage of the application.</p>"
+            Remediation = "<p>Restrict foreign agent identities to the minimum privileges required for their intended functionality. Regularly review assigned permissions and remove any that are not strictly necessary. Assess whether highly privileged foreign access to the tenant is justified and remove such access where it is not.</p><p>If the justification is unclear, contact the publisher to validate the required permissions and confirm the expected usage of the agent identity.</p>"
         }
         Vulnerable = @{
             Status = "Vulnerable"
@@ -6919,6 +6919,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[AGT-005] Found $($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled foreign agent identities with Azure roles."
         Set-FindingOverride -FindingId "AGT-005" -Props $AGT005VariantProps.Vulnerable
         Set-FindingOverride -FindingId "AGT-005" -Props @{
+            Confidence = "Requires Verification"
             RelatedReportUrl = "AgentIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Foreign=%3Dtrue&Enabled=%3Dtrue&AzureMaxTier=Tier-0%7C%7CTier-1%7C%7CTier-2%7C%7CUncategorized&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxTier%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortRisk"
             AffectedSortDir = "DESC"
@@ -7016,7 +7017,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
 
         Set-FindingOverride -FindingId "AGT-005" -Props @{
-            Description = "<p>$($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled foreign agent identities have Azure roles assigned.</p><p>Agent identities by role tier:</p><ul><li>Tier 0: $agt005Tier0</li><li>Tier 1: $agt005Tier1</li><li>Tier 2: $agt005Tier2</li><li>Uncategorized tier: $agt005TierUncat</li></ul><p><strong>Note:</strong> The Azure role tier classification is based solely on the assigned role and does not consider the scope of the permission. The effective impact depends on the resources to which the role is scoped.</p>"
+            Description = "<p>$($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled foreign agent identities have Azure roles assigned.</p><p>Agent identities by role tier:</p><ul><li>Tier 0: $agt005Tier0</li><li>Tier 1: $agt005Tier1</li><li>Tier 2: $agt005Tier2</li><li>Uncategorized tier: $agt005TierUncat</li></ul><p><strong>Important:</strong> The Azure role tier classification is based solely on the assigned role and does not consider the scope of the permission. The effective impact depends on the resources to which the role is scoped.</p>"
             AffectedObjects = $agt005Affected
         }
         if ($agt005Tier0 -gt 0) {
@@ -7435,6 +7436,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[AGT-009] Found $($internalAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled internal agent identities with privileged Azure roles."
         Set-FindingOverride -FindingId "AGT-009" -Props $AGT009VariantProps.Vulnerable
         Set-FindingOverride -FindingId "AGT-009" -Props @{
+            Confidence = "Requires Verification"
             RelatedReportUrl = "AgentIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Foreign=%3Dfalse&Enabled=%3Dtrue&AzureMaxTier=Tier-0%7C%7CTier-1&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxTier%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortRisk"
             AffectedSortDir = "DESC"
@@ -7575,7 +7577,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
 
         Set-FindingOverride -FindingId "AGT-009" -Props @{
-            Description = "<p>$($internalAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled internal agent identities have privileged Azure roles (tier-0 or tier-1) assigned.</p><p>Identities by role tier:</p><ul><li>Tier 0: $agt009Tier0</li><li>Tier 1: $agt009Tier1</li></ul><p><strong>Note:</strong> The Azure role tier classification is based solely on the assigned role and does not consider the scope of the permission. The effective impact depends on the resources to which the role is scoped.</p>"
+            Description = "<p>$($internalAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled internal agent identities have privileged Azure roles (tier-0 or tier-1) assigned.</p><p>Identities by role tier:</p><ul><li>Tier 0: $agt009Tier0</li><li>Tier 1: $agt009Tier1</li></ul><p><strong>Important:</strong> The Azure role tier classification is based solely on the assigned role and does not consider the scope of the permission. The effective impact depends on the resources to which the role is scoped.</p>"
             AffectedObjects = $agt009Affected
         }
         if ($agt009Tier0 -gt 0) {
