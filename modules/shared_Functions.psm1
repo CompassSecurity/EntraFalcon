@@ -1326,7 +1326,7 @@ $global:GLOBALJavaScript_Table = @'
                         SpOwn: "or_>0",
                         GrpOwn: "or_>0"
                     },
-                    columns: ["DisplayName", "PublisherName", "Enabled", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "Impact", "Likelihood", "Risk", "Warnings"]
+                    columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "GrpOwn", "AppOwn", "SpOwn", "EntraRoles", "AzureRoles", "ApiDangerous", "ApiHigh", "Impact", "Likelihood", "Risk", "Warnings"]
                 },
                 {
                     id: "PVAI-006",
