@@ -1668,6 +1668,8 @@ function Invoke-CheckAccessPackages {
     $TableOutput = [System.Collections.Generic.List[object]]::new()
     $AllObjectDetails = [System.Collections.ArrayList]::new()
     $DetailTxtBuilder = [System.Text.StringBuilder]::new()
+    $detailObjectDelimiter = "#" * 206
+    $detailSectionDelimiter = "-" * 65
     $assignmentNow = [datetimeoffset]::UtcNow
     $htmlAssignmentLimit = 250
     $assignmentSortProperties = @(
@@ -2093,29 +2095,41 @@ function Invoke-CheckAccessPackages {
                 }
             })
 
-            [void]$DetailTxtBuilder.AppendLine("================================================================================================")
+            [void]$DetailTxtBuilder.AppendLine($detailObjectDelimiter)
             [void]$DetailTxtBuilder.AppendLine("Access Package Policy: $policyDetailObjectName")
-            [void]$DetailTxtBuilder.AppendLine("================================================================================================")
+            [void]$DetailTxtBuilder.AppendLine($detailObjectDelimiter)
+            [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
             [void]$DetailTxtBuilder.AppendLine("Policy Information")
+            [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
             [void]$DetailTxtBuilder.AppendLine(($policyInformationTxt | Format-List | Out-String))
             if ($separationOfDutiesRowsTxt.Count -gt 0) {
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine("Separation of Duties")
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine(($separationOfDutiesRowsTxt | Select-Object DisplayName,Type | Format-Table | Out-String -Width 512))
             }
             if (@($policyContext.ApprovalSettings).Count -gt 0) {
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine("Approval Settings")
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine(($approvalSettingsTxt | Select-Object Stage,ApprovalForAdd,ApprovalForUpdate,Escalation,EscalationAfter,ApproverVisibility,PrimaryApprovers,FallbackPrimaryApprovers,EscalationApprovers,FallbackEscalationApprovers | Format-Table | Out-String -Width 512))
             }
             if (@($resourceRows).Count -gt 0) {
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine("Granted Resources and Roles (Access Package)")
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine(($resourceRowsTxt | Format-Table | Out-String -Width 512))
             }
             if (@($policyContext.SpecificTargets).Count -gt 0) {
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine("Specific Targets")
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine(($specificTargetsTxt | Select-Object Target,TargetType,Protected | Format-Table | Out-String -Width 512))
             }
             if (@($policyContext.Assignments).Count -gt 0) {
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine("Assignments")
+                [void]$DetailTxtBuilder.AppendLine($detailSectionDelimiter)
                 [void]$DetailTxtBuilder.AppendLine(($assignmentsTxt | Select-Object Target,TargetType,Status,Start,Expiry | Format-Table | Out-String -Width 512))
             }
             [void]$DetailTxtBuilder.AppendLine()

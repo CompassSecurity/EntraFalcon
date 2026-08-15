@@ -686,6 +686,8 @@ function Invoke-CheckCatalogs {
     $tableOutput = [System.Collections.Generic.List[object]]::new()
     $allObjectDetails = [System.Collections.ArrayList]::new()
     $detailTxtBuilder = [System.Text.StringBuilder]::new()
+    $detailObjectDelimiter = "#" * 206
+    $detailSectionDelimiter = "-" * 65
     $assessmentCatalogsById = @{}
     $assessmentAssignments = [System.Collections.Generic.List[object]]::new()
 
@@ -1221,12 +1223,57 @@ function Invoke-CheckCatalogs {
             'Access Packages' = @($packageRows)
         })
 
+        [void]$detailTxtBuilder.AppendLine($detailObjectDelimiter)
         [void]$detailTxtBuilder.AppendLine("Catalog: $catalogName ($catalogId)")
+        [void]$detailTxtBuilder.AppendLine($detailObjectDelimiter)
+        [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+        [void]$detailTxtBuilder.AppendLine("Catalog Information")
+        [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
         [void]$detailTxtBuilder.AppendLine(($catalogInformation | Format-List | Out-String))
-        if (@($rbacRows).Count -gt 0) { [void]$detailTxtBuilder.AppendLine((@($rbacRows) | ForEach-Object { [pscustomobject]@{ Principal=ConvertTo-CatalogPlainText $_.Principal; Type=$_.Type; Role=$_.Role; Impact=$_.Impact; AbusePath=$_.AbusePath } } | Format-Table | Out-String -Width 512)) }
-        if ($sortedResourceRows.Count -gt 0) { [void]$detailTxtBuilder.AppendLine((@($sortedResourceRows) | ForEach-Object { [pscustomobject]@{ Resource=ConvertTo-CatalogPlainText $_.Resource; Type=$_.Type; OriginId=$_.OriginId; ConfiguredInAP=$_.ConfiguredInAP; DirectImpact=$_.DirectImpact; EntraMaxTier=$_.EntraMaxTier; AzureMaxTier=$_.AzureMaxTier } } | Format-Table | Out-String -Width 512)) }
-        if ($catalogResourcesNote) { [void]$detailTxtBuilder.AppendLine($catalogResourcesNote) }
-        if ($sortedExistingRoleRows.Count -gt 0) { [void]$detailTxtBuilder.AppendLine((@($sortedExistingRoleRows) | ForEach-Object { [pscustomobject]@{ AccessPackage=ConvertTo-CatalogPlainText $_.AccessPackage; Resource=ConvertTo-CatalogPlainText $_.Resource; Type=$_.Type; RoleOrPermission=$_.RoleOrPermission; TierOrCategory=$_.TierOrCategory; Impact=$_.Impact; ImpactCounted=$_.ImpactCounted; EnabledPolicies=$_.EnabledPolicies; Policies=$_.Policies } } | Format-Table | Out-String -Width 512)) }
+        if (@($rbacRows).Count -gt 0) {
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine("Identity Governance RBAC Assignments")
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine((@($rbacRows) | ForEach-Object { [pscustomobject]@{ Principal=ConvertTo-CatalogPlainText $_.Principal; Type=$_.Type; Role=$_.Role; Impact=$_.Impact; AbusePath=$_.AbusePath } } | Format-Table | Out-String -Width 512))
+        }
+        if ($sortedResourceRows.Count -gt 0) {
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine("Catalog Resources")
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine((@($sortedResourceRows) | ForEach-Object { [pscustomobject]@{ Resource=ConvertTo-CatalogPlainText $_.Resource; Type=$_.Type; OriginId=$_.OriginId; ConfiguredInAP=$_.ConfiguredInAP; DirectImpact=$_.DirectImpact; EntraMaxTier=$_.EntraMaxTier; AzureMaxTier=$_.AzureMaxTier } } | Format-Table | Out-String -Width 512))
+        }
+        if ($catalogResourcesNote) {
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine("Catalog Resources Note")
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine($catalogResourcesNote)
+            [void]$detailTxtBuilder.AppendLine()
+        }
+        if ($sortedExistingRoleRows.Count -gt 0) {
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine("Resource Roles in Existing Access Packages")
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine((@($sortedExistingRoleRows) | ForEach-Object { [pscustomobject]@{ AccessPackage=ConvertTo-CatalogPlainText $_.AccessPackage; Resource=ConvertTo-CatalogPlainText $_.Resource; Type=$_.Type; RoleOrPermission=$_.RoleOrPermission; TierOrCategory=$_.TierOrCategory; Impact=$_.Impact; ImpactCounted=$_.ImpactCounted; EnabledPolicies=$_.EnabledPolicies; Policies=$_.Policies } } | Format-Table | Out-String -Width 512))
+        }
+        if (@($packageRows).Count -gt 0) {
+            $packageTxtProperties = @(
+                @{ Name = "AccessPackage"; Expression = { ConvertTo-CatalogPlainText $_.AccessPackage } },
+                "Hidden",
+                "ConfiguredResources",
+                "ConfiguredRoles",
+                "Policies",
+                "ActiveAssignments"
+            )
+            if ($showPackageEntraMaxTier) { $packageTxtProperties += "EntraMaxTier" }
+            if ($showPackageAzureMaxTier) { $packageTxtProperties += "AzureMaxTier" }
+            $packageTxtProperties += "Impact"
+
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine("Access Packages")
+            [void]$detailTxtBuilder.AppendLine($detailSectionDelimiter)
+            [void]$detailTxtBuilder.AppendLine((@($packageRows) | Select-Object -Property $packageTxtProperties | Format-Table | Out-String -Width 512))
+        }
+        [void]$detailTxtBuilder.AppendLine()
 
         $counts = @{}
         foreach ($roleName in (Get-CatalogRbacRoleDefinitions).Keys) { $counts[$roleName] = @($assignments | Where-Object { [string]$_.RoleName -eq $roleName }).Count }
@@ -1364,7 +1411,7 @@ function Invoke-CheckCatalogs {
 <h2>Entitlement Management Catalogs Overview</h2>
 "@
     $reportDisplayName = "Entitlement Management Catalogs Enumeration (BETA)"
-    $headerTxt = "$reportDisplayName`r`nExecuted in Tenant: $($CurrentTenant.DisplayName) / ID: $($CurrentTenant.id)`r`nExecuted at: $StartTimestamp`r`nExecution Warnings = $($warnings -join ' / ')`r`n"
+    $headerTxt = "************************************************************************************************************************`r`n$reportDisplayName`r`nExecuted in Tenant: $($CurrentTenant.DisplayName) / ID: $($CurrentTenant.id)`r`nExecuted at: $StartTimestamp`r`nExecution Warnings = $($warnings -join ' / ')`r`n************************************************************************************************************************`r`n"
     $txtPath = Join-Path $OutputFolder "$($title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt"
     $htmlPath = Join-Path $OutputFolder "$($title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).html"
     $headerTxt | Out-File -Width 512 -FilePath $txtPath
