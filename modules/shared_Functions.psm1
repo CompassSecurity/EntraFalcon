@@ -610,6 +610,18 @@ $global:GLOBALJavaScript_Table = @'
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
+                    id: "PVAP-014",
+                    group: "Policy",
+                    description: "Access Package policies that use automatic assignment",
+                    label: "Automatic Assignment Policies",
+                    filters: {
+                        Policy: "!=No policy configured",
+                        AutoAssignment: "=true"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "PolicyEnabled", "CatalogEnabled", "AutoAssignment", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ActiveAssignments", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
                     id: "PVAP-004",
                     group: "Policy",
                     description: "High-impact policies allowing broad non-user on-behalf assignment without approval",
@@ -639,16 +651,30 @@ $global:GLOBALJavaScript_Table = @'
                     sort: { column: "ServicePrincipals", direction: "desc" }
                 },
                 {
-                    id: "PVAP-006",
+                    id: "PVAP-015",
                     group: "Assignments",
-                    description: "Policies with at least one active assignment",
-                    label: "Policies With Active Assignments",
+                    description: "Policies with active assignments to guest users",
+                    label: "Guest Assignments",
                     filters: {
                         Policy: "!=No policy configured",
+                        Guests: ">0"
+                    },
+                    columns: ["Policy", "Package", "Catalog", "PolicyEnabled", "CatalogEnabled", "AllowedTargetScope", "ActiveAssignments", "Users", "Guests", "ServicePrincipals", "Expiration", "AccessReview", "Impact", "Risk", "Warnings"],
+                    sort: { column: "Guests", direction: "desc" }
+                },
+                {
+                    id: "PVAP-016",
+                    group: "Assignments",
+                    description: "Disabled policies or catalogs that still have active assignments",
+                    label: "Disabled but Still Assigned",
+                    filters: {
+                        Policy: "!=No policy configured",
+                        PolicyEnabled: "or_=false",
+                        CatalogEnabled: "or_=false",
                         ActiveAssignments: ">0"
                     },
-                    columns: ["Policy", "Package", "Catalog", "Resources", "Groups", "Applications", "ApiApp", "ApiDelegated", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ActiveAssignments", "Users", "Guests", "ServicePrincipals", "Impact", "Risk", "Warnings"],
-                    sort: { column: "Risk", direction: "desc" }
+                    columns: ["Policy", "Package", "Catalog", "PolicyEnabled", "CatalogEnabled", "ActiveAssignments", "Users", "Guests", "ServicePrincipals", "Expiration", "ExpirationDetails", "AccessReview", "Impact", "Risk", "Warnings"],
+                    sort: { column: "ActiveAssignments", direction: "desc" }
                 },
                 {
                     id: "PVAP-007",
@@ -753,7 +779,7 @@ $global:GLOBALJavaScript_Table = @'
                 {
                     id: "PVCAT-002",
                     group: "Privileges",
-                    description: "Catalogs containing resources without a configured Access Package role scope",
+                    description: "Catalogs containing resources not used by any Access Package; API permission resources are excluded from this view.",
                     label: "Unconfigured Resources",
                     filters: {
                         UnconfiguredResources: ">0"
@@ -810,6 +836,18 @@ $global:GLOBALJavaScript_Table = @'
                     },
                     columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "CatalogResources", "HighImpactEntries", "CatalogRBAC", "Owners", "PackageManagers", "AssignmentManagers", "Impact", "Likelihood", "Risk"],
                     sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVCAT-007",
+                    group: "Lifecycle",
+                    description: "Catalogs containing resources but no Access Packages",
+                    label: "Catalogs Without Access Packages",
+                    filters: {
+                        CatalogResources: ">0",
+                        AccessPackages: "=0"
+                    },
+                    columns: ["Catalog", "Enabled", "ExternallyVisible", "AccessPackages", "CatalogResources", "NewAPConfigurable", "ConfiguredResources", "UnconfiguredResources", "Groups", "Applications", "API", "SharePoint", "EntraRoles", "EntraMaxTier", "AzureResources", "AzureMaxTier", "HighImpactEntries", "CatalogRBAC", "Owners", "PackageManagers", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "CatalogResources", direction: "desc" }
                 }
             ],
             "App Registrations": [
