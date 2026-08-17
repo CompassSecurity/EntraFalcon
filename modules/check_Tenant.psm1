@@ -1619,6 +1619,18 @@ function Invoke-CheckTenant {
     "AffectedObjects": []
   },
   {
+    "FindingId": "CAT-004",
+    "Title": "High-Impact Catalog RBAC Assigned to Service Principals",
+    "Category": "Identity Governance",
+    "Severity": 2,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
     "FindingId": "PIM-001",
     "Title": "PIM for Entra Roles Not Used",
     "Category": "PIM",
@@ -2964,6 +2976,20 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Description = "<p>No supported catalog resources were identified that are unused by all existing Access Packages. Custom resources and API permissions are excluded from this assessment.</p>"
         }
     }
+    $CAT004VariantProps = @{
+        Default = @{
+            Threat = '<p>A service principal with a privileged Catalog RBAC role can manage access to resources available through Entitlement Management:</p><ul><li><strong>Catalog Owners</strong> and <strong>Access Package Managers</strong> can create or modify Access Packages and their policies using resources available in the catalog.</li><li><strong>Access Package Assignment Managers</strong> can directly assign existing Access Packages when an assignment policy is available.</li></ul><p>If the service principal is compromised, an attacker may use this access to obtain or distribute access to privileged groups, applications, Entra ID roles, Azure resources, SharePoint sites, or other sensitive resources. Foreign-controlled enterprise applications and agent identities increase the exposure because their lifecycle and credential controls are managed outside the tenant.</p><p><strong>Important:</strong> Catalog roles can authorize supported Microsoft Graph operations without the service principal having <code>EntitlementManagement.ReadWrite.All</code>. Therefore, missing Graph application permissions do not eliminate this exposure.</p><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-post-assignmentrequests#permissions" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-post-assignmentrequests#permissions</a></li></ul></p>'
+            Remediation = "<p>Review whether each affected enterprise application, managed identity, or agent identity requires its Catalog RBAC role. Remove unnecessary assignments and use the least-privileged Catalog role for the required task.</p><p>For retained assignments, prefer tenant-controlled workload identities with securely managed credentials, restrict who can manage the identity, and regularly review both direct and group-inherited Catalog RBAC. Closely validate foreign-controlled identities and monitor changes to privileged catalogs, Access Packages, policies, and assignments.</p>"
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Sure"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>No enabled enterprise applications, managed identities, or enabled agent identities were identified with Catalog RBAC roles having a potential impact of at least 100.</p>"
+        }
+    }
     #endregion
     #region PIM VariantProps
     $PIM001VariantProps = @{
@@ -3107,6 +3133,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "CAT-001" = $CAT001VariantProps.Default
         "CAT-002" = $CAT002VariantProps.Default
         "CAT-003" = $CAT003VariantProps.Default
+        "CAT-004" = $CAT004VariantProps.Default
         "PIM-001" = $PIM001VariantProps.Default
         "PIM-002" = $PIM002VariantProps.Default
         "PIM-003" = $PIM003VariantProps.Default
@@ -8721,6 +8748,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[CAT] Skipping Catalog findings because Catalog RBAC assessment data is unavailable."
         Set-FindingOverride -FindingId "CAT-001" -Props $catalogFindingsSkippedProps
         Set-FindingOverride -FindingId "CAT-002" -Props $catalogFindingsSkippedProps
+        Set-FindingOverride -FindingId "CAT-004" -Props $catalogFindingsSkippedProps
     } else {
         $cat001Affected = [System.Collections.Generic.List[object]]::new()
         $cat002Affected = [System.Collections.Generic.List[object]]::new()
@@ -8846,6 +8874,103 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Set-FindingOverride -FindingId "CAT-002" -Props $catalogFindingsPartialNoMatchProps
         } else {
             Set-FindingOverride -FindingId "CAT-002" -Props $CAT002VariantProps.Secure
+        }
+
+        $cat004AffectedByKey = @{}
+        $addCatalogServicePrincipalCandidates = {
+            param(
+                [hashtable]$Identities,
+                [string]$IdentityType,
+                [string]$ReportFilePrefix
+            )
+
+            if ($null -eq $Identities) { return }
+            foreach ($identityEntry in $Identities.GetEnumerator()) {
+                $identity = $identityEntry.Value
+                if ($null -eq $identity -or -not $identity.PSObject.Properties['CatalogRbacDetails']) { continue }
+
+                $enabledProperty = $identity.PSObject.Properties['Enabled']
+                if ($null -ne $enabledProperty) {
+                    $enabled = ($enabledProperty.Value -eq $true -or [string]$enabledProperty.Value -eq 'true')
+                    if (-not $enabled) { continue }
+                }
+
+                $identityId = if ($identity.PSObject.Properties['Id']) { [string]$identity.Id } else { [string]$identityEntry.Key }
+                if ([string]::IsNullOrWhiteSpace($identityId)) { continue }
+                $identityName = if (-not [string]::IsNullOrWhiteSpace([string]$identity.DisplayName)) { [string]$identity.DisplayName } else { $identityId }
+                $foreign = ($identity.PSObject.Properties['Foreign'] -and ($identity.Foreign -eq $true -or [string]$identity.Foreign -eq 'true'))
+
+                foreach ($detail in @($identity.CatalogRbacDetails)) {
+                    if ($null -eq $detail) { continue }
+                    $role = [string]$detail.Role
+                    if ($role -notin @('Catalog Owner','Access Package Manager','Access Package Assignment Manager')) { continue }
+                    $catalogId = [string]$detail.CatalogId
+                    $rolePotentialImpact = Get-CatalogRolePotentialImpact -CatalogId $catalogId -Role $role
+                    if ($rolePotentialImpact -lt 100) { continue }
+
+                    $candidateKey = "$identityId|$catalogId|$role".ToLowerInvariant()
+                    if ($cat004AffectedByKey.ContainsKey($candidateKey)) { continue }
+                    $encodedIdentityName = ConvertTo-EntraFalconHtmlText $identityName -DefaultValue '-'
+                    $identityLink = "<a href=`"$ReportFilePrefix`_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$identityId`" target=`"_blank`">$encodedIdentityName</a>"
+                    $catalogName = if (-not [string]::IsNullOrWhiteSpace([string]$detail.Catalog)) { [string]$detail.Catalog } else { $catalogId }
+                    $encodedCatalogName = ConvertTo-EntraFalconHtmlText $catalogName -DefaultValue '-'
+                    $catalogLink = if ([string]::IsNullOrWhiteSpace($catalogId)) {
+                        $encodedCatalogName
+                    } else {
+                        "<a href=`"Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$catalogId`" target=`"_blank`">$encodedCatalogName</a>"
+                    }
+
+                    $cat004AffectedByKey[$candidateKey] = [pscustomobject][ordered]@{
+                        'Identity' = $identityLink
+                        'Type' = $IdentityType
+                        'Foreign' = [bool]$foreign
+                        'Catalog' = $catalogLink
+                        'Catalog Role' = $role
+                        'Assigned Via' = if ([string]::IsNullOrWhiteSpace([string]$detail.AssignedVia)) { 'Unknown' } else { [string]$detail.AssignedVia }
+                        'Catalog Enabled' = if ($detail.PSObject.Properties['CatalogEnabled']) { [bool]$detail.CatalogEnabled } else { '-' }
+                        'Catalog Impact' = [math]::Round([double]$rolePotentialImpact)
+                        '_SortImpact' = [double]$rolePotentialImpact
+                        '_SortIdentityId' = $identityId
+                    }
+                }
+            }
+        }
+
+        & $addCatalogServicePrincipalCandidates -Identities $EnterpriseApps -IdentityType 'Enterprise Application' -ReportFilePrefix 'EnterpriseApps'
+        & $addCatalogServicePrincipalCandidates -Identities $ManagedIdentities -IdentityType 'Managed Identity' -ReportFilePrefix 'ManagedIdentities'
+        & $addCatalogServicePrincipalCandidates -Identities $AgentIdentities -IdentityType 'Agent Identity' -ReportFilePrefix 'AgentIdentities'
+
+        $cat004Affected = @($cat004AffectedByKey.Values | Sort-Object @{ Expression = { [double]$_.'_SortImpact' }; Descending = $true },Type,Identity,'Catalog Role')
+        if ($cat004Affected.Count -gt 0) {
+            $cat004IdentityCount = @($cat004Affected | Select-Object -ExpandProperty '_SortIdentityId' -Unique).Count
+            $cat004ForeignCount = @($cat004Affected | Where-Object { $_.Foreign -eq $true }).Count
+            $cat004Impact400Count = @($cat004Affected | Where-Object { [double]$_.'Catalog Impact' -ge 400 }).Count
+            $cat004Severity = if ($cat004ForeignCount -gt 0 -or $cat004Impact400Count -gt 0) { 3 } else { 2 }
+            $cat004Description = "<p>$cat004IdentityCount enabled enterprise applications, managed identities, or enabled agent identities hold $($cat004Affected.Count) Catalog RBAC assignments with a potential impact of at least 100.</p>"
+            $cat004EscalationDetails = @()
+            if ($cat004ForeignCount -gt 0) {
+                $cat004EscalationDetails += "Foreign-controlled assignments: $cat004ForeignCount"
+            }
+            if ($cat004Impact400Count -gt 0) {
+                $cat004EscalationDetails += "Assignments with an impact of at least 400: $cat004Impact400Count"
+            }
+            if ($cat004EscalationDetails.Count -gt 0) {
+                $cat004Description += "<p>$($cat004EscalationDetails -join '<br>')</p>"
+            }
+            Write-Log -Level Verbose -Message "[CAT-004] Found $($cat004Affected.Count) high-impact Catalog RBAC assignments across $cat004IdentityCount service principals; foreign assignments=$cat004ForeignCount, impact>=400 assignments=$cat004Impact400Count."
+            Set-FindingOverride -FindingId "CAT-004" -Props $CAT004VariantProps.Vulnerable
+            Set-FindingOverride -FindingId "CAT-004" -Props @{
+                Severity = $cat004Severity
+                Description = $cat004Description
+                AffectedObjects = $cat004Affected
+                AffectedSortKey = "_SortImpact"
+                AffectedSortDir = "DESC"
+                RelatedReportUrl = "Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?CatalogRBAC=%3E0&Impact=%3E%3D100&columns=Catalog%2CEnabled%2CCatalogResources%2CAccessPackages%2CCatalogRBAC%2COwners%2CPackageManagers%2CAssignmentManagers%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Impact&sortDir=desc"
+            }
+        } elseif ($catalogAssessmentPartial) {
+            Set-FindingOverride -FindingId "CAT-004" -Props $catalogFindingsPartialNoMatchProps
+        } else {
+            Set-FindingOverride -FindingId "CAT-004" -Props $CAT004VariantProps.Secure
         }
     }
 
