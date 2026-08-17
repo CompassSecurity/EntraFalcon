@@ -1296,21 +1296,13 @@ function Invoke-CheckGroups {
 
         #Check if group is dynamic
         if ($group.Dynamic -eq $true) {
-            if ($AppRoleAssignments.count -ge 1) { 
-                $ForAppRoles = " used for AppRoles"
-            } else {
-                $ForAppRoles = ""
-            }
-
             #Search for potential dangerous queries
             if ($group.MembershipRule -match "user.userPrincipalName " -or $group.MembershipRule -match "user.otherMail " -or $group.MembershipRule -match "user.mail" -or $group.MembershipRule -match "user.PreferredLanguage" -or $group.MembershipRule -match "user.MobilePhone" -or $group.MembershipRule -match "user.BusinessPhones") {
-                $DangerousQuery = "with potentially dangerous query"
+                [void]$Warnings.Add("Dynamic group with potentially dangerous query")
                 $LikelihoodScore += $GroupLikelihoodScore["DynamicGroupDangerous"]
             } else {
-                $DangerousQuery = ""
                 $LikelihoodScore += $GroupLikelihoodScore["DynamicGroup"]
             }
-            [void]$Warnings.Add("Dynamic group $DangerousQuery $ForAppRoles")
         }
 
         #Check app roles
