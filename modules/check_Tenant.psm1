@@ -3296,8 +3296,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             if ($app.Enabled -eq $true -and $app.SAML -eq $false -and $app.Credentials -gt 0) {
                 $entAppsWithSecrets.Add($app)
             }
-            $localStatus = if ($app.PSObject.Properties['LocalStatus']) { $app.LocalStatus } else { $app.Enabled }
-            if ($localStatus -eq $true -and $app.Inactive -eq $true) {
+            $enabledInTenant = if ($app.PSObject.Properties['EnabledInTenant']) {
+                $app.EnabledInTenant
+            } elseif ($app.PSObject.Properties['LocalStatus']) {
+                $app.LocalStatus
+            } else {
+                $app.Enabled
+            }
+            if ($enabledInTenant -eq $true -and $app.Inactive -eq $true) {
                 $entAppsInactiveLocallyEnabled.Add($app)
             }
             $impactValue = Get-IntSafe $app.Impact
@@ -5226,7 +5232,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[ENT-002] Found $($entAppsInactiveLocallyEnabled.Count) inactive enterprise apps that are enabled in the assessed tenant."
         Set-FindingOverride -FindingId "ENT-002" -Props $ENT002VariantProps.Vulnerable
         Set-FindingOverride -FindingId "ENT-002" -Props @{
-            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Inactive=%3Dtrue&LocalStatus=%3Dtrue&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CInactive%2CLastSignInDays%2CCreationInDays%2COwners%2CGrpMem%2CGrpOwn%2CAppOwn%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiLow%2CApiMisc%2CApiDelegated%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=LastSignInDays&sortDir=desc"
+            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Inactive=%3Dtrue&EnabledInTenant=%3Dtrue&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CInactive%2CLastSignInDays%2CCreationInDays%2COwners%2CGrpMem%2CGrpOwn%2CAppOwn%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiLow%2CApiMisc%2CApiDelegated%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=LastSignInDays&sortDir=desc"
             AffectedSortKey = "Last sign-in (days)"
             AffectedSortDir = "DESC"
         }

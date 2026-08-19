@@ -502,7 +502,7 @@ $global:GLOBALJavaScript_Table = @'
                     label: "Inactive Apps",
                     filters: {
                         Inactive: "=true",
-                        LocalStatus: "=true"
+                        EnabledInTenant: "=true"
                     },
                     columns: ["DisplayName", "PublisherName", "Foreign", "Enabled", "Inactive", "LastSignInDays", "CreationInDays", "Owners", "GrpMem", "GrpOwn", "AppOwn", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxTier", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "ApiDelegated", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "LastSignInDays", direction: "desc" }
@@ -1569,7 +1569,7 @@ $global:GLOBALJavaScript_Table = @'
         };
 
         //Define columns which are hidden by default
-        const defaultHidden = ["DeviceReg", "DeviceOwn", "LicenseStatus", "OwnersSynced", "DefaultMS", "CreationInDays", "AppRoleRequired", "SAML", "RoleAssignable", "LastSignInDays", "CreatedDays", "ParentBlueprintDisplayName", "ForeignAgent", "LocalStatus", "ActiveAssignJustification","AlertAssignEligible","AlertAssignActive", "AlertActivation", "EligibleExpirationTime", "ActiveExpirationTime", "SignInFrequency", "SignInFrequencyInterval", "ApiDelegatedDangerous", "ApiDelegatedHigh", "ApiDelegatedMedium", "ApiDelegatedLow", "ApiDelegatedMisc", "IncUsersViaGroups", "ExcUsersViaGroups", "PerUserMfa", "ExcUsersViaRoles", "IncUsersViaRoles"];
+        const defaultHidden = ["DeviceReg", "DeviceOwn", "LicenseStatus", "OwnersSynced", "DefaultMS", "CreationInDays", "AppRoleRequired", "SAML", "RoleAssignable", "LastSignInDays", "CreatedDays", "ParentBlueprintDisplayName", "ForeignAgent", "EnabledInTenant", "ActiveAssignJustification","AlertAssignEligible","AlertAssignActive", "AlertActivation", "EligibleExpirationTime", "ActiveExpirationTime", "SignInFrequency", "SignInFrequencyInterval", "ApiDelegatedDangerous", "ApiDelegatedHigh", "ApiDelegatedMedium", "ApiDelegatedLow", "ApiDelegatedMisc", "IncUsersViaGroups", "ExcUsersViaGroups", "PerUserMfa", "ExcUsersViaRoles", "IncUsersViaRoles"];
 
         // Hide low-information columns by default when every row contains the same value. The column remains available in the Columns menu.
         const conditionalDefaultHiddenRules = [
@@ -1922,7 +1922,7 @@ $global:GLOBALJavaScript_Table = @'
             "CloudAppAdmins": "Cloud App Admins scoped to tenant or app",
             "MfaCap": "User has one or more MFA methods registered",
             "Inactive": "No successful sign-in during the last 180+ days",
-            "LocalStatus": "Whether the SP is enabled in this tenant.",
+            "EnabledInTenant": "Whether the SP is enabled in this tenant.",
             "AppRoles": "Application roles assigned",
             "GrpMem": "Member of groups",
             "GrpOwn": "Owner of groups",
@@ -3841,7 +3841,7 @@ $global:GLOBALJavaScript_Table = @'
             const isDark = document.body.classList.contains("dark-mode");
 
             const redIfTrueHeaders = new Set(['Foreign', 'ForeignAgent', 'Inactive', 'PIM', 'Dynamic', 'SecurityEnabled', 'OnPrem', 'Conditions', 'IsBuiltIn', 'IsPrivileged', 'SAML', 'Agent', 'ActivatedViaPIM', 'SelfAdd', 'AutoAssignment', 'APAutoAssign', 'Hidden', 'OnBehalfAdd', 'BroadScope', 'ExternallyVisible', 'SeparationOfDuties']);
-            const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'LocalStatus', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview', 'PolicyEnabled', 'CatalogEnabled']);
+            const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'EnabledInTenant', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview', 'PolicyEnabled', 'CatalogEnabled']);
             const redIfContent = new Set(['all', 'alltrusted', 'report-only', 'disabled', 'public', 'guest', 'customrole', 'active', 'tier-0', 'tier-1', 'tier-2', 'all users', 'all internal users', 'all service principals', 'all agent identities', 'all external users', 'all external orgs']);
             const redIfContentHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms', 'State', 'Visibility', 'UserType', 'RoleType', 'AssignmentType', 'EntraMaxTier', 'AzureMaxTier', 'PerUserMfa', 'AllowedTargetScope']);
 
