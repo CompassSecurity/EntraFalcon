@@ -1197,6 +1197,19 @@ function Invoke-CheckEnterpriseApps {
             $Warnings += "Identity Governance management role assigned"
         }
 
+        $SPNameAssessment = $null
+        $SuspiciousName = $false
+        $SuspiciousNameLikelihoodContribution = 0
+        if ($ForeignTenant -eq $true -and $DefaultMS -eq $false) {
+            $SPNameAssessment = Get-EntraFalconSPNameAssessment -DisplayName $item.DisplayName
+            $SuspiciousName = [bool]$SPNameAssessment.IsSuspicious
+            if ($SuspiciousName) {
+                $Warnings += "Possible impersonation via look-alike characters"
+                $SuspiciousNameLikelihoodContribution = 50
+                $LikelihoodScore += $SuspiciousNameLikelihoodContribution
+            }
+        }
+
         #Format warning messages
         $Warnings = if ($null -ne $Warnings) {
             $Warnings -join ' / '
@@ -1286,6 +1299,9 @@ function Invoke-CheckEnterpriseApps {
             ApiMisc = $AppApiPermissionUncategorized
             KnownMaliciousApplication = ($null -ne $KnownMaliciousApp)
             KnownMaliciousSourceUrl = $KnownMaliciousApp
+            SPNameAssessment = $SPNameAssessment
+            SuspiciousName = $SuspiciousName
+            SuspiciousNameLikelihoodContribution = $SuspiciousNameLikelihoodContribution
             Impact = $ImpactScore
             Likelihood = $LikelihoodScore
             Risk = $ImpactScore * $LikelihoodScore

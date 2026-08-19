@@ -11040,6 +11040,152 @@ function Write-Log {
 
 
 
+function Get-EntraFalconSPNameAssessment {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory=$false)][AllowNull()][string]$DisplayName
+    )
+
+    $originalDisplayName = if ($null -eq $DisplayName) { '' } else { $DisplayName }
+    $analysisDisplayName = $originalDisplayName.Normalize([System.Text.NormalizationForm]::FormKC)
+    $confusableMap = @{
+        0x0405 = [pscustomobject]@{ Latin = 'S'; Script = 'Cyrillic' }
+        0x0406 = [pscustomobject]@{ Latin = 'I'; Script = 'Cyrillic' }
+        0x0408 = [pscustomobject]@{ Latin = 'J'; Script = 'Cyrillic' }
+        0x0410 = [pscustomobject]@{ Latin = 'A'; Script = 'Cyrillic' }
+        0x0412 = [pscustomobject]@{ Latin = 'B'; Script = 'Cyrillic' }
+        0x0415 = [pscustomobject]@{ Latin = 'E'; Script = 'Cyrillic' }
+        0x041A = [pscustomobject]@{ Latin = 'K'; Script = 'Cyrillic' }
+        0x041C = [pscustomobject]@{ Latin = 'M'; Script = 'Cyrillic' }
+        0x041D = [pscustomobject]@{ Latin = 'H'; Script = 'Cyrillic' }
+        0x041E = [pscustomobject]@{ Latin = 'O'; Script = 'Cyrillic' }
+        0x0420 = [pscustomobject]@{ Latin = 'P'; Script = 'Cyrillic' }
+        0x0421 = [pscustomobject]@{ Latin = 'C'; Script = 'Cyrillic' }
+        0x0422 = [pscustomobject]@{ Latin = 'T'; Script = 'Cyrillic' }
+        0x0423 = [pscustomobject]@{ Latin = 'Y'; Script = 'Cyrillic' }
+        0x0425 = [pscustomobject]@{ Latin = 'X'; Script = 'Cyrillic' }
+        0x0430 = [pscustomobject]@{ Latin = 'a'; Script = 'Cyrillic' }
+        0x0433 = [pscustomobject]@{ Latin = 'r'; Script = 'Cyrillic' }
+        0x0435 = [pscustomobject]@{ Latin = 'e'; Script = 'Cyrillic' }
+        0x043E = [pscustomobject]@{ Latin = 'o'; Script = 'Cyrillic' }
+        0x043F = [pscustomobject]@{ Latin = 'n'; Script = 'Cyrillic' }
+        0x0440 = [pscustomobject]@{ Latin = 'p'; Script = 'Cyrillic' }
+        0x0441 = [pscustomobject]@{ Latin = 'c'; Script = 'Cyrillic' }
+        0x0443 = [pscustomobject]@{ Latin = 'y'; Script = 'Cyrillic' }
+        0x0445 = [pscustomobject]@{ Latin = 'x'; Script = 'Cyrillic' }
+        0x0455 = [pscustomobject]@{ Latin = 's'; Script = 'Cyrillic' }
+        0x0456 = [pscustomobject]@{ Latin = 'i'; Script = 'Cyrillic' }
+        0x0458 = [pscustomobject]@{ Latin = 'j'; Script = 'Cyrillic' }
+        0x0391 = [pscustomobject]@{ Latin = 'A'; Script = 'Greek' }
+        0x0392 = [pscustomobject]@{ Latin = 'B'; Script = 'Greek' }
+        0x0395 = [pscustomobject]@{ Latin = 'E'; Script = 'Greek' }
+        0x0396 = [pscustomobject]@{ Latin = 'Z'; Script = 'Greek' }
+        0x0397 = [pscustomobject]@{ Latin = 'H'; Script = 'Greek' }
+        0x0399 = [pscustomobject]@{ Latin = 'I'; Script = 'Greek' }
+        0x039A = [pscustomobject]@{ Latin = 'K'; Script = 'Greek' }
+        0x039C = [pscustomobject]@{ Latin = 'M'; Script = 'Greek' }
+        0x039D = [pscustomobject]@{ Latin = 'N'; Script = 'Greek' }
+        0x039F = [pscustomobject]@{ Latin = 'O'; Script = 'Greek' }
+        0x03A1 = [pscustomobject]@{ Latin = 'P'; Script = 'Greek' }
+        0x03A4 = [pscustomobject]@{ Latin = 'T'; Script = 'Greek' }
+        0x03A5 = [pscustomobject]@{ Latin = 'Y'; Script = 'Greek' }
+        0x03A7 = [pscustomobject]@{ Latin = 'X'; Script = 'Greek' }
+        0x03B1 = [pscustomobject]@{ Latin = 'a'; Script = 'Greek' }
+        0x03B9 = [pscustomobject]@{ Latin = 'i'; Script = 'Greek' }
+        0x03BA = [pscustomobject]@{ Latin = 'k'; Script = 'Greek' }
+        0x03BD = [pscustomobject]@{ Latin = 'v'; Script = 'Greek' }
+        0x03BF = [pscustomobject]@{ Latin = 'o'; Script = 'Greek' }
+        0x03C1 = [pscustomobject]@{ Latin = 'p'; Script = 'Greek' }
+        0x03C4 = [pscustomobject]@{ Latin = 't'; Script = 'Greek' }
+        0x03C5 = [pscustomobject]@{ Latin = 'u'; Script = 'Greek' }
+        0x03C7 = [pscustomobject]@{ Latin = 'x'; Script = 'Greek' }
+    }
+
+    $mappedBuilder = New-Object System.Text.StringBuilder
+    foreach ($character in $analysisDisplayName.ToCharArray()) {
+        $codePoint = [int][char]$character
+        if ($confusableMap.ContainsKey($codePoint)) {
+            [void]$mappedBuilder.Append($confusableMap[$codePoint].Latin)
+        } else {
+            [void]$mappedBuilder.Append([string]$character)
+        }
+    }
+
+    $indicators = [System.Collections.Generic.List[object]]::new()
+    $tokenMatches = [regex]::Matches($analysisDisplayName, '[\p{L}\p{M}\p{Nd}]+')
+    foreach ($tokenMatch in $tokenMatches) {
+        $token = $tokenMatch.Value
+        $latinLetterCount = 0
+        $nonLatinLetterCount = 0
+        $mappedCharacters = @{}
+
+        foreach ($character in $token.ToCharArray()) {
+            $category = [Globalization.CharUnicodeInfo]::GetUnicodeCategory($character)
+            if ($category -notin @(
+                [Globalization.UnicodeCategory]::UppercaseLetter,
+                [Globalization.UnicodeCategory]::LowercaseLetter,
+                [Globalization.UnicodeCategory]::TitlecaseLetter,
+                [Globalization.UnicodeCategory]::ModifierLetter,
+                [Globalization.UnicodeCategory]::OtherLetter
+            )) {
+                continue
+            }
+
+            $codePoint = [int][char]$character
+            $isLatin = (
+                ($codePoint -ge 0x0041 -and $codePoint -le 0x005A) -or
+                ($codePoint -ge 0x0061 -and $codePoint -le 0x007A) -or
+                ($codePoint -ge 0x00C0 -and $codePoint -le 0x024F) -or
+                ($codePoint -ge 0x1D00 -and $codePoint -le 0x1D7F) -or
+                ($codePoint -ge 0x1D80 -and $codePoint -le 0x1DBF) -or
+                ($codePoint -ge 0x1E00 -and $codePoint -le 0x1EFF) -or
+                ($codePoint -ge 0xA720 -and $codePoint -le 0xA7FF) -or
+                ($codePoint -ge 0xAB30 -and $codePoint -le 0xAB6F)
+            )
+            if ($isLatin) {
+                $latinLetterCount += 1
+            } else {
+                $nonLatinLetterCount += 1
+            }
+
+            if ($confusableMap.ContainsKey($codePoint)) {
+                if (-not $mappedCharacters.ContainsKey($codePoint)) {
+                    $mappedCharacters[$codePoint] = 0
+                }
+                $mappedCharacters[$codePoint] += 1
+            }
+        }
+
+        if ($latinLetterCount -lt 2 -or $mappedCharacters.Count -eq 0 -or $latinLetterCount -le $nonLatinLetterCount) {
+            continue
+        }
+
+        foreach ($codePoint in @($mappedCharacters.Keys | Sort-Object)) {
+            $mapping = $confusableMap[$codePoint]
+            $indicators.Add([pscustomobject]@{
+                SuspiciousCharacter = [string][char]$codePoint
+                UnicodeCodePoint = ('U+{0:X4}' -f $codePoint)
+                Script = $mapping.Script
+                LatinEquivalent = $mapping.Latin
+                MatchedToken = $token
+                OccurrenceCount = $mappedCharacters[$codePoint]
+            })
+        }
+    }
+
+    $isSuspicious = $indicators.Count -gt 0
+    [pscustomobject]@{
+        IsSuspicious = $isSuspicious
+        RuleId = if ($isSuspicious) { 'MixedScriptHomoglyph' } else { $null }
+        OriginalDisplayName = $originalDisplayName
+        MappedDisplayName = $mappedBuilder.ToString()
+        Reason = if ($isSuspicious) { 'Predominantly Latin token contains visually confusable Greek or Cyrillic characters.' } else { $null }
+        Indicators = @($indicators)
+    }
+}
+
+
+
 function Show-EntraFalconBanner {
     [CmdletBinding()]
     Param (
@@ -11061,4 +11207,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment

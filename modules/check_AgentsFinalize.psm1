@@ -1230,6 +1230,30 @@ Execution Warnings = $($WarningList -join ' / ')
             $principal.Warnings = Add-UniqueWarningText -ExistingWarnings $principal.Warnings -NewWarning $assumedDelegatedInheritanceWarning
         }
 
+        $previousNameLikelihoodContribution = 0
+        if ($principal.PSObject.Properties['SuspiciousNameLikelihoodContribution']) {
+            [int]::TryParse("$($principal.SuspiciousNameLikelihoodContribution)", [ref]$previousNameLikelihoodContribution) | Out-Null
+        }
+        if ($previousNameLikelihoodContribution -gt 0) {
+            $principal.Likelihood = [math]::Max(0, ([double]$principal.Likelihood - $previousNameLikelihoodContribution))
+        }
+
+        $SPNameAssessment = $null
+        $SuspiciousName = $false
+        $SuspiciousNameLikelihoodContribution = 0
+        if ($principal.Foreign -eq $true -and $principal.DefaultMS -eq $false) {
+            $SPNameAssessment = Get-EntraFalconSPNameAssessment -DisplayName $principal.DisplayName
+            $SuspiciousName = [bool]$SPNameAssessment.IsSuspicious
+            if ($SuspiciousName) {
+                $principal.Warnings = Add-UniqueWarningText -ExistingWarnings $principal.Warnings -NewWarning "Possible impersonation via look-alike characters"
+                $SuspiciousNameLikelihoodContribution = 50
+                $principal.Likelihood += $SuspiciousNameLikelihoodContribution
+            }
+        }
+        $principal | Add-Member -NotePropertyName SPNameAssessment -NotePropertyValue $SPNameAssessment -Force
+        $principal | Add-Member -NotePropertyName SuspiciousName -NotePropertyValue $SuspiciousName -Force
+        $principal | Add-Member -NotePropertyName SuspiciousNameLikelihoodContribution -NotePropertyValue $SuspiciousNameLikelihoodContribution -Force
+
         $principal | Add-Member -NotePropertyName BlueprintPrincipalEffectiveAppApiPermission -NotePropertyValue @($effectiveBlueprintPrincipalAppPermissions) -Force
         $principal | Add-Member -NotePropertyName DirectImpact -NotePropertyValue ([math]::Round($baseDirectImpact + [double]$effectiveBlueprintPrincipalApiSummary.Impact)) -Force
         $principal | Add-Member -NotePropertyName InheritedImpact -NotePropertyValue ([math]::Round($inheritedImpact)) -Force

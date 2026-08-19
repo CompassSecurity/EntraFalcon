@@ -22,6 +22,7 @@ function Invoke-CheckTenant {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory=$false)][Object[]]$TenantPimForGroupsAssignments,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprints,
+        [Parameter(Mandatory=$false)][hashtable]$AgentIdentityBlueprintsPrincipals,
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities,
         [Parameter(Mandatory=$false)][hashtable]$AccessPackages,
         [Parameter(Mandatory=$false)][bool]$AccessPackagesAssessmentAvailable = $false,
@@ -50,6 +51,25 @@ function Invoke-CheckTenant {
         if ($null -eq $Value) { return 0 }
         [int]::TryParse("$Value", [ref]$n) | Out-Null
         return $n
+    }
+
+    function Test-SPNameFindingCritical {
+        param([object]$ServicePrincipal)
+
+        if ($null -eq $ServicePrincipal) { return $false }
+        if ((Get-IntSafe $ServicePrincipal.ApiDangerous) -gt 0 -or
+            (Get-IntSafe $ServicePrincipal.ApiHigh) -gt 0 -or
+            (Get-IntSafe $ServicePrincipal.ApiDelegatedDangerous) -gt 0 -or
+            (Get-IntSafe $ServicePrincipal.ApiDelegatedHigh) -gt 0) {
+            return $true
+        }
+
+        if ("$($ServicePrincipal.EntraMaxTier)" -in @('Tier-0','Tier-1') -or
+            "$($ServicePrincipal.AzureMaxTier)" -in @('Tier-0','Tier-1')) {
+            return $true
+        }
+
+        return (Get-IntSafe $ServicePrincipal.Impact) -ge 100
     }
 
     function Get-CatalogRolePotentialImpact {
@@ -1247,6 +1267,18 @@ function Invoke-CheckTenant {
     "AffectedObjects": []
   },
   {
+    "FindingId": "ENT-014",
+    "Title": "Enterprise Applications with Suspicious Names",
+    "Category": "Enterprise Applications",
+    "Severity": 3,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
     "FindingId": "APP-001",
     "Title": "App Registrations with Secrets",
     "Category": "App Registrations",
@@ -1479,6 +1511,18 @@ function Invoke-CheckTenant {
     "Title": "Blueprints with Non-Tier-0 Owner",
     "Category": "Agent Identities",
     "Severity": 2,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
+    "FindingId": "AGT-018",
+    "Title": "Agent Blueprint Principals with Suspicious Names",
+    "Category": "Agent Identities",
+    "Severity": 3,
     "Description": "",
     "Threat": "",
     "Status": "NotVulnerable",
@@ -2450,6 +2494,28 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Description = "<p>No enterprise applications were identified that match the list of known malicious applications.</p>"
         }
     }
+    $ENT014VariantProps = @{
+        Default = @{
+            Threat = "<p>A malicious application may use visually confusable Greek or Cyrillic characters in its name to imitate a trusted application. This technique can make a fraudulent application appear legitimate and may make suspicious consent requests or application activity harder for users and administrators to recognize.</p><p>If users or administrators mistake the application for a trusted one, they may grant permissions or overlook unexpected access.</p>"
+            Remediation = '<p>Verify the application''s identity, publisher, and business purpose with the expected application owner or vendor. Review its permissions, consent grants, owners, and role assignments for unexpected or excessive access.</p><p>If the application cannot be clearly validated, disable or remove it and revoke any associated permissions or consent grants. In this case, consider performing a security investigation to determine whether the application has already been used for unauthorized or malicious activity. This should include reviewing relevant sign-in, audit, and application activity logs for suspicious access or changes.</p><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app</a></li><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing</a></li></ul>'
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Confidence = "Requires Verification"
+            Description = "<p>No assessed foreign, non-Microsoft enterprise applications used Latin characters but also contained visually similar Greek or Cyrillic characters.</p>"
+        }
+        Skipped = @{
+            Status = "Skipped"
+            Confidence = "Requires Verification"
+            Description = "<p>The check was skipped because one or more in-scope enterprise applications did not contain a cached name assessment.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
+    }
     #endregion
     #region APP VariantProps
     $APP001VariantProps = @{
@@ -2806,6 +2872,28 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             RelatedReportUrl = ""
         }
     }
+    $AGT018VariantProps = @{
+        Default = @{
+            Threat = "<p>A malicious agent blueprint principal may use visually confusable Greek or Cyrillic characters in its name to imitate a trusted application or agent. This technique can make a fraudulent principal appear legitimate and may make suspicious consent requests or application activity harder for users and administrators to recognize.</p><p>If users or administrators mistake the principal for a trusted one, they may grant permissions or overlook unexpected access.</p>"
+            Remediation = '<p>Verify the principal''s identity, publisher, and business purpose with the expected blueprint owner or vendor. Review its permissions, consent grants, owners, and role assignments for unexpected or excessive access.</p><p>If the principal cannot be clearly validated, disable or remove it and revoke any associated permissions or consent grants. In this case, consider performing a security investigation to determine whether the principal has already been used for unauthorized or malicious activity. This should include reviewing relevant sign-in, audit, and application activity logs for suspicious access or changes.</p><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app</a></li><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing</a></li></ul>'
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Confidence = "Requires Verification"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Confidence = "Requires Verification"
+            Description = "<p>No assessed foreign, non-Microsoft agent blueprint principals that primarily used Latin characters but also contained visually similar Greek or Cyrillic characters.</p>"
+        }
+        Skipped = @{
+            Status = "Skipped"
+            Confidence = "Requires Verification"
+            Description = "<p>The check was skipped because one or more in-scope agent blueprint principals did not contain a cached name assessment.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
+    }
     #endregion
     #region MAI VariantProps
     $MAI001VariantProps = @{
@@ -3102,6 +3190,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "ENT-011" = $ENT011VariantProps.Default
         "ENT-012" = $ENT012VariantProps.Default
         "ENT-013" = $ENT013VariantProps.Default
+        "ENT-014" = $ENT014VariantProps.Default
         "APP-001" = $APP001VariantProps.Default
         "APP-002" = $APP002VariantProps.Default
         "APP-003" = $APP003VariantProps.Default
@@ -3122,6 +3211,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "AGT-015" = $AGT015VariantProps.Default
         "AGT-016" = $AGT016VariantProps.Default
         "AGT-017" = $AGT017VariantProps.Default
+        "AGT-018" = $AGT018VariantProps.Default
         "MAI-001" = $MAI001VariantProps.Default
         "MAI-002" = $MAI002VariantProps.Default
         "MAI-003" = $MAI003VariantProps.Default
@@ -3157,13 +3247,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     ############################## Enumeration section ########################
     #region Enumeration And Check Evaluation
     #region Enumeration: Enterprise Applications
-    # ENT-001/ENT-002/ENT-003/ENT-004/ENT-005/ENT-006/ENT-007/ENT-008/ENT-009/ENT-010/ENT-011/ENT-012/ENT-013: Reuse a single pass over enterprise apps.
+    # ENT-001/ENT-002/ENT-003/ENT-004/ENT-005/ENT-006/ENT-007/ENT-008/ENT-009/ENT-010/ENT-011/ENT-012/ENT-013/ENT-014: Reuse a single pass over enterprise apps.
     # ENT-001 = enabled + non-SAML + credentials; ENT-002 = enabled + inactive; ENT-003 = enabled + owners + impact>=threshold;
     # ENT-004 = enabled + foreign + extensive API permissions (application); ENT-005 = enabled + foreign + extensive API permissions (delegated);
     # ENT-006 = enabled + foreign + Entra ID roles; ENT-007 = enabled + foreign + Azure roles; ENT-008 = enabled + foreign + owns groups/apps/SPs;
     # ENT-009 = enabled + internal + extensive API permissions (application) excluding ConnectSyncProvisioning_;
     # ENT-010 = enabled + internal + extensive API permissions (delegated);
-    # ENT-011 = enabled + internal + Entra max tier 0/1; ENT-012 = enabled + internal + Azure max tier 0/1; ENT-013 = known malicious AppId match.
+    # ENT-011 = enabled + internal + Entra max tier 0/1; ENT-012 = enabled + internal + Azure max tier 0/1; ENT-013 = known malicious AppId match;
+    # ENT-014 = foreign + non-Microsoft + suspicious cached name assessment.
     $ownerFindingMinImpact = 50
     $blueprintOwnerFindingMinImpact = 200
     $entAppsWithSecrets = [System.Collections.Generic.List[object]]::new()
@@ -3179,6 +3270,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $entAppsInternalTier0 = [System.Collections.Generic.List[object]]::new()
     $entAppsInternalAzureTier = [System.Collections.Generic.List[object]]::new()
     $entAppsKnownMalicious = [System.Collections.Generic.List[object]]::new()
+    $entAppsSuspiciousNames = [System.Collections.Generic.List[object]]::new()
+    $entAppsSuspiciousNameInScopeCount = 0
+    $entAppsSuspiciousNameMissingAssessmentCount = 0
     $enterpriseAppIds = @{}
     if ($EnterpriseApps) {
         write-host "[*] Analyzing Enterprise Applications"
@@ -3186,6 +3280,16 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $enterpriseAppIds[$entry.Key] = $true
             $app = $entry.Value
             if (-not $app) { continue }
+            if ($app.Foreign -eq $true -and $app.DefaultMS -eq $false) {
+                $entAppsSuspiciousNameInScopeCount += 1
+                if ($app.PSObject.Properties['SPNameAssessment'] -and $null -ne $app.SPNameAssessment) {
+                    if ($app.SPNameAssessment.IsSuspicious -eq $true) {
+                        $entAppsSuspiciousNames.Add($app)
+                    }
+                } else {
+                    $entAppsSuspiciousNameMissingAssessmentCount += 1
+                }
+            }
             if (-not [string]::IsNullOrWhiteSpace("$($app.KnownMaliciousSourceUrl)")) {
                 $entAppsKnownMalicious.Add($app)
             }
@@ -3310,6 +3414,29 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 if ((Get-IntSafe $blueprint.Owners) -gt 0 -and $blueprintImpactValue -ge $blueprintOwnerFindingMinImpact) {
                     $agentBlueprintsWithOwners.Add($blueprint)
                 }
+            }
+        }
+    }
+
+    #endregion
+
+    #region Enumeration: Agent Identity Blueprint Principals
+    # AGT-018 = foreign + non-Microsoft + suspicious cached name assessment.
+    $agentBlueprintPrincipalsSuspiciousNames = [System.Collections.Generic.List[object]]::new()
+    $agentBlueprintPrincipalSuspiciousNameInScopeCount = 0
+    $agentBlueprintPrincipalSuspiciousNameMissingAssessmentCount = 0
+    if ($AgentIdentityBlueprintsPrincipals) {
+        foreach ($entry in $AgentIdentityBlueprintsPrincipals.GetEnumerator()) {
+            $principal = $entry.Value
+            if (-not $principal -or $principal.Foreign -ne $true -or $principal.DefaultMS -ne $false) { continue }
+
+            $agentBlueprintPrincipalSuspiciousNameInScopeCount += 1
+            if ($principal.PSObject.Properties['SPNameAssessment'] -and $null -ne $principal.SPNameAssessment) {
+                if ($principal.SPNameAssessment.IsSuspicious -eq $true) {
+                    $agentBlueprintPrincipalsSuspiciousNames.Add($principal)
+                }
+            } else {
+                $agentBlueprintPrincipalSuspiciousNameMissingAssessmentCount += 1
             }
         }
     }
@@ -6154,6 +6281,46 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "ENT-013" -Props $ENT013VariantProps.Secure
     }
 
+    # ENT-014: Apply result for foreign non-Microsoft enterprise applications with suspicious names.
+    if ($entAppsSuspiciousNames.Count -gt 0) {
+        Write-Log -Level Verbose -Message "[ENT-014] Found $($entAppsSuspiciousNames.Count) foreign non-Microsoft enterprise applications with suspicious names."
+        Set-FindingOverride -FindingId "ENT-014" -Props $ENT014VariantProps.Vulnerable
+        $ent014Affected = [System.Collections.Generic.List[object]]::new()
+        $ent014Critical = $false
+        foreach ($app in $entAppsSuspiciousNames) {
+            if (Test-SPNameFindingCritical -ServicePrincipal $app) {
+                $ent014Critical = $true
+            }
+            foreach ($indicator in @($app.SPNameAssessment.Indicators)) {
+                $ent014Affected.Add([pscustomobject][ordered]@{
+                    "Display Name" = "<a href=`"EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($app.Id)`" target=`"_blank`">$($app.SPNameAssessment.OriginalDisplayName)</a>"
+                    "Enabled" = $app.Enabled
+                    "Suspicious Character" = $indicator.SuspiciousCharacter
+                    "Unicode Code Point" = $indicator.UnicodeCodePoint
+                    "Source Alphabet" = $indicator.Script
+                    "Latin Equivalent" = $indicator.LatinEquivalent
+                    "Matched Token" = $indicator.MatchedToken
+                    "Impact" = $app.Impact
+                })
+            }
+        }
+        Set-FindingOverride -FindingId "ENT-014" -Props @{
+            Severity = if ($ent014Critical) { 4 } else { 3 }
+            Confidence = "Requires Verification"
+            Description = "<p>$($entAppsSuspiciousNames.Count) foreign, non-Microsoft enterprise application(s) had a name that primarily used Latin characters but also contained visually similar Greek or Cyrillic characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate applications may also use such characters.</p>"
+            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Possible%20impersonation%20via%20look-alike%20characters"
+            AffectedSortKey = "Impact"
+            AffectedSortDir = "DESC"
+            AffectedObjects = $ent014Affected
+        }
+    } elseif ($entAppsSuspiciousNameMissingAssessmentCount -gt 0) {
+        Write-Log -Level Verbose -Message "[ENT-014] Skipped because $entAppsSuspiciousNameMissingAssessmentCount of $entAppsSuspiciousNameInScopeCount in-scope enterprise applications lack a cached name assessment."
+        Set-FindingOverride -FindingId "ENT-014" -Props $ENT014VariantProps.Skipped
+    } else {
+        Write-Log -Level Verbose -Message "[ENT-014] No suspicious names found among $entAppsSuspiciousNameInScopeCount assessed in-scope enterprise applications."
+        Set-FindingOverride -FindingId "ENT-014" -Props $ENT014VariantProps.Secure
+    }
+
     #endregion
 
     #region APP Evaluation
@@ -6563,6 +6730,46 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     } else {
         Write-Log -Level Verbose -Message "[AGT-017] No high-impact blueprints with owners found."
         Set-FindingOverride -FindingId "AGT-017" -Props $AGT017VariantProps.Secure
+    }
+
+    # AGT-018: Apply result for foreign non-Microsoft agent blueprint principals with suspicious names.
+    if ($agentBlueprintPrincipalsSuspiciousNames.Count -gt 0) {
+        Write-Log -Level Verbose -Message "[AGT-018] Found $($agentBlueprintPrincipalsSuspiciousNames.Count) foreign non-Microsoft agent blueprint principals with suspicious names."
+        Set-FindingOverride -FindingId "AGT-018" -Props $AGT018VariantProps.Vulnerable
+        $agt018Affected = [System.Collections.Generic.List[object]]::new()
+        $agt018Critical = $false
+        foreach ($principal in $agentBlueprintPrincipalsSuspiciousNames) {
+            if (Test-SPNameFindingCritical -ServicePrincipal $principal) {
+                $agt018Critical = $true
+            }
+            foreach ($indicator in @($principal.SPNameAssessment.Indicators)) {
+                $agt018Affected.Add([pscustomobject][ordered]@{
+                    "Display Name" = "<a href=`"AgentIdentityBlueprintsPrincipals_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($principal.Id)`" target=`"_blank`">$($principal.SPNameAssessment.OriginalDisplayName)</a>"
+                    "Enabled" = $principal.Enabled
+                    "Suspicious Character" = $indicator.SuspiciousCharacter
+                    "Unicode Code Point" = $indicator.UnicodeCodePoint
+                    "Source Alphabet" = $indicator.Script
+                    "Latin Equivalent" = $indicator.LatinEquivalent
+                    "Matched Token" = $indicator.MatchedToken
+                    "Impact" = $principal.Impact
+                })
+            }
+        }
+        Set-FindingOverride -FindingId "AGT-018" -Props @{
+            Severity = if ($agt018Critical) { 4 } else { 3 }
+            Confidence = "Requires Verification"
+            Description = "<p>$($agentBlueprintPrincipalsSuspiciousNames.Count) foreign, non-Microsoft agent blueprint principal(s) had a name that primarily used Latin characters but also contained visually similar Greek or Cyrillic characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate agent integrations may also use such characters.</p>"
+            RelatedReportUrl = "AgentIdentityBlueprintsPrincipals_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Possible%20impersonation%20via%20look-alike%20characters"
+            AffectedSortKey = "Impact"
+            AffectedSortDir = "DESC"
+            AffectedObjects = $agt018Affected
+        }
+    } elseif ($agentBlueprintPrincipalSuspiciousNameMissingAssessmentCount -gt 0) {
+        Write-Log -Level Verbose -Message "[AGT-018] Skipped because $agentBlueprintPrincipalSuspiciousNameMissingAssessmentCount of $agentBlueprintPrincipalSuspiciousNameInScopeCount in-scope agent blueprint principals lack a cached name assessment."
+        Set-FindingOverride -FindingId "AGT-018" -Props $AGT018VariantProps.Skipped
+    } else {
+        Write-Log -Level Verbose -Message "[AGT-018] No suspicious names found among $agentBlueprintPrincipalSuspiciousNameInScopeCount assessed in-scope agent blueprint principals."
+        Set-FindingOverride -FindingId "AGT-018" -Props $AGT018VariantProps.Secure
     }
 
     # AGT-002: Apply result for enabled foreign agent identities with extensive application API permissions.
@@ -15898,7 +16105,7 @@ $FindingsJson
 "@
 
     Set-GlobalReportManifest -CurrentReportKey $ReportKey -CurrentReportName $ReportName
-    $HeadCombined = "<title>EF - Security Findings</title>`n" + $global:GLOBALReportManifestScript + $global:GLOBALCss + $extraCss
+    $HeadCombined = "<meta charset=`"utf-8`">`n<title>EF - Security Findings</title>`n" + $global:GLOBALReportManifestScript + $global:GLOBALCss + $extraCss
     $PostContentCombined = $global:GLOBALJavaScript_Nav + "`n" + $chartJsEmbedded + "`n" + $customScript
 
     $statusCounts = @{
