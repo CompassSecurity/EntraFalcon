@@ -2356,13 +2356,13 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
     $ENT002VariantProps = @{
         Default = @{
-            Threat = "<p>Inactive enterprise applications increase the attack surface, particularly when they are externally controlled (foreign service principals). If an external tenant is compromised or credentials are leaked, attackers may authenticate as the application within the tenant or obtain access to user tokens through the application.</p>"
-            Remediation = '<p>Verify whether these applications are still required. Disable or remove applications that are no longer needed.</p><p>For internal applications, also delete the corresponding app registrations.</p><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/monitoring-health/recommendation-remove-unused-apps" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/monitoring-health/recommendation-remove-unused-apps</a></li></ul>'
+            Threat = "<p>Inactive enterprise applications that remain enabled in the assessed tenant increase the attack surface, particularly when they are externally controlled (foreign service principals). If an external tenant is compromised or credentials are leaked, attackers may authenticate as the application within the tenant or obtain access to user tokens through the application. A home-tenant or Microsoft disablement does not replace local remediation because that external state may change.</p>"
+            Remediation = '<p>Verify whether these applications are still required. Disable them in the assessed tenant or remove applications that are no longer needed.</p><p>For internal applications, also delete the corresponding app registrations.</p><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/monitoring-health/recommendation-remove-unused-apps" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/monitoring-health/recommendation-remove-unused-apps</a></li></ul>'
         }
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No enabled inactive enterprise applications were identified.</p>"
+            Description = "<p>No inactive enterprise applications enabled in the assessed tenant were identified.</p>"
         }
     }
     $ENT003VariantProps = @{
@@ -3248,7 +3248,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     #region Enumeration And Check Evaluation
     #region Enumeration: Enterprise Applications
     # ENT-001/ENT-002/ENT-003/ENT-004/ENT-005/ENT-006/ENT-007/ENT-008/ENT-009/ENT-010/ENT-011/ENT-012/ENT-013/ENT-014: Reuse a single pass over enterprise apps.
-    # ENT-001 = enabled + non-SAML + credentials; ENT-002 = enabled + inactive; ENT-003 = enabled + owners + impact>=threshold;
+    # ENT-001 = effectively enabled + non-SAML + credentials; ENT-002 = locally enabled + inactive; ENT-003 = effectively enabled + owners + impact>=threshold;
     # ENT-004 = enabled + foreign + extensive API permissions (application); ENT-005 = enabled + foreign + extensive API permissions (delegated);
     # ENT-006 = enabled + foreign + Entra ID roles; ENT-007 = enabled + foreign + Azure roles; ENT-008 = enabled + foreign + owns groups/apps/SPs;
     # ENT-009 = enabled + internal + extensive API permissions (application) excluding ConnectSyncProvisioning_;
@@ -3258,7 +3258,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $ownerFindingMinImpact = 50
     $blueprintOwnerFindingMinImpact = 200
     $entAppsWithSecrets = [System.Collections.Generic.List[object]]::new()
-    $entAppsInactiveEnabled = [System.Collections.Generic.List[object]]::new()
+    $entAppsInactiveLocallyEnabled = [System.Collections.Generic.List[object]]::new()
     $entAppsWithOwners = [System.Collections.Generic.List[object]]::new()
     $entAppsForeignExtensive = [System.Collections.Generic.List[object]]::new()
     $entAppsForeignDelegated = [System.Collections.Generic.List[object]]::new()
@@ -3296,8 +3296,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             if ($app.Enabled -eq $true -and $app.SAML -eq $false -and $app.Credentials -gt 0) {
                 $entAppsWithSecrets.Add($app)
             }
-            if ($app.Enabled -eq $true -and $app.Inactive -eq $true) {
-                $entAppsInactiveEnabled.Add($app)
+            $localStatus = if ($app.PSObject.Properties['LocalStatus']) { $app.LocalStatus } else { $app.Enabled }
+            if ($localStatus -eq $true -and $app.Inactive -eq $true) {
+                $entAppsInactiveLocallyEnabled.Add($app)
             }
             $impactValue = Get-IntSafe $app.Impact
             if ($app.Enabled -eq $true -and $app.Owners -gt 0 -and $impactValue -ge $ownerFindingMinImpact) {
@@ -5220,17 +5221,17 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "ENT-001" -Props $ENT001VariantProps.Secure
     }
 
-    # ENT-002: Apply result for inactive enabled apps.
-    if ($entAppsInactiveEnabled.Count -gt 0) {
-        Write-Log -Level Verbose -Message "[ENT-002] Found $($entAppsInactiveEnabled.Count) inactive enterprise apps that are enabled."
+    # ENT-002: Apply result for inactive apps enabled in the assessed tenant.
+    if ($entAppsInactiveLocallyEnabled.Count -gt 0) {
+        Write-Log -Level Verbose -Message "[ENT-002] Found $($entAppsInactiveLocallyEnabled.Count) inactive enterprise apps that are enabled in the assessed tenant."
         Set-FindingOverride -FindingId "ENT-002" -Props $ENT002VariantProps.Vulnerable
         Set-FindingOverride -FindingId "ENT-002" -Props @{
-            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Inactive=%3Dtrue&Enabled=%3Dtrue&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CInactive%2CLastSignInDays%2CCreationInDays%2COwners%2CGrpMem%2CGrpOwn%2CAppOwn%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiLow%2CApiMisc%2CApiDelegated%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=LastSignInDays&sortDir=desc"
+            RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Inactive=%3Dtrue&LocalStatus=%3Dtrue&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CInactive%2CLastSignInDays%2CCreationInDays%2COwners%2CGrpMem%2CGrpOwn%2CAppOwn%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiLow%2CApiMisc%2CApiDelegated%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=LastSignInDays&sortDir=desc"
             AffectedSortKey = "Last sign-in (days)"
             AffectedSortDir = "DESC"
         }
         $entInactiveAffected = [System.Collections.Generic.List[object]]::new()
-        foreach ($app in $entAppsInactiveEnabled) {
+        foreach ($app in $entAppsInactiveLocallyEnabled) {
             $entInactiveAffected.Add([pscustomobject]@{
                 "DisplayName" = "<a href=`"EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($app.Id)`" target=`"_blank`">$($app.DisplayName)</a>"
                 "Inactive" = $app.Inactive
@@ -5240,11 +5241,11 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             })
         }
         Set-FindingOverride -FindingId "ENT-002" -Props @{
-            Description = "<p>There are $($entAppsInactiveEnabled.Count) enterprise applications with no sign-in activities (delegated or app-only flows) over the last 180 days.</p>"
+            Description = "<p>There are $($entAppsInactiveLocallyEnabled.Count) enterprise applications that remain enabled in the assessed tenant and have no sign-in activities (delegated or app-only flows) over the last 180 days.</p>"
             AffectedObjects = $entInactiveAffected
         }
     } else {
-        Write-Log -Level Verbose -Message "[ENT-002] No inactive enterprise apps found."
+        Write-Log -Level Verbose -Message "[ENT-002] No inactive enterprise apps enabled in the assessed tenant found."
         Set-FindingOverride -FindingId "ENT-002" -Props $ENT002VariantProps.Secure
     }
 
