@@ -147,7 +147,7 @@ function Invoke-CheckEnterpriseApps {
     write-host "[*] Get Enterprise Apps"
     $QueryParameters = @{
         '$filter' = "ServicePrincipalType eq 'Application'"
-        '$select' = "Id,DisplayName,PublisherName,accountEnabled,AppRoles,AppId,servicePrincipalType,createdDateTime,signInAudience,AppOwnerOrganizationId,PasswordCredentials,KeyCredentials,AppRoleAssignmentRequired,preferredSingleSignOnMode"
+        '$select' = "Id,DisplayName,PublisherName,accountEnabled,isDisabled,disabledByMicrosoftStatus,AppRoles,AppId,servicePrincipalType,createdDateTime,signInAudience,AppOwnerOrganizationId,PasswordCredentials,KeyCredentials,AppRoleAssignmentRequired,preferredSingleSignOnMode"
         '$top' = $ApiTop
     }
     $EnterpriseApps = @(Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri '/servicePrincipals' -QueryParameters $QueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name))
@@ -172,7 +172,7 @@ function Invoke-CheckEnterpriseApps {
 
     # Filter out MS enterprise apps
     if (!$IncludeMsApps) {
-        $EnterpriseApps = $EnterpriseApps | where-object {-not($GLOBALMsTenantIds -contains $_.AppOwnerOrganizationId) -and $_.DisplayName -ne "O365 LinkedIn Connection" -and $_.DisplayName -ne "P2P Server"} | select-object Id,'@odata.type',DisplayName,accountEnabled,PublisherName,AppRoles,AppId,servicePrincipalType,createdDateTime,signInAudience,AppOwnerOrganizationId,PasswordCredentials,KeyCredentials,AppRoleAssignmentRequired,preferredSingleSignOnMode
+        $EnterpriseApps = $EnterpriseApps | where-object {-not($GLOBALMsTenantIds -contains $_.AppOwnerOrganizationId) -and $_.DisplayName -ne "O365 LinkedIn Connection" -and $_.DisplayName -ne "P2P Server"} | select-object Id,'@odata.type',DisplayName,accountEnabled,isDisabled,disabledByMicrosoftStatus,PublisherName,AppRoles,AppId,servicePrincipalType,createdDateTime,signInAudience,AppOwnerOrganizationId,PasswordCredentials,KeyCredentials,AppRoleAssignmentRequired,preferredSingleSignOnMode
         $EnterpriseAppsCount = $($EnterpriseApps.count)
         write-host "[i] Filtered out Microsoft Applications. $EnterpriseAppsCount left (use -IncludeMsApps to include them)"
     } else {
@@ -1230,11 +1230,29 @@ function Invoke-CheckEnterpriseApps {
         }
         $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
 
+        $DisabledBy = [System.Collections.Generic.List[string]]::new()
+        if ($item.accountEnabled -eq $false) {
+            [void]$DisabledBy.Add("Local Tenant")
+        }
+        if ($item.isDisabled -eq $true) {
+            [void]$DisabledBy.Add("Home Tenant (App Registration)")
+        }
+
+        $MicrosoftDisabledStatus = [string]$item.disabledByMicrosoftStatus
+        $MicrosoftDisabled = -not [string]::IsNullOrWhiteSpace($MicrosoftDisabledStatus) -and $MicrosoftDisabledStatus -ne "NotDisabled"
+        if ($MicrosoftDisabled) {
+            [void]$DisabledBy.Add("Microsoft: $MicrosoftDisabledStatus")
+        }
+
+        $EffectiveEnabled = $item.accountEnabled -eq $true -and $item.isDisabled -ne $true -and -not $MicrosoftDisabled
+        $DisabledByText = if ($DisabledBy.Count -gt 0) { $DisabledBy -join "; " } else { "-" }
+
         #Write custom object
         $SPInfo = [PSCustomObject]@{ 
             Id = $item.Id
             DisplayName = $item.DisplayName
-            Enabled = $item.accountEnabled
+            Enabled = $EffectiveEnabled
+            DisabledBy = $DisabledByText
             DisplayNameLink = "<a href=#$($item.Id)>$($item.DisplayName)</a>"
             PublisherName = $item.PublisherName
             AppId = $item.AppId
@@ -1428,6 +1446,7 @@ function Invoke-CheckEnterpriseApps {
             "Publisher Name" = $($item.PublisherName)
             "Publisher TenantId" = $($item.AppOwnerOrganizationId)
             "Enabled" = $($item.Enabled)
+            "Disabled By" = $($item.DisabledBy)
             "CreationDate" = $($item.CreationDate)
             "App Client-ID" = $($item.AppId)
             "App Object-ID" = $($item.Id)
@@ -1443,7 +1462,7 @@ function Invoke-CheckEnterpriseApps {
         }
 
         #Build dynamic TXT report property list
-        $TxtReportProps = @("App Name","Publisher Name","Publisher TenantId","Enabled", "App Client-ID","App Object-ID","MS Default","Foreign","Require AppRole","SAML","RiskScore")
+        $TxtReportProps = @("App Name","Publisher Name","Publisher TenantId","Enabled","Disabled By","App Client-ID","App Object-ID","MS Default","Foreign","Require AppRole","SAML","RiskScore")
 
         if ($item.KnownMaliciousApplication) {
             $ReportingEntAppInfo | Add-Member -NotePropertyName "Known Malicious Application" -NotePropertyValue $true
