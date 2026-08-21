@@ -281,6 +281,9 @@ function Invoke-CheckAgentsFinalize {
         )
 
         $warningList = @()
+        if ($ReportKey -in @('AgentIdentities', 'AgentIdentityBlueprintsPrincipals') -and $global:GLOBALSpSignInActivityAvailable -eq $false) {
+            $warningList += "Coverage gap: service principal sign-in activity could not be retrieved; inactivity was not assessed for this report."
+        }
         switch ($ReportKey) {
             'AgentIdentities' {
                 if (-not ($GLOBALAzurePsChecks)) {

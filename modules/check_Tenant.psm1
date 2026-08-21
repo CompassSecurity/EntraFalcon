@@ -2373,6 +2373,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Status = "NotVulnerable"
             Description = "<p>No inactive enterprise applications enabled in the assessed tenant were identified.</p>"
         }
+        SkippedUnavailable = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because the current permissions, license, or API availability did not allow retrieval of service principal sign-in activity. Enterprise application inactivity could not be evaluated.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
     }
     $ENT003VariantProps = @{
         Default = @{
@@ -2745,6 +2751,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             AffectedObjects = @()
             RelatedReportUrl = ""
         }
+        SkippedUnavailable = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because the current permissions, license, or API availability did not allow retrieval of service principal sign-in activity. Agent identity inactivity could not be evaluated.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
     }
     $AGT011VariantProps = @{
         Default = @{
@@ -2858,6 +2870,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Skipped = @{
             Status = "Skipped"
             Description = "<p>Check skipped because no agent users were identified in the tenant.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
+        SkippedUnavailable = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because the current permissions or license did not allow retrieval of user sign-in activity. Agent user inactivity could not be evaluated.</p>"
             AffectedObjects = @()
             RelatedReportUrl = ""
         }
@@ -5237,7 +5255,10 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
 
     # ENT-002: Apply result for inactive apps enabled in the assessed tenant.
-    if ($entAppsInactiveLocallyEnabled.Count -gt 0) {
+    if ($EnterpriseApps.Count -gt 0 -and $global:GLOBALSpSignInActivityAvailable -eq $false) {
+        Write-Log -Level Verbose -Message "[ENT-002] Skipping check because service principal sign-in activity could not be retrieved."
+        Set-FindingOverride -FindingId "ENT-002" -Props $ENT002VariantProps.SkippedUnavailable
+    } elseif ($entAppsInactiveLocallyEnabled.Count -gt 0) {
         Write-Log -Level Verbose -Message "[ENT-002] Found $($entAppsInactiveLocallyEnabled.Count) inactive enterprise apps that are enabled in the assessed tenant."
         Set-FindingOverride -FindingId "ENT-002" -Props $ENT002VariantProps.Vulnerable
         Set-FindingOverride -FindingId "ENT-002" -Props @{
@@ -7848,6 +7869,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     if ($agentIdentityCount -eq 0) {
         Write-Log -Level Verbose -Message "[AGT-010] Skipped because no agent identities were found."
         Set-FindingOverride -FindingId "AGT-010" -Props $AGT010VariantProps.Skipped
+    } elseif ($global:GLOBALSpSignInActivityAvailable -eq $false) {
+        Write-Log -Level Verbose -Message "[AGT-010] Skipping check because service principal sign-in activity could not be retrieved."
+        Set-FindingOverride -FindingId "AGT-010" -Props $AGT010VariantProps.SkippedUnavailable
     } elseif ($inactiveEnabledAgentIdentities.Count -gt 0) {
         Write-Log -Level Verbose -Message "[AGT-010] Found $($inactiveEnabledAgentIdentities.Count) inactive agent identities that are enabled."
         Set-FindingOverride -FindingId "AGT-010" -Props $AGT010VariantProps.Vulnerable
@@ -8229,6 +8253,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     if ($agentUserCount -eq 0) {
         Write-Log -Level Verbose -Message "[AGT-016] Skipped because no agent users were found."
         Set-FindingOverride -FindingId "AGT-016" -Props $AGT016VariantProps.Skipped
+    } elseif ($global:GLOBALUserSignInActivityAvailable -eq $false) {
+        Write-Log -Level Verbose -Message "[AGT-016] Skipping check because user sign-in activity could not be retrieved."
+        Set-FindingOverride -FindingId "AGT-016" -Props $AGT016VariantProps.SkippedUnavailable
     } elseif ($inactiveEnabledAgentUsers.Count -gt 0) {
         Write-Log -Level Verbose -Message "[AGT-016] Found $($inactiveEnabledAgentUsers.Count) enabled inactive agent users."
         Set-FindingOverride -FindingId "AGT-016" -Props $AGT016VariantProps.Vulnerable

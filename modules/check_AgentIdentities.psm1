@@ -1064,22 +1064,13 @@ function Invoke-AgentIdentities {
             }
         }
 
-        #Check if agent is inactive
         $LastSignInDays = "-"
         if ($null -ne $AppsignInData -and $null -ne $AppsignInData.lastSignInDays -and -not [string]::IsNullOrWhiteSpace("$($AppsignInData.lastSignInDays)")) {
             $LastSignInDays = $AppsignInData.lastSignInDays
         }
-
-        $lastSignInDaysText = "$LastSignInDays".Trim()
-        $lastSignInDaysNumber = 0
-        $hasLastSignInDays = [int]::TryParse($lastSignInDaysText, [ref]$lastSignInDaysNumber)
-        $creationInDaysNumber = 0
-        $hasCreationInDays = [int]::TryParse("$CreationInDays", [ref]$creationInDaysNumber)
-
-        if (($hasLastSignInDays -and $lastSignInDaysNumber -ge 180) -or ($lastSignInDaysText -eq "-" -and $hasCreationInDays -and $creationInDaysNumber -gt 180)) {
-            $Inactive = $true
-        } else {
-            $Inactive = $false
+        $Inactive = Test-EntraFalconServicePrincipalInactive -SignInData $AppsignInData -CreationInDays $CreationInDays -ActivityAvailable ($global:GLOBALSpSignInActivityAvailable -ne $false)
+        if ($null -ne $AppsignInData -and "$($AppsignInData.lastSignInState)" -eq 'Malformed') {
+            $Warnings += "Malformed service principal sign-in timestamp; inactivity not assessed"
         }
 
         #Process Delegated API permission. Only increase the score once (independet of how many principal or how many of each category are assigned)

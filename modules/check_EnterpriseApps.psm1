@@ -163,6 +163,9 @@ function Invoke-CheckEnterpriseApps {
             $EnterpriseAppsScriptWarningList += "Coverage gap: Azure IAM role assignments were not assessed; Azure role assignments to EnterpriseApps are therefore missing from this report."
         }
     }
+    if ($global:GLOBALSpSignInActivityAvailable -eq $false) {
+        $EnterpriseAppsScriptWarningList += "Coverage gap: service principal sign-in activity could not be retrieved; enterprise application inactivity was not assessed."
+    }
 
     write-host "[*] Build shared app role reference cache"
     $AppRoleReferenceCache = New-AppRoleReferenceCache -ServicePrincipals $EnterpriseApps
@@ -1119,11 +1122,9 @@ function Invoke-CheckEnterpriseApps {
             $Warnings += "Known $joined API permission$plural!"
         }
 
-        #Check if app is inactive
-        if ($AppsignInData.lastSignInDays -ge 180 -or $AppsignInData.lastSignInDays -eq "-" -or $Null -eq $AppsignInData) {
-            $Inactive = $true
-        } else {
-            $Inactive = $false
+        $Inactive = Test-EntraFalconServicePrincipalInactive -SignInData $AppsignInData -CreationInDays $CreationInDays -ActivityAvailable ($global:GLOBALSpSignInActivityAvailable -ne $false)
+        if ($null -ne $AppsignInData -and "$($AppsignInData.lastSignInState)" -eq 'Malformed') {
+            $Warnings += "Malformed service principal sign-in timestamp; inactivity not assessed"
         }
 
         #Process Delegated API permission. Only increase the score once (independet of how many principal or how many of each category are assigned)

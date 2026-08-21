@@ -7552,7 +7552,32 @@ function Get-ServicePrincipalSignInActivityLookup {
     write-host "[*] Get service principal sign-in activity"
 
     $AppLastSignIns = @{}
-    $AppLastSignInsRaw = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/reports/servicePrincipalSignInActivities" -BetaAPI -QueryParameters @{ '$top' = $ApiTop } -UserAgent $($GlobalAuditSummary.UserAgent.Name)
+    $global:GLOBALSpSignInActivityAvailable = $false
+    $global:GLOBALSpSignInActivityUnavailableReason = $null
+
+    try {
+        $AppLastSignInsRaw = @(Send-ApiRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "https://graph.microsoft.com/beta/reports/servicePrincipalSignInActivities" -QueryParameters @{ '$top' = $ApiTop } -UserAgent $($GlobalAuditSummary.UserAgent.Name) -Silent -ErrorAction Stop)
+        $global:GLOBALSpSignInActivityAvailable = $true
+    } catch {
+        $requestError = $_
+        $errorCategory = [string]$requestError.CategoryInfo.Category
+        $global:GLOBALSpSignInActivityUnavailableReason = switch ($errorCategory) {
+            'AuthenticationError' { 'Authentication' }
+            'PermissionDenied' { 'PermissionOrLicense' }
+            default {
+                if ($requestError.Exception.Message -match '(?i)status\s+403|forbidden|permission|premium\s+license|licen[cs]e') {
+                    'PermissionOrLicense'
+                } elseif ($requestError.Exception.Message -match '(?i)status\s+401|unauthorized|authentication') {
+                    'Authentication'
+                } else {
+                    'ApiFailure'
+                }
+            }
+        }
+        Write-Host "[!] Service principal sign-in activity could not be retrieved. Inactivity checks that depend on this data will be skipped."
+        Write-Log -Level Verbose -Message "Service principal sign-in activity request failed: $($requestError.Exception.Message)"
+        return $AppLastSignIns
+    }
     $nowUtc = (Get-Date).ToUniversalTime()
 
     $getSignInDateInfo = {
@@ -7561,6 +7586,7 @@ function Get-ServicePrincipalSignInActivityLookup {
         $emptyValue = [pscustomobject]@{
             Display = "-"
             Days    = "-"
+            State   = "Missing"
         }
 
         if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
@@ -7586,9 +7612,14 @@ function Get-ServicePrincipalSignInActivityLookup {
             return [pscustomobject]@{
                 Display = $utcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", [Globalization.CultureInfo]::InvariantCulture)
                 Days    = (New-TimeSpan -Start $utcDateTime -End $nowUtc).Days
+                State   = "Valid"
             }
         } catch {
-            return $emptyValue
+            return [pscustomobject]@{
+                Display = "-"
+                Days    = "-"
+                State   = "Malformed"
+            }
         }
     }
 
@@ -7605,6 +7636,7 @@ function Get-ServicePrincipalSignInActivityLookup {
             id = $app.appId
             lastSignIn = $lastSignInInfo.Display
             lastSignInDays = $lastSignInInfo.Days
+            lastSignInState = $lastSignInInfo.State
 
             lastSignInAppAsClient = $lastSignInAppAsClientInfo.Display
             lastSignInAppAsClientDays = $lastSignInAppAsClientInfo.Days
@@ -7622,6 +7654,34 @@ function Get-ServicePrincipalSignInActivityLookup {
 
     Write-Log -Level Debug -Message "Got $($AppLastSignInsRaw.Count) app last sign-in dates"
     return $AppLastSignIns
+}
+
+function Test-EntraFalconServicePrincipalInactive {
+    Param (
+        [Parameter(Mandatory = $false)][object]$SignInData,
+        [Parameter(Mandatory = $false)][object]$CreationInDays,
+        [Parameter(Mandatory = $true)][bool]$ActivityAvailable
+    )
+
+    if (-not $ActivityAvailable) {
+        return $false
+    }
+
+    if ($null -ne $SignInData -and "$($SignInData.lastSignInState)" -eq 'Malformed') {
+        return $false
+    }
+
+    $lastSignInDays = 0
+    if ($null -ne $SignInData -and [int]::TryParse("$($SignInData.lastSignInDays)", [ref]$lastSignInDays)) {
+        return $lastSignInDays -ge 180
+    }
+
+    $createdDays = 0
+    if ([int]::TryParse("$CreationInDays", [ref]$createdDays)) {
+        return $createdDays -ge 180
+    }
+
+    return $false
 }
 
 function Resolve-DirectoryObjectReference {
@@ -10970,6 +11030,8 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALPermissionForCaps -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsChecked -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALUserSignInActivityAvailable -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALSpSignInActivityAvailable -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALSpSignInActivityUnavailableReason -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzurePsChecks -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzureSubscriptionScopeMap -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzureIamWarningText -ErrorAction SilentlyContinue
@@ -11211,4 +11273,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Test-EntraFalconServicePrincipalInactive,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment

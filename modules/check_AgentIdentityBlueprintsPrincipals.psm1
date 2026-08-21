@@ -713,12 +713,7 @@ function Invoke-AgentIdentityBlueprintsPrincipals {
 
         # Direct roles, ownerships, group paths, and configured API permissions are inventory-only for blueprint principals.
 
-        #Check if app is inactive
-        if ($AppsignInData.lastSignInDays -ge 180 -or $AppsignInData.lastSignInDays -eq "-" -or $Null -eq $AppsignInData) {
-            $Inactive = $true
-        } else {
-            $Inactive = $false
-        }
+        $Inactive = Test-EntraFalconServicePrincipalInactive -SignInData $AppsignInData -CreationInDays $CreationInDays -ActivityAvailable ($global:GLOBALSpSignInActivityAvailable -ne $false)
 
         #Mark foreign non-default apps as risky
         if ($DefaultMS -eq $false -and $ForeignTenant -eq $true) {
@@ -727,7 +722,11 @@ function Invoke-AgentIdentityBlueprintsPrincipals {
             $LikelihoodScore += $SPLikelihoodScore["InternApp"]
         }
 
-        $Warnings = ''
+        $Warnings = if ($null -ne $AppsignInData -and "$($AppsignInData.lastSignInState)" -eq 'Malformed') {
+            "Malformed service principal sign-in timestamp; inactivity not assessed"
+        } else {
+            ''
+        }
 
         $LastSignInDays = "-"
         if ($null -ne $AppsignInData -and $null -ne $AppsignInData.lastSignInDays -and -not [string]::IsNullOrWhiteSpace("$($AppsignInData.lastSignInDays)")) {
