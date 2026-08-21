@@ -417,22 +417,56 @@ function Get-CatalogLikelihood {
         if ($AllGroupsDetails.ContainsKey($principalId)) {
             $group = $AllGroupsDetails[$principalId]
             $userDetailsProperty = if ($null -ne $group) { $group.PSObject.Properties['Userdetails'] } else { $null }
-            if ($null -eq $userDetailsProperty) {
+            $spDetailsProperty = if ($null -ne $group) { $group.PSObject.Properties['MemberSpDetails'] } else { $null }
+            if ($null -eq $userDetailsProperty -and $null -eq $spDetailsProperty) {
                 # Preserve conservative coverage when the assigned group could not be expanded.
                 & $addContribution $principalId $roleWeight
                 continue
             }
 
-            foreach ($member in @($userDetailsProperty.Value)) {
-                if ($null -eq $member) { continue }
-                $memberId = [string]$member.Id
-                if ([string]::IsNullOrWhiteSpace($memberId)) { continue }
-                $memberObject = if ($AllUsersBasicHT.ContainsKey($memberId)) { $AllUsersBasicHT[$memberId] } else { $member }
-                $enabled = & $getEnabledState $memberObject
-                if ($enabled -ne $true) { continue }
-                $userType = if ($null -ne $memberObject -and $memberObject.PSObject.Properties['UserType']) { [string]$memberObject.UserType } else { '' }
-                $modifier = if ($userType -eq 'Guest') { [double]1.5 } else { [double]1 }
-                & $addContribution $memberId ($roleWeight * $modifier)
+            if ($null -ne $userDetailsProperty) {
+                foreach ($member in @($userDetailsProperty.Value)) {
+                    if ($null -eq $member) { continue }
+                    $memberId = if ($member.PSObject.Properties['Id']) { [string]$member.Id } elseif ($member.PSObject.Properties['id']) { [string]$member.id } else { '' }
+                    if ([string]::IsNullOrWhiteSpace($memberId)) { continue }
+                    $memberObject = if ($AllUsersBasicHT.ContainsKey($memberId)) { $AllUsersBasicHT[$memberId] } else { $member }
+                    $enabled = & $getEnabledState $memberObject
+                    if ($enabled -eq $false) { continue }
+                    $userType = if ($null -ne $memberObject -and $memberObject.PSObject.Properties['UserType']) { [string]$memberObject.UserType } else { '' }
+                    $modifier = if ($userType -eq 'Guest') { [double]1.5 } else { [double]1 }
+                    & $addContribution $memberId ($roleWeight * $modifier)
+                }
+            }
+
+            $resolvedSpIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            if ($null -ne $spDetailsProperty) {
+                foreach ($member in @($spDetailsProperty.Value)) {
+                    if ($null -eq $member) { continue }
+                    $memberId = if ($member.PSObject.Properties['Id']) { [string]$member.Id } elseif ($member.PSObject.Properties['id']) { [string]$member.id } else { '' }
+                    if ([string]::IsNullOrWhiteSpace($memberId)) { continue }
+                    [void]$resolvedSpIds.Add($memberId)
+
+                    $memberObject = $null
+                    foreach ($lookup in @($ManagedIdentities, $AgentIdentities, $AgentIdentityBlueprintsPrincipals, $EnterpriseApps)) {
+                        if ($null -ne $lookup -and $lookup.ContainsKey($memberId)) {
+                            $memberObject = $lookup[$memberId]
+                            break
+                        }
+                    }
+                    if ($null -eq $memberObject) { $memberObject = $member }
+
+                    $enabled = & $getEnabledState $memberObject
+                    if ($enabled -eq $false) { continue }
+                    & $addContribution $memberId $roleWeight
+                }
+            }
+
+            $spCount = 0
+            if ($null -ne $group -and $group.PSObject.Properties['SPCount']) {
+                [void][int]::TryParse([string]$group.SPCount, [ref]$spCount)
+            }
+            if ($spCount -gt $resolvedSpIds.Count) {
+                & $addContribution "$principalId|unresolved-workload" $roleWeight
             }
             continue
         }

@@ -2966,6 +2966,7 @@ $headerHtml = @"
             Guests = $group.Guests
             NestedGroups = $group.NestedGroups
             SPCount = $group.SPCount
+            MemberSpDetails = @($group.MemberSpDetails)
             Protected = $group.Protected
             PIM = $group.PIM
             Impact = $group.Impact
