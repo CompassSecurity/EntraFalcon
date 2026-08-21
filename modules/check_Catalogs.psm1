@@ -179,7 +179,6 @@ function Get-CatalogsRawData {
         $assignments = @(Invoke-CatalogGraphGet -Uri '/roleManagement/entitlementManagement/roleAssignments' -QueryParameters @{
             '$select' = 'id,principalId,roleDefinitionId,directoryScopeId,appScopeId'
             '$expand' = 'principal'
-            '$top' = 15
         })
         $assignmentsByRoleDefinitionId = @{}
         foreach ($assignment in $assignments) {
@@ -216,7 +215,6 @@ function Get-CatalogsRawData {
                         '$select' = 'id,principalId,roleDefinitionId,directoryScopeId,appScopeId'
                         '$filter' = "roleDefinitionId eq '$($roleEntry.Value)'"
                         '$expand' = 'principal'
-                        '$top' = 15
                     })
                     foreach ($assignment in $assignments) {
                         $catalogId = ''
