@@ -118,17 +118,26 @@ function Invoke-CheckTenant {
 
     function Test-GroupHasEligibleOnlyPimAccessPath {
         param(
-            [string]$GroupId
+            [string]$GroupId,
+            [hashtable]$GroupsById,
+            [hashtable]$EligibleMembersByGroupId,
+            [hashtable]$EligibleOwnersByGroupId
         )
 
         if ([string]::IsNullOrWhiteSpace($GroupId)) { return $false }
-        if (-not $AllGroupsDetails.ContainsKey($GroupId)) { return $false }
+        if (-not $GroupsById.ContainsKey($GroupId)) { return $false }
 
-        $group = $AllGroupsDetails[$GroupId]
+        $group = $GroupsById[$GroupId]
         if (-not $group) { return $false }
 
-        $eligibleMemberEntries = if ($EligiblePimGroupMembersByGroupId.ContainsKey($GroupId)) { @($EligiblePimGroupMembersByGroupId[$GroupId]) } else { @() }
-        $eligibleOwnerEntries = if ($EligiblePimGroupOwnersByGroupId.ContainsKey($GroupId)) { @($EligiblePimGroupOwnersByGroupId[$GroupId]) } else { @() }
+        $eligibleMemberEntries = @()
+        if ($EligibleMembersByGroupId.ContainsKey($GroupId)) {
+            $eligibleMemberEntries = @($EligibleMembersByGroupId[$GroupId])
+        }
+        $eligibleOwnerEntries = @()
+        if ($EligibleOwnersByGroupId.ContainsKey($GroupId)) {
+            $eligibleOwnerEntries = @($EligibleOwnersByGroupId[$GroupId])
+        }
         $hasEligiblePath = ($eligibleMemberEntries.Count + $eligibleOwnerEntries.Count) -gt 0
         if (-not $hasEligiblePath) { return $false }
 
@@ -9423,7 +9432,10 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $filteredGroupEntries = [System.Collections.Generic.List[object]]::new()
                 foreach ($groupEntry in $groupEntries) {
                     $groupId = "$($groupEntry.PrincipalId)".Trim()
-                    $eligibleOnlyAccess = Test-GroupHasEligibleOnlyPimAccessPath -GroupId $groupId
+                    $eligibleOnlyAccess = Test-GroupHasEligibleOnlyPimAccessPath -GroupId $groupId `
+                        -GroupsById $AllGroupsDetails `
+                        -EligibleMembersByGroupId $EligiblePimGroupMembersByGroupId `
+                        -EligibleOwnersByGroupId $EligiblePimGroupOwnersByGroupId
                     if ($eligibleOnlyAccess) {
                         Write-Log -Level Verbose -Message "[PIM-002] Suppressing group '$($groupEntry.PrincipalDisplayName)' because all reachable access paths are only through eligible PIM-for-Groups relationships."
                         continue
