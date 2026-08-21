@@ -1226,10 +1226,9 @@ function Invoke-CheckEnterpriseApps {
             ''
         }
 
-        if ($AppsignInData.lastSignInDays) {
+        $LastSignInDays = "-"
+        if ($null -ne $AppsignInData -and $null -ne $AppsignInData.lastSignInDays -and -not [string]::IsNullOrWhiteSpace("$($AppsignInData.lastSignInDays)")) {
             $LastSignInDays = $AppsignInData.lastSignInDays
-        } else {
-            $LastSignInDays = "-"
         }
         $EntraRolesEffective = $EntraRolesDirect + $EntraRolesThroughGroupMembership + $EntraRolesThroughGroupOwnership
         $AzureRolesEffective = if ($GLOBALAzurePsChecks) {

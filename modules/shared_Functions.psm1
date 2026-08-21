@@ -9660,7 +9660,7 @@ function Get-APIPermissionCategory{
 function New-AppRoleReferenceCache {
     [CmdletBinding()]
     Param (
-        [Parameter(Mandatory = $true)][object[]]$ServicePrincipals
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$ServicePrincipals
     )
 
     $cache = @{

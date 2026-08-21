@@ -729,10 +729,9 @@ function Invoke-AgentIdentityBlueprintsPrincipals {
 
         $Warnings = ''
 
-        if ($AppsignInData.lastSignInDays) {
+        $LastSignInDays = "-"
+        if ($null -ne $AppsignInData -and $null -ne $AppsignInData.lastSignInDays -and -not [string]::IsNullOrWhiteSpace("$($AppsignInData.lastSignInDays)")) {
             $LastSignInDays = $AppsignInData.lastSignInDays
-        } else {
-            $LastSignInDays = "-"
         }
 
         #Write custom object
