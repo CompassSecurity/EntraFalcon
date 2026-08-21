@@ -3,6 +3,33 @@
 	   Enumerates and analyzes all users in the current tenant, including access, ownerships, roles, and risk posture.
 
 #>
+function ConvertTo-EntraFalconUserUtcDateTime {
+    param(
+        [AllowNull()][object]$Value
+    )
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $null
+    }
+    if ($Value -is [datetimeoffset]) {
+        return $Value.UtcDateTime
+    }
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified) {
+            return [datetime]::SpecifyKind($Value, [DateTimeKind]::Utc)
+        }
+        return $Value.ToUniversalTime()
+    }
+
+    $parsedValue = [datetimeoffset]::MinValue
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    if ([datetimeoffset]::TryParse([string]$Value, [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsedValue)) {
+        return $parsedValue.UtcDateTime
+    }
+
+    throw [FormatException]::new("Invalid user Graph timestamp '$Value'.")
+}
+
 function Invoke-CheckUsers {
     ############################## Parameter section ########################
     [CmdletBinding()]
@@ -389,6 +416,7 @@ function Invoke-CheckUsers {
 
     #region Processing Loop
     #Loop through all users and get additional info and store it in a custom object
+    $nowUtc = [datetime]::UtcNow
     foreach ($item in $AllUsers) {
 
         # Clean vars
@@ -400,9 +428,13 @@ function Invoke-CheckUsers {
         $LastInteractiveSignIn = $item.SignInActivity.LastSignInDateTime
         $LastNonInteractiveSignIn = $item.SignInActivity.LastNonInteractiveSignInDateTime
         $LastSuccessfulSignInTime = $item.SignInActivity.lastSuccessfulSignInDateTime
+        $LastInteractiveSignInUtc = ConvertTo-EntraFalconUserUtcDateTime $LastInteractiveSignIn
+        $LastNonInteractiveSignInUtc = ConvertTo-EntraFalconUserUtcDateTime $LastNonInteractiveSignIn
+        $LastSuccessfulSignInTimeUtc = ConvertTo-EntraFalconUserUtcDateTime $LastSuccessfulSignInTime
+        $CreatedDateTimeUtc = ConvertTo-EntraFalconUserUtcDateTime $item.CreatedDateTime
         #Null check in case CreatedDateTime is $null
-        if ($item.CreatedDateTime) {
-            $CreatedDays = (New-TimeSpan -Start $item.CreatedDateTime).Days
+        if ($null -ne $CreatedDateTimeUtc) {
+            $CreatedDays = (New-TimeSpan -Start $CreatedDateTimeUtc -End $nowUtc).Days
         } else {
             $CreatedDays = $null
         }
@@ -1003,14 +1035,14 @@ function Invoke-CheckUsers {
                 $InactiveDays_InteractiveSignIn = "-"
             }
             else {
-                $InactiveDays_InteractiveSignIn = (New-TimeSpan -Start $LastInteractiveSignIn).Days
+                $InactiveDays_InteractiveSignIn = (New-TimeSpan -Start $LastInteractiveSignInUtc -End $nowUtc).Days
             }
             if($null -eq $LastNonInteractiveSignIn) {
                 $LastNonInteractiveSignIn = "Never Logged In"
                 $InactiveDays_NonInteractiveSignIn = "-"
             }
             else {
-                $InactiveDays_NonInteractiveSignIn = (New-TimeSpan -Start $LastNonInteractiveSignIn).Days
+                $InactiveDays_NonInteractiveSignIn = (New-TimeSpan -Start $LastNonInteractiveSignInUtc -End $nowUtc).Days
             }
             if($null -eq $LastSuccessfulSignInTime) {
                 #Property exist since 12.2023
@@ -1018,7 +1050,7 @@ function Invoke-CheckUsers {
                 $InactiveDays_lastsuccessfulSignin = "-"
             }
             else {
-                $InactiveDays_lastsuccessfulSignin = (New-TimeSpan -Start $LastSuccessfulSignInTime).Days
+                $InactiveDays_lastsuccessfulSignin = (New-TimeSpan -Start $LastSuccessfulSignInTimeUtc -End $nowUtc).Days
             }
 
 
