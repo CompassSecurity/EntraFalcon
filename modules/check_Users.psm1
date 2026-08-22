@@ -1517,6 +1517,8 @@ function Update-EntraFalconUserCatalogRbacImpact {
                     if ($effectiveUserIds.Add($memberId)) { $transitiveEdges++ }
                 }
             }
+        } elseif ([string]$assignment.PrincipalType -ieq 'servicePrincipal') {
+            continue
         } else {
             $unresolvedPrincipals++
             continue
