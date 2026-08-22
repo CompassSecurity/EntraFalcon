@@ -1458,6 +1458,18 @@ function Update-EntraFalconUserCatalogRbacImpact {
         $user | Add-Member -NotePropertyName CatalogRBAC -NotePropertyValue '-' -Force
     }
 
+    $catalogApplicable = ($null -eq $CatalogAssessment -or -not $CatalogAssessment.PSObject.Properties['IsApplicable'] -or [bool]$CatalogAssessment.IsApplicable)
+    if (-not $catalogApplicable) {
+        foreach ($user in @($Users.Values)) {
+            if ($null -eq $user) { continue }
+            $user.CatalogRbacAssessmentAvailable = $true
+            $user.CatalogRbacAssessmentStatus = 'NotApplicable'
+            $user.CatalogRBAC = 0
+        }
+        Write-Log -Level Debug -Message 'User Catalog RBAC impact: Entitlement Management is not applicable; no impact added.'
+        return
+    }
+
     $rbacAvailable = ($null -ne $CatalogAssessment -and $CatalogAssessment.PSObject.Properties['RbacAvailable'] -and [bool]$CatalogAssessment.RbacAvailable)
     if (-not $rbacAvailable) {
         if ($null -ne $UserReportState -and $UserReportState.PSObject.Properties['WarningReport']) {

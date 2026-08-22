@@ -38,6 +38,31 @@ function Format-AccessPackageGraphError {
     return $details
 }
 
+function Test-AccessPackageNoLicenseError {
+    param([Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $message = [string]$ErrorRecord.Exception.Message
+    return ($message -match '(?i)\bNoLicense\b|tenant does not meet license requirement')
+}
+
+function New-AccessPackageNotApplicableResult {
+    return [pscustomobject]@{
+        IsApplicable                 = $false
+        NotApplicableReason          = 'NoLicense'
+        IsAvailable                  = $true
+        IsSkipped                    = $true
+        AssignmentsAvailable         = $true
+        ResourceRoleScopesAvailable  = $true
+        Warnings                     = @()
+        Packages                     = @()
+        Assignments                  = @()
+        PolicyEnabledById            = @{}
+        ResourceRoleScopesByPackage  = @{}
+        SeparationOfDutiesAvailable  = $true
+        SeparationOfDutiesByPackage  = @{}
+    }
+}
+
 # Sends a silent GET request to the Entitlement Management Graph endpoint.
 function Invoke-AccessPackageGraphGet {
     param(
@@ -615,6 +640,8 @@ function Get-AccessPackagesRawData {
         $Warnings.Add("Coverage gap: Access Packages were not assessed because Entitlement Management APIs are only queried with BroCi-based flows or ServicePrincipal flow.")
         Write-Log -Level Verbose -Message "[AccessPackages] Skipping Access Package collection for auth flow '$AuthFlow'."
         return [pscustomobject]@{
+            IsApplicable                 = $true
+            NotApplicableReason          = ''
             IsAvailable                 = $false
             IsSkipped                   = $true
             AssignmentsAvailable        = $false
@@ -675,9 +702,16 @@ function Get-AccessPackagesRawData {
                 Write-Host "[+] Got $(@($packages).Count) Access Packages"
                 Write-Log -Level Debug -Message "[AccessPackages] Legacy access package collection returned $(@($packages).Count) package objects."
             } catch {
+                if (Test-AccessPackageNoLicenseError -ErrorRecord $_) {
+                    Write-Host '[i] Entitlement Management is not licensed for this tenant; Access Packages are not applicable.'
+                    Write-Log -Level Debug -Message "[AccessPackages] Not applicable: $($_.Exception.Message)"
+                    return New-AccessPackageNotApplicableResult
+                }
                 $Warnings.Add("Coverage gap: Access Packages could not be enumerated. $(Format-AccessPackageGraphError -ErrorRecord $_)")
                 Write-Log -Level Debug -Message "[AccessPackages] Legacy access package collection failed: $($_.Exception.Message)"
                 return [pscustomobject]@{
+                    IsApplicable                 = $true
+                    NotApplicableReason          = ''
                     IsAvailable                 = $false
                     IsSkipped                   = $false
                     AssignmentsAvailable        = $false
@@ -692,9 +726,16 @@ function Get-AccessPackagesRawData {
                 }
             }
         } else {
+            if (Test-AccessPackageNoLicenseError -ErrorRecord $_) {
+                Write-Host '[i] Entitlement Management is not licensed for this tenant; Access Packages are not applicable.'
+                Write-Log -Level Debug -Message "[AccessPackages] Not applicable: $($_.Exception.Message)"
+                return New-AccessPackageNotApplicableResult
+            }
             $Warnings.Add("Coverage gap: Access Packages could not be enumerated. $(Format-AccessPackageGraphError -ErrorRecord $_)")
             Write-Log -Level Debug -Message "[AccessPackages] Expanded access package collection failed: $($_.Exception.Message)"
             return [pscustomobject]@{
+                IsApplicable                 = $true
+                NotApplicableReason          = ''
                 IsAvailable                 = $false
                 IsSkipped                   = $false
                 AssignmentsAvailable        = $false
@@ -713,6 +754,8 @@ function Get-AccessPackagesRawData {
     if (@($packages).Count -eq 0) {
         Write-Log -Level Verbose -Message "[AccessPackages] No Access Packages found."
         return [pscustomobject]@{
+            IsApplicable                 = $true
+            NotApplicableReason          = ''
             IsAvailable                 = $true
             IsSkipped                   = $false
             AssignmentsAvailable        = $true
@@ -876,6 +919,8 @@ function Get-AccessPackagesRawData {
         Write-Log -Level Verbose -Message "[AccessPackages] Raw collection completed with $($Warnings.Count) warning(s): $($Warnings -join ' / ')"
     }
     return [pscustomobject]@{
+        IsApplicable                 = $true
+        NotApplicableReason          = ''
         IsAvailable                 = $true
         IsSkipped                   = $false
         AssignmentsAvailable        = $assignmentsAvailable

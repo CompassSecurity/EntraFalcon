@@ -26,6 +26,7 @@ function Invoke-CheckTenant {
         [Parameter(Mandatory=$false)][hashtable]$AgentIdentities,
         [Parameter(Mandatory=$false)][hashtable]$AccessPackages,
         [Parameter(Mandatory=$false)][bool]$AccessPackagesAssessmentAvailable = $false,
+        [Parameter(Mandatory=$false)][bool]$AccessPackagesAssessmentApplicable = $true,
         [Parameter(Mandatory=$false)][object]$CatalogAssessment
     )
     #endregion
@@ -2972,6 +2973,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         AffectedObjects = @()
         RelatedReportUrl = ""
     }
+    $accessPackageNotApplicableProps = @{
+        Status = "Skipped"
+        Description = "<p>Access Package checks are not applicable because the tenant does not meet the Entitlement Management license requirement.</p>"
+        AffectedObjects = @()
+        RelatedReportUrl = ""
+    }
     $APK001VariantProps = @{
         Default = @{
             Threat = "<p>Access package policies with a broad target scope, self-service request capability, and no approval requirement can allow a large number of identities to obtain access to sensitive resources without a meaningful control gate.</p><p>This is particularly relevant for access packages that grant privileged roles, administrative access, or access to high-value resources. If such policies include broad populations such as all users, external users, service principals, or agent identities, an attacker may be able to obtain additional access by using or controlling an eligible identity.</p>"
@@ -3041,6 +3048,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Description = "<p>Catalog RBAC was not assessed in this run. Catalog-scoped Identity Governance delegation paths may therefore be missing.</p>"
         Threat = "<p>Catalog-scoped roles can allow principals to configure resources in Access Packages or assign access already configured in existing Access Packages.</p>"
         Remediation = "<p>Run EntraFalcon with an authentication flow and permissions that allow Entitlement Management catalogs and their role assignments to be enumerated.</p>"
+        AffectedObjects = @()
+        RelatedReportUrl = ""
+    }
+    $catalogFindingsNotApplicableProps = @{
+        Status = "Skipped"
+        Description = "<p>Catalog checks are not applicable because the tenant does not meet the Entitlement Management license requirement.</p>"
         AffectedObjects = @()
         RelatedReportUrl = ""
     }
@@ -8809,7 +8822,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $accessPackageReportUrl = "AccessPackages_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html"
     $apFindingIds = @("APK-001", "APK-002", "APK-003", "APK-004", "APK-005")
 
-    if (-not $AccessPackages -or $AccessPackages.Count -eq 0) {
+    if (-not $AccessPackagesAssessmentApplicable) {
+        Write-Log -Level Verbose -Message "[AP] Skipping Access Package findings because Entitlement Management is not applicable."
+        foreach ($findingId in $apFindingIds) {
+            Set-FindingOverride -FindingId $findingId -Props $accessPackageNotApplicableProps
+        }
+    } elseif (-not $AccessPackages -or $AccessPackages.Count -eq 0) {
         if ($AccessPackagesAssessmentAvailable) {
             Write-Log -Level Verbose -Message "[AP] No Access Packages found; marking Access Package findings as not vulnerable."
             Set-FindingOverride -FindingId "APK-001" -Props $APK001VariantProps.Secure
@@ -9003,8 +9021,18 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         $CatalogAssessment.PSObject.Properties['Status'] -and
         [string]$CatalogAssessment.Status -eq 'Partial'
     )
+    $catalogAssessmentApplicable = (
+        $null -eq $CatalogAssessment -or
+        -not $CatalogAssessment.PSObject.Properties['IsApplicable'] -or
+        [bool]$CatalogAssessment.IsApplicable
+    )
 
-    if (-not $catalogRbacAssessmentAvailable) {
+    if (-not $catalogAssessmentApplicable) {
+        Write-Log -Level Verbose -Message "[CAT] Skipping Catalog findings because Entitlement Management is not applicable."
+        Set-FindingOverride -FindingId "CAT-001" -Props $catalogFindingsNotApplicableProps
+        Set-FindingOverride -FindingId "CAT-002" -Props $catalogFindingsNotApplicableProps
+        Set-FindingOverride -FindingId "CAT-004" -Props $catalogFindingsNotApplicableProps
+    } elseif (-not $catalogRbacAssessmentAvailable) {
         Write-Log -Level Verbose -Message "[CAT] Skipping Catalog findings because Catalog RBAC assessment data is unavailable."
         Set-FindingOverride -FindingId "CAT-001" -Props $catalogFindingsSkippedProps
         Set-FindingOverride -FindingId "CAT-002" -Props $catalogFindingsSkippedProps
@@ -9248,7 +9276,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         $null -ne $CatalogAssessment.CatalogsById
     )
 
-    if (-not $catalogResourceAssessmentAvailable) {
+    if (-not $catalogAssessmentApplicable) {
+        Set-FindingOverride -FindingId "CAT-003" -Props $catalogFindingsNotApplicableProps
+    } elseif (-not $catalogResourceAssessmentAvailable) {
         Write-Log -Level Verbose -Message "[CAT-003] Skipping unused Catalog resource assessment because Catalog resources or Access Package resource-role references are unavailable."
         Set-FindingOverride -FindingId "CAT-003" -Props $catalogResourceFindingSkippedProps
     } else {

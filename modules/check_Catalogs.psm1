@@ -19,6 +19,28 @@ function Format-CatalogGraphError {
     return $message.Trim()
 }
 
+function Test-CatalogNoLicenseError {
+    param([Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $message = [string]$ErrorRecord.Exception.Message
+    return ($message -match '(?i)\bNoLicense\b|tenant does not meet license requirement')
+}
+
+function New-CatalogNotApplicableResult {
+    return [pscustomobject]@{
+        IsApplicable        = $false
+        NotApplicableReason = 'NoLicense'
+        IsAvailable         = $true
+        IsSkipped           = $true
+        RbacAvailable       = $true
+        ResourcesAvailable  = $true
+        Warnings            = @()
+        Catalogs            = @()
+        ResourcesByCatalog  = @{}
+        RoleAssignments     = @()
+    }
+}
+
 function Invoke-CatalogGraphGet {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
@@ -74,6 +96,7 @@ function Get-CatalogsRawData {
     if ($supportedFlows -notcontains $AuthFlow) {
         $warnings.Add("Coverage gap: Catalogs and Identity Governance RBAC were not assessed because Entitlement Management APIs are only queried with BroCi-based flows or ServicePrincipal flow.")
         return [pscustomobject]@{
+            IsApplicable = $true; NotApplicableReason = ''
             IsAvailable = $false; IsSkipped = $true; RbacAvailable = $false; Warnings = @($warnings)
             Catalogs = @(); ResourcesByCatalog = @{}; RoleAssignments = @()
         }
@@ -107,17 +130,29 @@ function Get-CatalogsRawData {
                 })
                 Write-Host "[+] Got $($catalogs.Count) Entitlement Management catalogs"
             } catch {
+                if (Test-CatalogNoLicenseError -ErrorRecord $_) {
+                    Write-Host '[i] Entitlement Management is not licensed for this tenant; Catalogs are not applicable.'
+                    Write-Log -Level Debug -Message "[Catalogs] Not applicable: $($_.Exception.Message)"
+                    return New-CatalogNotApplicableResult
+                }
                 $warnings.Add("Coverage gap: Entitlement Management catalogs could not be enumerated. $(Format-CatalogGraphError -ErrorRecord $_)")
                 Write-Log -Level Debug -Message "[Catalogs] Legacy catalog collection failed: $($_.Exception.Message)"
                 return [pscustomobject]@{
+                    IsApplicable = $true; NotApplicableReason = ''
                     IsAvailable = $false; IsSkipped = $false; RbacAvailable = $false; Warnings = @($warnings)
                     Catalogs = @(); ResourcesByCatalog = @{}; RoleAssignments = @()
                 }
             }
         } else {
+            if (Test-CatalogNoLicenseError -ErrorRecord $_) {
+                Write-Host '[i] Entitlement Management is not licensed for this tenant; Catalogs are not applicable.'
+                Write-Log -Level Debug -Message "[Catalogs] Not applicable: $($_.Exception.Message)"
+                return New-CatalogNotApplicableResult
+            }
             $warnings.Add("Coverage gap: Entitlement Management catalogs could not be enumerated. $(Format-CatalogGraphError -ErrorRecord $_)")
             Write-Log -Level Debug -Message "[Catalogs] Expanded catalog collection failed: $($_.Exception.Message)"
             return [pscustomobject]@{
+                IsApplicable = $true; NotApplicableReason = ''
                 IsAvailable = $false; IsSkipped = $false; RbacAvailable = $false; Warnings = @($warnings)
                 Catalogs = @(); ResourcesByCatalog = @{}; RoleAssignments = @()
             }
@@ -244,6 +279,8 @@ function Get-CatalogsRawData {
     Write-Log -Level Debug -Message "[Catalogs] Collection metrics: ResourceMode=$resourceCollectionMode, RbacMode=$rbacCollectionMode, Catalogs=$($catalogs.Count), Resources=$resourceTotal, RoleAssignments=$($roleAssignments.Count), ResourceFallbackRequests=$resourceFallbackRequests, ResourceFallbackFailures=$resourceFallbackFailures, ElapsedMs=$($collectionStopwatch.ElapsedMilliseconds)"
 
     return [pscustomobject]@{
+        IsApplicable        = $true
+        NotApplicableReason = ''
         IsAvailable        = $true
         IsSkipped          = $false
         RbacAvailable      = ($rbacFailures -eq 0)
@@ -1397,6 +1434,8 @@ function Invoke-CheckCatalogs {
         'Complete'
     }
     $catalogAssessment = [pscustomobject]@{
+        IsApplicable                = $true
+        NotApplicableReason         = ''
         IsAvailable                = $catalogDataAvailable
         RbacAvailable              = $rbacAvailable
         ResourcesAvailable         = $resourcesAvailable
