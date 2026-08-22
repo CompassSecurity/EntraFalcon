@@ -2125,6 +2125,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Status = "NotVulnerable"
             Description = "<p>No enabled users without MFA capability were identified.</p>"
         }
+        Skipped = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because MFA registration details could not be assessed for the relevant enabled users.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
     }
     $USR013VariantProps = @{
         Default = @{
@@ -3569,6 +3575,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $agentUsersOwningCapRelatedGroups = [System.Collections.Generic.List[object]]::new()
     $inactiveEnabledAgentUsers = [System.Collections.Generic.List[object]]::new()
     $enabledUsersForMfaCapCheckCount = 0
+    $unknownUsersForMfaCapCheckCount = 0
     $agentUserCount = 0
     if ($Users) {
         write-host "[*] Analyzing Users"
@@ -3582,9 +3589,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $isProtected = -not ($user.Protected -eq $false -or "$($user.Protected)".Trim().ToLowerInvariant() -eq "false")
             $isAgent = $user.Agent -eq $true
             $isForeignAgent = $user.ForeignAgent -eq $true -or "$($user.ForeignAgent)".Trim().ToLowerInvariant() -eq "true"
-            $mfaCapRaw = "$($user.MfaCap)".Trim()
-            $hasMfaCap = $user.MfaCap -eq $true -or $mfaCapRaw.ToLowerInvariant() -eq "true"
-            $isUnknownMfaCap = $mfaCapRaw -eq "?"
+            $mfaCapabilityState = Get-EntraFalconMfaCapabilityState -Value $user.MfaCap
+            $hasMfaCap = $mfaCapabilityState -eq "Capable"
+            $isUnknownMfaCap = $mfaCapabilityState -eq "Unknown"
             $entraMaxTier = "$($user.EntraMaxTier)".Trim()
             $azureMaxTier = "$($user.AzureMaxTier)".Trim()
             $lastSignInDays = "$($user.LastSignInDays)".Trim()
@@ -3595,6 +3602,9 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
             if ($isEnabled -and -not $excludeSyncUser -and -not $isAgent) {
                 $enabledUsersForMfaCapCheckCount += 1
+                if ($isUnknownMfaCap) {
+                    $unknownUsersForMfaCapCheckCount += 1
+                }
             }
             if ($isEnabled -and $isInactive) {
                 $inactiveEnabledUsers.Add([pscustomobject]@{
@@ -10641,9 +10651,28 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
     # USR-012: Enabled users without registered MFA factors.
     # Reuse pre-filtered data from the shared users enumeration loop and adjust risk based on CAP-002.
-    if ($enabledUsersWithoutMfaCap.Count -gt 0) {
+    $usr012Decision = Get-EntraFalconUsr012Decision -CollectionAvailable $global:GLOBALUserAuthMethodsAvailable -WithoutMfaCount $enabledUsersWithoutMfaCap.Count -UnknownCount $unknownUsersForMfaCapCheckCount
+    if ($usr012Decision -eq "Unavailable") {
+        $unavailableReason = switch ([string]$global:GLOBALUserAuthMethodsUnavailableReason) {
+            "PermissionOrLicense" { "the current permissions or tenant license do not allow retrieval of MFA registration details" }
+            "Authentication" { "authentication failed while retrieving MFA registration details" }
+            default { "the MFA registration API request failed" }
+        }
+        Write-Log -Level Verbose -Message "[USR-012] Skipping check because $unavailableReason."
+        Set-FindingOverride -FindingId "USR-012" -Props $USR012VariantProps.Skipped
+        Set-FindingOverride -FindingId "USR-012" -Props @{
+            Description = "<p>Check skipped because $unavailableReason. Enabled users without registered MFA factors could not be determined reliably.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
+    } elseif ($usr012Decision -eq "Vulnerable") {
         Write-Log -Level Verbose -Message "[USR-012] Found $($enabledUsersWithoutMfaCap.Count) enabled users without MFA capability."
         $usr012PopulationText = "$($enabledUsersWithoutMfaCap.Count) of $enabledUsersForMfaCapCheckCount enabled users"
+        $usr012CoverageText = if ($unknownUsersForMfaCapCheckCount -gt 0) {
+            "<p><strong>Coverage warning:</strong> MFA registration state was unknown for $unknownUsersForMfaCapCheckCount additional enabled users.</p>"
+        } else {
+            ""
+        }
         $usr012Affected = [System.Collections.Generic.List[object]]::new()
         foreach ($entry in $enabledUsersWithoutMfaCap) {
             $user = $entry.User
@@ -10668,13 +10697,13 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         if ($cap002IsVulnerable) {
             Set-FindingOverride -FindingId "USR-012" -Props $USR012VariantProps.VulnerableCapIssues
             Set-FindingOverride -FindingId "USR-012" -Props @{
-                Description = "<p>There are $usr012PopulationText without any registered MFA methods in Entra ID.</p><p>Additionally, issues were identified with the Conditional Access policies that set the conditions for registering MFA methods (check <a href=`"#CAP-002`">CAP-002</a>).</p><p><strong>Important:</strong> This finding requires manual verification.</p>"
+                Description = "<p>There are $usr012PopulationText without any registered MFA methods in Entra ID.</p>$usr012CoverageText<p>Additionally, issues were identified with the Conditional Access policies that set the conditions for registering MFA methods (check <a href=`"#CAP-002`">CAP-002</a>).</p><p><strong>Important:</strong> This finding requires manual verification.</p>"
                 Remediation = "<p>Ensure that attackers cannot register MFA methods for these users (see the recommendations in finding <a href=`"#CAP-002`">CAP-002</a>, if applicable).</p><p>Additionally, review why these users do not have any MFA methods registered and verify whether MFA enrollment and enforcement are configured correctly, and whether these users are required to exist in Entra ID.</p>"
             }
         } else {
             Set-FindingOverride -FindingId "USR-012" -Props $USR012VariantProps.VulnerableCapSecure
             Set-FindingOverride -FindingId "USR-012" -Props @{
-                Description = "<p>There are $usr012PopulationText without any registered MFA methods in Entra ID.</p><p><strong>Note:</strong> Finding CAP-002 was assessed as not vulnerable. Therefore, attackers should not be able to register new MFA methods even if a user`s password is compromised.</p>"
+                Description = "<p>There are $usr012PopulationText without any registered MFA methods in Entra ID.</p>$usr012CoverageText<p><strong>Note:</strong> Finding CAP-002 was assessed as not vulnerable. Therefore, attackers should not be able to register new MFA methods even if a user`s password is compromised.</p>"
             }
         }
 
@@ -10683,6 +10712,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             AffectedSortKey = "Impact"
             AffectedSortDir = "DESC"
             AffectedObjects = $usr012Affected
+        }
+    } elseif ($usr012Decision -eq "Unknown") {
+        Write-Log -Level Verbose -Message "[USR-012] Skipping secure decision because MFA registration state is unknown for $unknownUsersForMfaCapCheckCount enabled users."
+        Set-FindingOverride -FindingId "USR-012" -Props $USR012VariantProps.Skipped
+        Set-FindingOverride -FindingId "USR-012" -Props @{
+            Description = "<p>Check skipped because MFA registration state is unknown for $unknownUsersForMfaCapCheckCount enabled users. No secure assessment can be made from partial data.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
         }
     } else {
         Write-Log -Level Verbose -Message "[USR-012] No enabled users without MFA capability found."

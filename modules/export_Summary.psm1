@@ -305,6 +305,17 @@ return @"
         return $domainUserCount
     }
 
+    function Get-MfaUnknownCount {
+        $usersSummary = $GlobalAuditSummary.Users
+        if ($usersSummary -is [System.Collections.IDictionary] -and $usersSummary.Contains('MfaUnknown')) {
+            return [int]$usersSummary['MfaUnknown']
+        }
+        if ($null -ne $usersSummary -and $usersSummary.PSObject.Properties['MfaUnknown']) {
+            return [int]$usersSummary.MfaUnknown
+        }
+        return 0
+    }
+
     function Get-CoverageWarnings {
         param(
             [bool]$SubscriptionCountIncomplete
@@ -327,6 +338,11 @@ return @"
         }
         if (-not [bool]$GlobalAuditSummary.EnterpriseApps.IncludeMsApps) {
             $warnings.Add("Default Microsoft enterprise applications not collected.")
+        }
+        if ($global:GLOBALUserAuthMethodsAvailable -eq $false) {
+            $warnings.Add("MFA registration details not collected; MFA capability and USR-012 coverage are unavailable.")
+        } elseif ((Get-MfaUnknownCount) -gt 0) {
+            $warnings.Add("MFA registration state is unknown for one or more users; MFA capability coverage is partial.")
         }
         if ($SubscriptionCountIncomplete) {
             $warnings.Add("Subscription count is incomplete because Azure subscription access was unavailable.")
@@ -611,6 +627,8 @@ return @"
         $defaultDomain = $defaultDomain[0]
     }
     $coverageWarnings = Get-CoverageWarnings -SubscriptionCountIncomplete $subscriptionCountIncomplete
+    $mfaUnknownCount = Get-MfaUnknownCount
+    $mfaNotCapableCount = [Math]::Max(0, ([int]$GlobalAuditSummary.Users.Count - [int]$GlobalAuditSummary.Users.MfaCapable - $mfaUnknownCount))
     $summaryReportKey = "Summary"
     $summaryReportName = "EntraFalcon Enumeration Summary"
     $onPremisesSyncSummary = Get-OnPremisesSyncSummary -EnabledRaw $GlobalAuditSummary.Tenant.OnPremisesSyncEnabled -LastSyncRaw $GlobalAuditSummary.Tenant.OnPremisesLastSyncDateTime
@@ -753,7 +771,8 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         users_mfacap: {
             mfacap: $($GlobalAuditSummary.Users.MfaCapable),
-            notmfacap: $($($GlobalAuditSummary.Users.Count) - $($GlobalAuditSummary.Users.MfaCapable))
+            notmfacap: $mfaNotCapableCount,
+            unknown: $mfaUnknownCount
         },
         users_inactive: {
             inactive: $($GlobalAuditSummary.Users.Inactive),
@@ -1002,9 +1021,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (datasetKey === 'users_mfacap') {
             return {
-                labels: ['MFA Capable', 'Not MFA Capable'],
+                labels: ['MFA Capable', 'Not MFA Capable', 'Unknown'],
                 datasets: [{
-                    data: [dataSources.users_mfacap.mfacap, dataSources.users_mfacap.notmfacap],
+                    data: [dataSources.users_mfacap.mfacap, dataSources.users_mfacap.notmfacap, dataSources.users_mfacap.unknown],
                     backgroundColor: chartColorPalette
                 }]
             };
@@ -1908,6 +1927,7 @@ Enumeration Results:
                 enabled    = $GlobalAuditSummary.Users.Enabled
                 onPrem     = $GlobalAuditSummary.Users.OnPrem
                 mfaCapable = $GlobalAuditSummary.Users.MfaCapable
+                mfaUnknown = $mfaUnknownCount
             }
             groups                            = [ordered]@{
                 count        = $GlobalAuditSummary.Groups.Count

@@ -2774,6 +2774,7 @@ $headerHtml = @"
     $InactiveCount = 0
     $EnabledCount = 0
     $MfaCapCount = 0
+    $MfaUnknownCount = 0
     $OnPremCount = 0
     $buckets = New-Object 'System.Collections.Generic.List[string]'
 
@@ -2787,8 +2788,11 @@ $headerHtml = @"
         if ($user.Enabled) {
             $EnabledCount++
         }
-        if ($user.MfaCap) {
+        $mfaCapabilityState = Get-EntraFalconMfaCapabilityState -Value $user.MfaCap
+        if ($mfaCapabilityState -eq "Capable") {
             $MfaCapCount++
+        } elseif ($mfaCapabilityState -eq "Unknown") {
+            $MfaUnknownCount++
         }
         if ($user.OnPrem) {
             $OnPremCount++
@@ -2821,6 +2825,13 @@ $headerHtml = @"
     $GlobalAuditSummary.Users.Inactive = $InactiveCount
     $GlobalAuditSummary.Users.Enabled = $EnabledCount
     $GlobalAuditSummary.Users.MfaCapable = $MfaCapCount
+    if ($GlobalAuditSummary.Users -is [System.Collections.IDictionary]) {
+        $GlobalAuditSummary.Users['MfaUnknown'] = $MfaUnknownCount
+    } elseif ($GlobalAuditSummary.Users.PSObject.Properties['MfaUnknown']) {
+        $GlobalAuditSummary.Users.MfaUnknown = $MfaUnknownCount
+    } else {
+        $GlobalAuditSummary.Users | Add-Member -NotePropertyName MfaUnknown -NotePropertyValue $MfaUnknownCount
+    }
     $GlobalAuditSummary.Users.OnPrem = $OnPremCount
 
     # Group and summarize

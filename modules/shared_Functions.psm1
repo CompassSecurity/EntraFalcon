@@ -7404,6 +7404,40 @@ function Get-TenantDomains {
     return $Domains
 }
 
+# Normalizes Graph MFA capability values without treating non-empty unknown strings as true.
+function Get-EntraFalconMfaCapabilityState {
+    param(
+        [Parameter(Mandatory = $false)][object]$Value
+    )
+
+    if ($Value -is [bool]) {
+        if ([bool]$Value) { return "Capable" }
+        return "NotCapable"
+    }
+
+    $text = ([string]$Value).Trim().ToLowerInvariant()
+    if ($text -eq "true") {
+        return "Capable"
+    }
+    if ($text -eq "false") {
+        return "NotCapable"
+    }
+    return "Unknown"
+}
+
+function Get-EntraFalconUsr012Decision {
+    param(
+        [Parameter(Mandatory = $false)][object]$CollectionAvailable,
+        [Parameter(Mandatory = $true)][int]$WithoutMfaCount,
+        [Parameter(Mandatory = $true)][int]$UnknownCount
+    )
+
+    if ($CollectionAvailable -is [bool] -and -not [bool]$CollectionAvailable) { return "Unavailable" }
+    if ($WithoutMfaCount -gt 0) { return "Vulnerable" }
+    if ($UnknownCount -gt 0) { return "Unknown" }
+    return "Secure"
+}
+
 #Get information if users are MFA capable
 function Get-RegisterAuthMethodsUsers {
     # Requires Premium otherwise HTTP 403:Tenant is not a B2C tenant and doesn't have premium license
@@ -7413,14 +7447,41 @@ function Get-RegisterAuthMethodsUsers {
         '$select' = "Id,IsMfaCapable"
         '$top' = "3000"
     }
+    $global:GLOBALUserAuthMethodsAvailable = $false
+    $global:GLOBALUserAuthMethodsUnavailableReason = $null
+
     try {
-        $RegisteredAuthMethods = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/reports/authenticationMethods/userRegistrationDetails" -QueryParameters $QueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
+        $RegisteredAuthMethods = @(Send-ApiRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "https://graph.microsoft.com/beta/reports/authenticationMethods/userRegistrationDetails" -QueryParameters $QueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -Silent -ErrorAction Stop)
+        $global:GLOBALUserAuthMethodsAvailable = $true
     } catch {
-        if ($($_.Exception.Message) -match "Status: 403") {
-            write-host "[!] HTTP 403 Error: Most likely due to missing Entra ID premium licence. Can't retrieve users auth methods."
-        } else {
-            write-host "[!] Auth error: $($_.Exception.Message -split '\n'). Can't retrieve users auth methods."
+        $requestError = $_
+        $errorCategory = [string]$requestError.CategoryInfo.Category
+        $errorMessage = [string]$requestError.Exception.Message
+        $statusCode = $null
+        $apiErrorCode = $null
+        $apiErrorMessage = $errorMessage
+        if ($errorMessage -match "(?i)status\s+(\d+)\s*:\s*([^-]+?)\s+-\s+(.+)$") {
+            $statusCode = [int]$matches[1]
+            $apiErrorCode = $matches[2].Trim()
+            $apiErrorMessage = $matches[3].Trim()
+        } elseif ($errorMessage -match "(?i)status\s+(\d+)\s+\(([^)]+)\)\s*:\s*(.+)$") {
+            $statusCode = [int]$matches[1]
+            $apiErrorCode = $matches[2].Trim()
+            $apiErrorMessage = $matches[3].Trim()
         }
+
+        if ($statusCode -eq 401 -or $errorCategory -eq "AuthenticationError") {
+            $global:GLOBALUserAuthMethodsUnavailableReason = "Authentication"
+        } elseif ($statusCode -eq 403 -or $errorCategory -eq "PermissionDenied") {
+            $global:GLOBALUserAuthMethodsUnavailableReason = "PermissionOrLicense"
+        } elseif ($apiErrorCode -match "(?i)licen[cs]e|premium" -or $apiErrorMessage -match "(?i)premium\s+licen[cs]e|no\s*licen[cs]e|licen[cs]e\s+requirement") {
+            $global:GLOBALUserAuthMethodsUnavailableReason = "PermissionOrLicense"
+        } else {
+            $global:GLOBALUserAuthMethodsUnavailableReason = "ApiFailure"
+        }
+        write-host "[!] User MFA registration details could not be retrieved. MFA registration checks will be skipped or marked as partial."
+        Write-Log -Level Verbose -Message "User MFA registration details request failed: Status=$statusCode; Code=$apiErrorCode; Reason=$($global:GLOBALUserAuthMethodsUnavailableReason); Message=$apiErrorMessage"
+        return @{}
     }
     
     #Convert to HT
@@ -10280,7 +10341,7 @@ function start-InitTasks {
         TenantLicense          = @{ Name = ""; Level = 0}
         Subscriptions          = @{ Count = 0; Details = @() }
         UserAgent              = @{ Name = $UserAgent}
-        Users                  = @{ Count = 0; Guests = 0; Inactive = 0; Enabled=0; OnPrem=0; MfaCapable=0; SignInActivity = @{ '0-1 month' = 0; '1-2 months' = 0; '2-3 months' = 0; '3-4 months' = 0; '4-5 months' = 0; '5-6 months' = 0; '6+ months' = 0; 'Never' = 0 }}
+        Users                  = @{ Count = 0; Guests = 0; Inactive = 0; Enabled=0; OnPrem=0; MfaCapable=0; MfaUnknown=0; SignInActivity = @{ '0-1 month' = 0; '1-2 months' = 0; '2-3 months' = 0; '3-4 months' = 0; '4-5 months' = 0; '5-6 months' = 0; '6+ months' = 0; 'Never' = 0 }}
         Groups                 = @{ Count = 0; M365 = 0; PublicM365 = 0; PimOnboarded = 0; OnPrem = 0}
         AppRegistrations       = @{ Count = 0; AppLock = 0; Credentials = @{ 'AppsSecrets' = 0; 'AppsCerts' = 0; 'AppsFederatedCreds' = 0; 'AppsNoCreds' = 0}; Audience = @{ 'SingleTenant' = 0; 'MultiTenant' = 0; 'MultiTenantPersonal' = 0} }
         EnterpriseApps         = @{ Count = 0; Foreign = 0; IncludeMsApps = $false; Credentials = 0; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0}; SignInActivity = @{ '0-1 month' = 0; '1-2 months' = 0; '2-3 months' = 0; '3-4 months' = 0; '4-5 months' = 0; '5-6 months' = 0; '6+ months' = 0; 'Never' = 0 }}
@@ -11030,6 +11091,8 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALPermissionForCaps -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsChecked -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALUserSignInActivityAvailable -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALUserAuthMethodsAvailable -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALUserAuthMethodsUnavailableReason -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALSpSignInActivityAvailable -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALSpSignInActivityUnavailableReason -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzurePsChecks -ErrorAction SilentlyContinue
@@ -11273,4 +11336,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Test-EntraFalconServicePrincipalInactive,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Test-EntraFalconServicePrincipalInactive,Get-EntraFalconMfaCapabilityState,Get-EntraFalconUsr012Decision,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Get-HighestTierLabel,Merge-HigherTierLabel,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment
