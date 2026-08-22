@@ -9282,6 +9282,52 @@ function Get-EntraRoleAssignments {
     Return $TenantRoleAssignmentsHT
 }
 
+function Resolve-EntraFalconIntuneRbacSkipReason {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$ErrorMessage
+    )
+
+    if ($ErrorMessage -match "403|Forbidden|DeviceManagementRBAC\.Read") {
+        return "Intune RBAC role assignments were not assessed because the token lacks DeviceManagementRBAC.Read.All or DeviceManagementRBAC.ReadWrite.All."
+    }
+    if ($ErrorMessage -match "license|licence|not licensed|Intune") {
+        return "Intune RBAC role assignments were not assessed because the tenant may not have the required Intune license."
+    }
+    return "Intune RBAC role assignments were not assessed due to an unexpected response or request failure."
+}
+
+function Set-EntraFalconIntuneRbacRequestStateFromError {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$ErrorMessage
+    )
+
+    $global:GLOBALIntuneRbacChecked = $true
+    if ($ErrorMessage -match "Request not applicable to target tenant") {
+        $global:GLOBALIntuneRbacAvailable = $true
+        $global:GLOBALIntuneRbacSkipReason = ""
+        return "NotApplicable"
+    }
+
+    $global:GLOBALIntuneRbacAvailable = $false
+    $global:GLOBALIntuneRbacSkipReason = Resolve-EntraFalconIntuneRbacSkipReason -ErrorMessage $ErrorMessage
+    return "Unavailable"
+}
+
+function Invoke-EntraFalconIntuneRbacGraphGet {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$QueryParameters
+    )
+
+    $absoluteUri = if ($Uri -match '^https://') { $Uri } else { "https://graph.microsoft.com/v1.0$Uri" }
+    return Send-ApiRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri $absoluteUri -QueryParameters $QueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -Silent -ErrorAction Stop
+}
+
 function Get-IntuneRbacRoleAssignments {
     [CmdletBinding()]
     param(
@@ -9349,7 +9395,7 @@ function Get-IntuneRbacRoleAssignments {
             if (-not $directoryObjectNamesById.ContainsKey($objectKey)) {
                 $displayValue = $objectKey
                 try {
-                    $directoryObject = Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/directoryObjects/$objectKey" -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
+                    $directoryObject = Invoke-EntraFalconIntuneRbacGraphGet -Uri "/directoryObjects/$objectKey"
                     if ($directoryObject -and -not [string]::IsNullOrWhiteSpace([string]$directoryObject.displayName)) {
                         $displayValue = [string]$directoryObject.displayName
                     }
@@ -9371,14 +9417,14 @@ function Get-IntuneRbacRoleAssignments {
             '$select' = "id,displayName,isBuiltIn,description,rolePermissions"
             '$top'    = $ApiTop
         }
-        $roleDefinitions = @(Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleDefinitions" -QueryParameters $roleDefinitionQueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+        $roleDefinitions = @(Invoke-EntraFalconIntuneRbacGraphGet -Uri "/deviceManagement/roleDefinitions" -QueryParameters $roleDefinitionQueryParameters)
 
         try {
             $roleScopeTagQueryParameters = @{
                 '$select' = "id,displayName"
                 '$top'    = $ApiTop
             }
-            $roleScopeTags = @(Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleScopeTags" -QueryParameters $roleScopeTagQueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+            $roleScopeTags = @(Invoke-EntraFalconIntuneRbacGraphGet -Uri "/deviceManagement/roleScopeTags" -QueryParameters $roleScopeTagQueryParameters)
             foreach ($roleScopeTag in $roleScopeTags) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$roleScopeTag.id)) {
                     $roleScopeTagsById[[string]$roleScopeTag.id] = [string]$roleScopeTag.displayName
@@ -9404,7 +9450,7 @@ function Get-IntuneRbacRoleAssignments {
             $assignmentQueryParameters = @{
                 '$top' = $ApiTop
             }
-            $roleAssignments = @(Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleDefinitions/$roleDefinitionId/roleAssignments" -QueryParameters $assignmentQueryParameters -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+            $roleAssignments = @(Invoke-EntraFalconIntuneRbacGraphGet -Uri "/deviceManagement/roleDefinitions/$roleDefinitionId/roleAssignments" -QueryParameters $assignmentQueryParameters)
 
             foreach ($assignment in $roleAssignments) {
                 if ($null -eq $assignment) { continue }
@@ -9419,7 +9465,7 @@ function Get-IntuneRbacRoleAssignments {
                 # Some tenants return members as an empty array on the list endpoint, while the direct assignment endpoint returns the actual included groups.
                 if ($listMembers.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($assignmentId)) {
                     try {
-                        $directAssignment = Send-GraphRequest -AccessToken $GLOBALIntuneRbacAccessToken.access_token -Method GET -Uri "/deviceManagement/roleDefinitions/$roleDefinitionId/roleAssignments/$assignmentId" -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
+                        $directAssignment = Invoke-EntraFalconIntuneRbacGraphGet -Uri "/deviceManagement/roleDefinitions/$roleDefinitionId/roleAssignments/$assignmentId"
                         if ($directAssignment) {
                             $assignmentForMembers = $directAssignment
                         }
@@ -9521,16 +9567,12 @@ function Get-IntuneRbacRoleAssignments {
         return $IntuneAssignmentsByGroup
     } catch {
         $errorMessage = $_.Exception.Message
-        if ($errorMessage -match "403|Forbidden|DeviceManagementRBAC\.Read") {
-            $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because the token lacks DeviceManagementRBAC.Read.All or DeviceManagementRBAC.ReadWrite.All."
-        } elseif ($errorMessage -match "license|licence|not licensed|Intune") {
-            $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed because the tenant may not have the required Intune license."
+        $requestState = Set-EntraFalconIntuneRbacRequestStateFromError -ErrorMessage $errorMessage
+        if ($requestState -eq "NotApplicable") {
+            Write-Host "[i] Intune is not enabled or used in this tenant; no Intune RBAC assignments are applicable."
         } else {
-            $global:GLOBALIntuneRbacSkipReason = "Intune RBAC role assignments were not assessed due to an unexpected response or request failure."
+            Write-Host "[!] $($global:GLOBALIntuneRbacSkipReason)"
         }
-        $global:GLOBALIntuneRbacChecked = $true
-        $global:GLOBALIntuneRbacAvailable = $false
-        Write-Host "[!] $($global:GLOBALIntuneRbacSkipReason)"
         Write-Log -Level Debug -Message ("[IntuneRbac] Failure: {0}" -f $errorMessage)
         return @{}
     }
