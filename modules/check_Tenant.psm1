@@ -574,7 +574,7 @@ function Invoke-CheckTenant {
 
     Write-Host "[*] Get authorization policies"
     $authorizationPolicyQueryParameters = @{
-        '$select' = "allowInvitesFrom,guestUserRoleId,defaultUserRolePermissions,permissionGrantPolicyIdsAssignedToDefaultUserRole,allowedToUseSSPR"
+        '$select' = "allowInvitesFrom,guestUserRoleId,defaultUserRolePermissions,permissionGrantPolicyIdsAssignedToDefaultUserRole,allowedToUseSSPR,allowUserConsentForRiskyApps"
     }
     $AuthPolicy = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/policies/authorizationPolicy" -QueryParameters $authorizationPolicyQueryParameters -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
 
@@ -1982,12 +1982,16 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $USR004VariantProps = @{
         Default = @{
             Threat = "<p>An attacker can register an application in Entra ID that requests access to data such as contact information, email, or documents. The attacker may then trick a user into granting consent, for example through a phishing attack or by injecting malicious code into a trusted website. Once consent is granted, the malicious application gains access to the user's data without requiring an organizational account.</p>"
-            Remediation = '<p>Restrict application consent to administrators only. Configure the following setting in the Entra admin portal:</p><ol><li>Select <strong>Enterprise Applications</strong></li><li>Select <strong>Consent and permissions</strong></li><li>Select <code>Do not allow user consent</code></li></ol><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies</a></li></ul>'
+            Remediation = '<p>Restrict application consent to administrators only. Configure the following setting in the Entra admin portal:</p><ol><li>Select <strong>Enterprise Applications</strong></li><li>Select <strong>Consent and permissions</strong></li><li>Select <code>Do not allow user consent</code></li></ol><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-risk-based-step-up-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-risk-based-step-up-consent</a></li></ul>'
 
         }
         MicrosoftManaged = @{
             Status = "Vulnerable"
             Description = "<p>Users can consent to all scopes allowed by Microsoft. While some critical scopes are blocked, Microsoft still allows consent to extensive permissions such as:</p><ul><li>Full access to user contacts (Contacts.ReadWrite)</li><li>Read access to user devices (Device.Read)</li><li>Full access to user files (Files.ReadWrite)</li><li>Read and write access to all OneNote notebooks the user can access (Notes.ReadWrite.All)</li></ul>"
+        }
+        AllowConsentApps = @{
+            Status = "Vulnerable"
+            Description = "<p>Users can consent to apps according to the broad default user consent policy assigned to the default user role.</p>"
         }
         Secure = @{
             Status = "NotVulnerable"
@@ -2000,7 +2004,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Status = "Vulnerable"
             Severity = 0
             Threat = "<p>If attackers gain control over an application with consented permissions, they may leverage even limited access to facilitate further attacks.</p>"
-            Remediation = '<p>Consider restricting application consent to administrators only. Configure the following setting in the Entra admin portal:</p><ol><li>Select <strong>Enterprise Applications</strong></li><li>Select <strong>Consent and permissions</strong></li><li>Select <code>Do not allow user consent</code></li></ol><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies</a></li></ul>'
+            Remediation = '<p>Consider restricting application consent to administrators only. Configure the following setting in the Entra admin portal:</p><ol><li>Select <strong>Enterprise Applications</strong></li><li>Select <strong>Consent and permissions</strong></li><li>Select <code>Do not allow user consent</code></li></ol><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-risk-based-step-up-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-risk-based-step-up-consent</a></li></ul>'
             
             Confidence = "Requires Verification"
         }
@@ -10349,11 +10353,37 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     } else {
         $policyIds = @($permissionGrantPolicyIds)
         Write-Log -Level Verbose -Message "[USR-004] permissionGrantPolicyIdsAssignedToDefaultUserRole: $($policyIds -join ', ')"
+        $allowUserConsentForRiskyApps = $null
+        if ($AuthPolicy -and $AuthPolicy.PSObject.Properties["allowUserConsentForRiskyApps"]) {
+            $allowUserConsentForRiskyApps = $AuthPolicy.allowUserConsentForRiskyApps
+        }
+        $riskBasedConsentText = [string]$allowUserConsentForRiskyApps
+        $riskBasedConsentParagraph = ""
+        if ($riskBasedConsentText -ieq "false") {
+            Write-Log -Level Trace -Message "[USR-004] Risk-based user consent is blocked."
+            $riskBasedConsentParagraph = "<p>Note: Risk-based step-up consent is enabled. This may prevent non-administrative users from granting consent to requests that Microsoft identifies as risky, such as requests from newly registered, unverified multitenant applications for non-basic permissions.</p>"
+        } elseif ($riskBasedConsentText -ieq "true") {
+            Write-Log -Level Trace -Message "[USR-004] Risk-based user consent is allowed."
+            $riskBasedConsentParagraph = "<p>Furthermore, risk-based step-up consent is disabled. Consequently, consent requests identified by Microsoft as risky, such as requests from newly registered, unverified multitenant applications for non-basic permissions, are not blocked for normal users.</p>"
+        } else {
+            Write-Log -Level Trace -Message "[USR-004] Risk-based user consent status could not be determined."
+            $riskBasedConsentParagraph = "<p>Note: The status of risk-based step-up consent could not be determined from the authorization policy response. Therefore, it remains unclear whether consent requests identified by Microsoft as risky are blocked for non-administrative users.</p>"
+        }
 
         # Microsoft-managed policy allows consent to Microsoft-allowed scopes.
         if ($policyIds -contains "ManagePermissionGrantsForSelf.microsoft-user-default-recommended") {
             Write-Log -Level Trace -Message "[USR-004] User consent policy: Microsoft managed."
             Set-FindingOverride -FindingId "USR-004" -Props $USR004VariantProps.MicrosoftManaged
+            Set-FindingOverride -FindingId "USR-004" -Props @{
+                Description = "$($USR004VariantProps.MicrosoftManaged.Description)$riskBasedConsentParagraph"
+            }
+
+        } elseif ($policyIds -contains "ManagePermissionGrantsForSelf.microsoft-user-default-allow-consent-apps") {
+            Write-Log -Level Trace -Message "[USR-004] User consent policy: broad default user consent."
+            Set-FindingOverride -FindingId "USR-004" -Props $USR004VariantProps.AllowConsentApps
+            Set-FindingOverride -FindingId "USR-004" -Props @{
+                Description = "$($USR004VariantProps.AllowConsentApps.Description)$riskBasedConsentParagraph"
+            }
             
         # Low policy: evaluate classified permissions to identify extensive scopes.
         } elseif ($policyIds -contains "ManagePermissionGrantsForSelf.microsoft-user-default-low") {
@@ -10382,7 +10412,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 # Apply base variant and then inject dynamic permission list.
                 Set-FindingOverride -FindingId "USR-004" -Props $USR004VariantProps.LowExtensive
                 Set-FindingOverride -FindingId "USR-004" -Props @{
-                    Description = "<p>Users are allowed to consent to known extensive permissions:</p><ul>$items</ul>"
+                    Description = "<p>Users are allowed to consent to known extensive permissions:</p><ul>$items</ul>$riskBasedConsentParagraph"
                 }
 
             } else {
@@ -10392,7 +10422,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 # Apply base variant and then inject dynamic permission list.
                 Set-FindingOverride -FindingId "USR-004" -Props $USR004VariantProps.LowSpecific
                 Set-FindingOverride -FindingId "USR-004" -Props @{
-                    Description = "<p>Users are allowed to consent to specific permissions. However none of these permissions is categorized as extensive.</p>$detail"
+                    Description = "<p>Users are allowed to consent to specific permissions. However none of these permissions is categorized as extensive.</p>$detail$riskBasedConsentParagraph"
                 }
             }
         } else {
