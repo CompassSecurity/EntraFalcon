@@ -2522,7 +2522,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
     $ENT014VariantProps = @{
         Default = @{
-            Threat = "<p>A malicious application may use visually confusable Greek or Cyrillic characters in its name to imitate a trusted application. This technique can make a fraudulent application appear legitimate and may make suspicious consent requests or application activity harder for users and administrators to recognize.</p><p>If users or administrators mistake the application for a trusted one, they may grant permissions or overlook unexpected access.</p>"
+            Threat = "<p>A malicious application may use non-Latin characters that visually resemble common Latin characters in its name to imitate a trusted application. This technique can make a fraudulent application appear legitimate and may make suspicious consent requests or application activity harder for users and administrators to recognize.</p><p>If users or administrators mistake the application for a trusted one, they may grant permissions or overlook unexpected access.</p>"
             Remediation = '<p>Verify the application''s identity, publisher, and business purpose with the expected application owner or vendor. Review its permissions, consent grants, owners, and role assignments for unexpected or excessive access.</p><p>If the application cannot be clearly validated, disable or remove it and revoke any associated permissions or consent grants. In this case, consider performing a security investigation to determine whether the application has already been used for unauthorized or malicious activity. This should include reviewing relevant sign-in, audit, and application activity logs for suspicious access or changes.</p><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app</a></li><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing</a></li></ul>'
         }
         Vulnerable = @{
@@ -2532,7 +2532,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Secure = @{
             Status = "NotVulnerable"
             Confidence = "Requires Verification"
-            Description = "<p>No assessed foreign, non-Microsoft enterprise applications used Latin characters but also contained visually similar Greek or Cyrillic characters.</p>"
+            Description = "<p>No assessed foreign, non-Microsoft enterprise applications used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p>"
         }
         Skipped = @{
             Status = "Skipped"
@@ -2912,7 +2912,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
     $AGT018VariantProps = @{
         Default = @{
-            Threat = "<p>A malicious agent blueprint principal may use visually confusable Greek or Cyrillic characters in its name to imitate a trusted application or agent. This technique can make a fraudulent principal appear legitimate and may make suspicious consent requests or application activity harder for users and administrators to recognize.</p><p>If users or administrators mistake the principal for a trusted one, they may grant permissions or overlook unexpected access.</p>"
+            Threat = "<p>A malicious agent blueprint principal may use non-Latin characters that visually resemble common Latin characters in its name to imitate a trusted application or agent. This technique can make a fraudulent principal appear legitimate and may make suspicious consent requests or application activity harder for users and administrators to recognize.</p><p>If users or administrators mistake the principal for a trusted one, they may grant permissions or overlook unexpected access.</p>"
             Remediation = '<p>Verify the principal''s identity, publisher, and business purpose with the expected blueprint owner or vendor. Review its permissions, consent grants, owners, and role assignments for unexpected or excessive access.</p><p>If the principal cannot be clearly validated, disable or remove it and revoke any associated permissions or consent grants. In this case, consider performing a security investigation to determine whether the principal has already been used for unauthorized or malicious activity. This should include reviewing relevant sign-in, audit, and application activity logs for suspicious access or changes.</p><p>References:</p><ul><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-compromised-malicious-app</a></li><li><a href="https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/protect-against-consent-phishing</a></li></ul>'
         }
         Vulnerable = @{
@@ -2922,7 +2922,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Secure = @{
             Status = "NotVulnerable"
             Confidence = "Requires Verification"
-            Description = "<p>No assessed foreign, non-Microsoft agent blueprint principals that primarily used Latin characters but also contained visually similar Greek or Cyrillic characters.</p>"
+            Description = "<p>No assessed foreign, non-Microsoft agent blueprint principals that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p>"
         }
         Skipped = @{
             Status = "Skipped"
@@ -6371,7 +6371,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "ENT-014" -Props @{
             Severity = if ($ent014Critical) { 4 } else { 3 }
             Confidence = "Requires Verification"
-            Description = "<p>$($entAppsSuspiciousNames.Count) foreign, non-Microsoft enterprise application(s) had a name that primarily used Latin characters but also contained visually similar Greek or Cyrillic characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate applications may also use such characters.</p>"
+            Description = "<p>$($entAppsSuspiciousNames.Count) foreign, non-Microsoft enterprise application(s) had a name that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate applications may also use such characters.</p>"
             RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Possible%20impersonation%20via%20look-alike%20characters"
             AffectedSortKey = "Impact"
             AffectedSortDir = "DESC"
@@ -6822,7 +6822,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "AGT-018" -Props @{
             Severity = if ($agt018Critical) { 4 } else { 3 }
             Confidence = "Requires Verification"
-            Description = "<p>$($agentBlueprintPrincipalsSuspiciousNames.Count) foreign, non-Microsoft agent blueprint principal(s) had a name that primarily used Latin characters but also contained visually similar Greek or Cyrillic characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate agent integrations may also use such characters.</p>"
+            Description = "<p>$($agentBlueprintPrincipalsSuspiciousNames.Count) foreign, non-Microsoft agent blueprint principal(s) had a name that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate agent integrations may also use such characters.</p>"
             RelatedReportUrl = "AgentIdentityBlueprintsPrincipals_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Possible%20impersonation%20via%20look-alike%20characters"
             AffectedSortKey = "Impact"
             AffectedSortDir = "DESC"

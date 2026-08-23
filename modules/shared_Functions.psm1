@@ -11211,6 +11211,147 @@ function Write-Log {
 
 
 
+$script:EntraFalconSPNameConfusableMap = @{
+    0x0405 = [pscustomobject]@{ Latin = 'S'; Script = 'Cyrillic' }
+    0x0406 = [pscustomobject]@{ Latin = 'I'; Script = 'Cyrillic' }
+    0x0408 = [pscustomobject]@{ Latin = 'J'; Script = 'Cyrillic' }
+    0x0410 = [pscustomobject]@{ Latin = 'A'; Script = 'Cyrillic' }
+    0x0412 = [pscustomobject]@{ Latin = 'B'; Script = 'Cyrillic' }
+    0x0415 = [pscustomobject]@{ Latin = 'E'; Script = 'Cyrillic' }
+    0x041A = [pscustomobject]@{ Latin = 'K'; Script = 'Cyrillic' }
+    0x041C = [pscustomobject]@{ Latin = 'M'; Script = 'Cyrillic' }
+    0x041D = [pscustomobject]@{ Latin = 'H'; Script = 'Cyrillic' }
+    0x041E = [pscustomobject]@{ Latin = 'O'; Script = 'Cyrillic' }
+    0x0420 = [pscustomobject]@{ Latin = 'P'; Script = 'Cyrillic' }
+    0x0421 = [pscustomobject]@{ Latin = 'C'; Script = 'Cyrillic' }
+    0x0422 = [pscustomobject]@{ Latin = 'T'; Script = 'Cyrillic' }
+    0x0423 = [pscustomobject]@{ Latin = 'Y'; Script = 'Cyrillic' }
+    0x0425 = [pscustomobject]@{ Latin = 'X'; Script = 'Cyrillic' }
+    0x042C = [pscustomobject]@{ Latin = 'b'; Script = 'Cyrillic' }
+    0x0430 = [pscustomobject]@{ Latin = 'a'; Script = 'Cyrillic' }
+    0x0433 = [pscustomobject]@{ Latin = 'r'; Script = 'Cyrillic' }
+    0x0435 = [pscustomobject]@{ Latin = 'e'; Script = 'Cyrillic' }
+    0x043E = [pscustomobject]@{ Latin = 'o'; Script = 'Cyrillic' }
+    0x043F = [pscustomobject]@{ Latin = 'n'; Script = 'Cyrillic' }
+    0x0440 = [pscustomobject]@{ Latin = 'p'; Script = 'Cyrillic' }
+    0x0441 = [pscustomobject]@{ Latin = 'c'; Script = 'Cyrillic' }
+    0x0443 = [pscustomobject]@{ Latin = 'y'; Script = 'Cyrillic' }
+    0x0445 = [pscustomobject]@{ Latin = 'x'; Script = 'Cyrillic' }
+    0x0448 = [pscustomobject]@{ Latin = 'w'; Script = 'Cyrillic' }
+    0x0455 = [pscustomobject]@{ Latin = 's'; Script = 'Cyrillic' }
+    0x0456 = [pscustomobject]@{ Latin = 'i'; Script = 'Cyrillic' }
+    0x0458 = [pscustomobject]@{ Latin = 'j'; Script = 'Cyrillic' }
+    0x0461 = [pscustomobject]@{ Latin = 'w'; Script = 'Cyrillic' }
+    0x0474 = [pscustomobject]@{ Latin = 'V'; Script = 'Cyrillic' }
+    0x0475 = [pscustomobject]@{ Latin = 'v'; Script = 'Cyrillic' }
+    0x04AE = [pscustomobject]@{ Latin = 'Y'; Script = 'Cyrillic' }
+    0x04AF = [pscustomobject]@{ Latin = 'y'; Script = 'Cyrillic' }
+    0x04BB = [pscustomobject]@{ Latin = 'h'; Script = 'Cyrillic' }
+    0x04BD = [pscustomobject]@{ Latin = 'e'; Script = 'Cyrillic' }
+    0x04C0 = [pscustomobject]@{ Latin = 'l'; Script = 'Cyrillic' }
+    0x04CF = [pscustomobject]@{ Latin = 'l'; Script = 'Cyrillic' }
+    0x0501 = [pscustomobject]@{ Latin = 'd'; Script = 'Cyrillic' }
+    0x050C = [pscustomobject]@{ Latin = 'G'; Script = 'Cyrillic' }
+    0x051B = [pscustomobject]@{ Latin = 'q'; Script = 'Cyrillic' }
+    0x051C = [pscustomobject]@{ Latin = 'W'; Script = 'Cyrillic' }
+    0x051D = [pscustomobject]@{ Latin = 'w'; Script = 'Cyrillic' }
+    0x037F = [pscustomobject]@{ Latin = 'J'; Script = 'Greek' }
+    0x0391 = [pscustomobject]@{ Latin = 'A'; Script = 'Greek' }
+    0x0392 = [pscustomobject]@{ Latin = 'B'; Script = 'Greek' }
+    0x0395 = [pscustomobject]@{ Latin = 'E'; Script = 'Greek' }
+    0x0396 = [pscustomobject]@{ Latin = 'Z'; Script = 'Greek' }
+    0x0397 = [pscustomobject]@{ Latin = 'H'; Script = 'Greek' }
+    0x0399 = [pscustomobject]@{ Latin = 'I'; Script = 'Greek' }
+    0x039A = [pscustomobject]@{ Latin = 'K'; Script = 'Greek' }
+    0x039C = [pscustomobject]@{ Latin = 'M'; Script = 'Greek' }
+    0x039D = [pscustomobject]@{ Latin = 'N'; Script = 'Greek' }
+    0x039F = [pscustomobject]@{ Latin = 'O'; Script = 'Greek' }
+    0x03A1 = [pscustomobject]@{ Latin = 'P'; Script = 'Greek' }
+    0x03A4 = [pscustomobject]@{ Latin = 'T'; Script = 'Greek' }
+    0x03A5 = [pscustomobject]@{ Latin = 'Y'; Script = 'Greek' }
+    0x03A7 = [pscustomobject]@{ Latin = 'X'; Script = 'Greek' }
+    0x03B1 = [pscustomobject]@{ Latin = 'a'; Script = 'Greek' }
+    0x03B3 = [pscustomobject]@{ Latin = 'y'; Script = 'Greek' }
+    0x03B9 = [pscustomobject]@{ Latin = 'i'; Script = 'Greek' }
+    0x03BA = [pscustomobject]@{ Latin = 'k'; Script = 'Greek' }
+    0x03BD = [pscustomobject]@{ Latin = 'v'; Script = 'Greek' }
+    0x03BF = [pscustomobject]@{ Latin = 'o'; Script = 'Greek' }
+    0x03C1 = [pscustomobject]@{ Latin = 'p'; Script = 'Greek' }
+    0x03C2 = [pscustomobject]@{ Latin = 'c'; Script = 'Greek' }
+    0x03C3 = [pscustomobject]@{ Latin = 'o'; Script = 'Greek' }
+    0x03C4 = [pscustomobject]@{ Latin = 't'; Script = 'Greek' }
+    0x03C5 = [pscustomobject]@{ Latin = 'u'; Script = 'Greek' }
+    0x03C7 = [pscustomobject]@{ Latin = 'x'; Script = 'Greek' }
+    0x03DC = [pscustomobject]@{ Latin = 'F'; Script = 'Greek' }
+    0x03ED = [pscustomobject]@{ Latin = 'o'; Script = 'Greek' }
+    0x03F3 = [pscustomobject]@{ Latin = 'j'; Script = 'Greek' }
+    0x03F8 = [pscustomobject]@{ Latin = 'p'; Script = 'Greek' }
+    0x03FA = [pscustomobject]@{ Latin = 'M'; Script = 'Greek' }
+    0x13A0 = [pscustomobject]@{ Latin = 'D'; Script = 'Cherokee' }
+    0x13A1 = [pscustomobject]@{ Latin = 'R'; Script = 'Cherokee' }
+    0x13A2 = [pscustomobject]@{ Latin = 'T'; Script = 'Cherokee' }
+    0x13A5 = [pscustomobject]@{ Latin = 'i'; Script = 'Cherokee' }
+    0x13A9 = [pscustomobject]@{ Latin = 'Y'; Script = 'Cherokee' }
+    0x13AA = [pscustomobject]@{ Latin = 'A'; Script = 'Cherokee' }
+    0x13AB = [pscustomobject]@{ Latin = 'J'; Script = 'Cherokee' }
+    0x13AC = [pscustomobject]@{ Latin = 'E'; Script = 'Cherokee' }
+    0x13B3 = [pscustomobject]@{ Latin = 'W'; Script = 'Cherokee' }
+    0x13B7 = [pscustomobject]@{ Latin = 'M'; Script = 'Cherokee' }
+    0x13BB = [pscustomobject]@{ Latin = 'H'; Script = 'Cherokee' }
+    0x13BD = [pscustomobject]@{ Latin = 'Y'; Script = 'Cherokee' }
+    0x13C0 = [pscustomobject]@{ Latin = 'G'; Script = 'Cherokee' }
+    0x13C2 = [pscustomobject]@{ Latin = 'h'; Script = 'Cherokee' }
+    0x13C3 = [pscustomobject]@{ Latin = 'Z'; Script = 'Cherokee' }
+    0x13CF = [pscustomobject]@{ Latin = 'b'; Script = 'Cherokee' }
+    0x13D2 = [pscustomobject]@{ Latin = 'R'; Script = 'Cherokee' }
+    0x13D4 = [pscustomobject]@{ Latin = 'W'; Script = 'Cherokee' }
+    0x13D5 = [pscustomobject]@{ Latin = 'S'; Script = 'Cherokee' }
+    0x13D9 = [pscustomobject]@{ Latin = 'V'; Script = 'Cherokee' }
+    0x13DA = [pscustomobject]@{ Latin = 'S'; Script = 'Cherokee' }
+    0x13DE = [pscustomobject]@{ Latin = 'L'; Script = 'Cherokee' }
+    0x13DF = [pscustomobject]@{ Latin = 'C'; Script = 'Cherokee' }
+    0x13E2 = [pscustomobject]@{ Latin = 'P'; Script = 'Cherokee' }
+    0x13E6 = [pscustomobject]@{ Latin = 'K'; Script = 'Cherokee' }
+    0x13E7 = [pscustomobject]@{ Latin = 'd'; Script = 'Cherokee' }
+    0x13F3 = [pscustomobject]@{ Latin = 'G'; Script = 'Cherokee' }
+    0x13F4 = [pscustomobject]@{ Latin = 'B'; Script = 'Cherokee' }
+    0xA4D0 = [pscustomobject]@{ Latin = 'B'; Script = 'Lisu' }
+    0xA4D1 = [pscustomobject]@{ Latin = 'P'; Script = 'Lisu' }
+    0xA4D2 = [pscustomobject]@{ Latin = 'd'; Script = 'Lisu' }
+    0xA4D3 = [pscustomobject]@{ Latin = 'D'; Script = 'Lisu' }
+    0xA4D4 = [pscustomobject]@{ Latin = 'T'; Script = 'Lisu' }
+    0xA4D6 = [pscustomobject]@{ Latin = 'G'; Script = 'Lisu' }
+    0xA4D7 = [pscustomobject]@{ Latin = 'K'; Script = 'Lisu' }
+    0xA4D9 = [pscustomobject]@{ Latin = 'J'; Script = 'Lisu' }
+    0xA4DA = [pscustomobject]@{ Latin = 'C'; Script = 'Lisu' }
+    0xA4DC = [pscustomobject]@{ Latin = 'Z'; Script = 'Lisu' }
+    0xA4DD = [pscustomobject]@{ Latin = 'F'; Script = 'Lisu' }
+    0xA4DF = [pscustomobject]@{ Latin = 'M'; Script = 'Lisu' }
+    0xA4E0 = [pscustomobject]@{ Latin = 'N'; Script = 'Lisu' }
+    0xA4E1 = [pscustomobject]@{ Latin = 'L'; Script = 'Lisu' }
+    0xA4E2 = [pscustomobject]@{ Latin = 'S'; Script = 'Lisu' }
+    0xA4E3 = [pscustomobject]@{ Latin = 'R'; Script = 'Lisu' }
+    0xA4E6 = [pscustomobject]@{ Latin = 'V'; Script = 'Lisu' }
+    0xA4E7 = [pscustomobject]@{ Latin = 'H'; Script = 'Lisu' }
+    0xA4EA = [pscustomobject]@{ Latin = 'W'; Script = 'Lisu' }
+    0xA4EB = [pscustomobject]@{ Latin = 'X'; Script = 'Lisu' }
+    0xA4EC = [pscustomobject]@{ Latin = 'Y'; Script = 'Lisu' }
+    0xA4EE = [pscustomobject]@{ Latin = 'A'; Script = 'Lisu' }
+    0xA4F0 = [pscustomobject]@{ Latin = 'E'; Script = 'Lisu' }
+    0xA4F2 = [pscustomobject]@{ Latin = 'l'; Script = 'Lisu' }
+    0xA4F3 = [pscustomobject]@{ Latin = 'O'; Script = 'Lisu' }
+    0xA4F4 = [pscustomobject]@{ Latin = 'U'; Script = 'Lisu' }
+    0xAB75 = [pscustomobject]@{ Latin = 'i'; Script = 'Cherokee' }
+    0xAB81 = [pscustomobject]@{ Latin = 'r'; Script = 'Cherokee' }
+    0xAB83 = [pscustomobject]@{ Latin = 'w'; Script = 'Cherokee' }
+    0xAB93 = [pscustomobject]@{ Latin = 'z'; Script = 'Cherokee' }
+    0xABA9 = [pscustomobject]@{ Latin = 'v'; Script = 'Cherokee' }
+    0xABAA = [pscustomobject]@{ Latin = 's'; Script = 'Cherokee' }
+    0xABAF = [pscustomobject]@{ Latin = 'c'; Script = 'Cherokee' }
+}
+
+
+
 function Get-EntraFalconSPNameAssessment {
     [CmdletBinding()]
     Param (
@@ -11219,58 +11360,7 @@ function Get-EntraFalconSPNameAssessment {
 
     $originalDisplayName = if ($null -eq $DisplayName) { '' } else { $DisplayName }
     $analysisDisplayName = $originalDisplayName.Normalize([System.Text.NormalizationForm]::FormKC)
-    $confusableMap = @{
-        0x0405 = [pscustomobject]@{ Latin = 'S'; Script = 'Cyrillic' }
-        0x0406 = [pscustomobject]@{ Latin = 'I'; Script = 'Cyrillic' }
-        0x0408 = [pscustomobject]@{ Latin = 'J'; Script = 'Cyrillic' }
-        0x0410 = [pscustomobject]@{ Latin = 'A'; Script = 'Cyrillic' }
-        0x0412 = [pscustomobject]@{ Latin = 'B'; Script = 'Cyrillic' }
-        0x0415 = [pscustomobject]@{ Latin = 'E'; Script = 'Cyrillic' }
-        0x041A = [pscustomobject]@{ Latin = 'K'; Script = 'Cyrillic' }
-        0x041C = [pscustomobject]@{ Latin = 'M'; Script = 'Cyrillic' }
-        0x041D = [pscustomobject]@{ Latin = 'H'; Script = 'Cyrillic' }
-        0x041E = [pscustomobject]@{ Latin = 'O'; Script = 'Cyrillic' }
-        0x0420 = [pscustomobject]@{ Latin = 'P'; Script = 'Cyrillic' }
-        0x0421 = [pscustomobject]@{ Latin = 'C'; Script = 'Cyrillic' }
-        0x0422 = [pscustomobject]@{ Latin = 'T'; Script = 'Cyrillic' }
-        0x0423 = [pscustomobject]@{ Latin = 'Y'; Script = 'Cyrillic' }
-        0x0425 = [pscustomobject]@{ Latin = 'X'; Script = 'Cyrillic' }
-        0x0430 = [pscustomobject]@{ Latin = 'a'; Script = 'Cyrillic' }
-        0x0433 = [pscustomobject]@{ Latin = 'r'; Script = 'Cyrillic' }
-        0x0435 = [pscustomobject]@{ Latin = 'e'; Script = 'Cyrillic' }
-        0x043E = [pscustomobject]@{ Latin = 'o'; Script = 'Cyrillic' }
-        0x043F = [pscustomobject]@{ Latin = 'n'; Script = 'Cyrillic' }
-        0x0440 = [pscustomobject]@{ Latin = 'p'; Script = 'Cyrillic' }
-        0x0441 = [pscustomobject]@{ Latin = 'c'; Script = 'Cyrillic' }
-        0x0443 = [pscustomobject]@{ Latin = 'y'; Script = 'Cyrillic' }
-        0x0445 = [pscustomobject]@{ Latin = 'x'; Script = 'Cyrillic' }
-        0x0455 = [pscustomobject]@{ Latin = 's'; Script = 'Cyrillic' }
-        0x0456 = [pscustomobject]@{ Latin = 'i'; Script = 'Cyrillic' }
-        0x0458 = [pscustomobject]@{ Latin = 'j'; Script = 'Cyrillic' }
-        0x0391 = [pscustomobject]@{ Latin = 'A'; Script = 'Greek' }
-        0x0392 = [pscustomobject]@{ Latin = 'B'; Script = 'Greek' }
-        0x0395 = [pscustomobject]@{ Latin = 'E'; Script = 'Greek' }
-        0x0396 = [pscustomobject]@{ Latin = 'Z'; Script = 'Greek' }
-        0x0397 = [pscustomobject]@{ Latin = 'H'; Script = 'Greek' }
-        0x0399 = [pscustomobject]@{ Latin = 'I'; Script = 'Greek' }
-        0x039A = [pscustomobject]@{ Latin = 'K'; Script = 'Greek' }
-        0x039C = [pscustomobject]@{ Latin = 'M'; Script = 'Greek' }
-        0x039D = [pscustomobject]@{ Latin = 'N'; Script = 'Greek' }
-        0x039F = [pscustomobject]@{ Latin = 'O'; Script = 'Greek' }
-        0x03A1 = [pscustomobject]@{ Latin = 'P'; Script = 'Greek' }
-        0x03A4 = [pscustomobject]@{ Latin = 'T'; Script = 'Greek' }
-        0x03A5 = [pscustomobject]@{ Latin = 'Y'; Script = 'Greek' }
-        0x03A7 = [pscustomobject]@{ Latin = 'X'; Script = 'Greek' }
-        0x03B1 = [pscustomobject]@{ Latin = 'a'; Script = 'Greek' }
-        0x03B9 = [pscustomobject]@{ Latin = 'i'; Script = 'Greek' }
-        0x03BA = [pscustomobject]@{ Latin = 'k'; Script = 'Greek' }
-        0x03BD = [pscustomobject]@{ Latin = 'v'; Script = 'Greek' }
-        0x03BF = [pscustomobject]@{ Latin = 'o'; Script = 'Greek' }
-        0x03C1 = [pscustomobject]@{ Latin = 'p'; Script = 'Greek' }
-        0x03C4 = [pscustomobject]@{ Latin = 't'; Script = 'Greek' }
-        0x03C5 = [pscustomobject]@{ Latin = 'u'; Script = 'Greek' }
-        0x03C7 = [pscustomobject]@{ Latin = 'x'; Script = 'Greek' }
-    }
+    $confusableMap = $script:EntraFalconSPNameConfusableMap
 
     $mappedBuilder = New-Object System.Text.StringBuilder
     foreach ($character in $analysisDisplayName.ToCharArray()) {
@@ -11350,7 +11440,7 @@ function Get-EntraFalconSPNameAssessment {
         RuleId = if ($isSuspicious) { 'MixedScriptHomoglyph' } else { $null }
         OriginalDisplayName = $originalDisplayName
         MappedDisplayName = $mappedBuilder.ToString()
-        Reason = if ($isSuspicious) { 'Predominantly Latin token contains visually confusable Greek or Cyrillic characters.' } else { $null }
+        Reason = if ($isSuspicious) { 'Predominantly Latin token contains visually confusable non-Latin characters.' } else { $null }
         Indicators = @($indicators)
     }
 }
