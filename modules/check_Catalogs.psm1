@@ -790,9 +790,9 @@ function Invoke-CheckCatalogs {
     foreach ($catalog in @($RawCatalogs.Catalogs)) {
         $catalogId = [string]$catalog.id
         $catalogName = if ([string]::IsNullOrWhiteSpace([string]$catalog.displayName)) { $catalogId } else { [string]$catalog.displayName }
-        $resources = if ($RawCatalogs.ResourcesByCatalog.ContainsKey($catalogId)) { @($RawCatalogs.ResourcesByCatalog[$catalogId]) } else { @() }
-        $assignments = if ($assignmentsByCatalog.ContainsKey($catalogId)) { @($assignmentsByCatalog[$catalogId]) } else { @() }
-        $packages = if ($packagesByCatalog.ContainsKey($catalogId)) { @($packagesByCatalog[$catalogId]) } else { @() }
+        $resources = @(if ($RawCatalogs.ResourcesByCatalog.ContainsKey($catalogId)) { @($RawCatalogs.ResourcesByCatalog[$catalogId]) } else { @() })
+        $assignments = @(if ($assignmentsByCatalog.ContainsKey($catalogId)) { @($assignmentsByCatalog[$catalogId]) } else { @() })
+        $packages = @(if ($packagesByCatalog.ContainsKey($catalogId)) { @($packagesByCatalog[$catalogId]) } else { @() })
         $resourceRows = [System.Collections.Generic.List[object]]::new()
         $existingRoleRows = [System.Collections.Generic.List[object]]::new()
         $configuredResourceKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)

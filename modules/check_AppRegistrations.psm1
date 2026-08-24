@@ -762,7 +762,7 @@ function Invoke-CheckAppRegistrations {
             AppAdmins = ($AppAdminCurrentApp | Measure-Object).Count + ($AppAdminTenantDetails | Measure-Object).Count
             CloudAppAdminCurrentAppDetails = $CloudAppAdminCurrentAppDetails
             AppAdminCurrentAppDetails = $AppAdminCurrentAppDetails
-            DistinctAPIs = $($item.RequiredResourceAccess).Count
+            DistinctAPIs = @($item.RequiredResourceAccess).Count
             Risk = [math]::Round(($ImpactScore * $LikelihoodScore))
             Impact = [math]::Round($ImpactScore)
             Likelihood = [math]::Round($LikelihoodScore,1)

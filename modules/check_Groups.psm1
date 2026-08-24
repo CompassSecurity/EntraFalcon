@@ -1411,7 +1411,7 @@ function Invoke-CheckGroups {
                 }
             }
         }
-        $CatalogRbacDetails = if ($CatalogRbacPrincipalIndex.ContainsKey([string]$group.Id)) { @($CatalogRbacPrincipalIndex[[string]$group.Id]) } else { @() }
+        $CatalogRbacDetails = @(if ($CatalogRbacPrincipalIndex.ContainsKey([string]$group.Id)) { @($CatalogRbacPrincipalIndex[[string]$group.Id]) } else { @() })
         $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
         if (@($CatalogRbacDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Role) -and [string]$_.Role -ne 'Catalog Reader' }).Count -gt 0) {
             [void]$Warnings.Add("Identity Governance management role assigned")

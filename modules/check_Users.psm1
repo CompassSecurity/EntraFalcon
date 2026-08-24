@@ -1160,7 +1160,7 @@ function Invoke-CheckUsers {
             [void]$Warnings.Add("Access package self-request without approval")
         }
 
-        $CatalogRbacDetails = if ($CatalogRbacPrincipalIndex.ContainsKey([string]$item.Id)) { @($CatalogRbacPrincipalIndex[[string]$item.Id]) } else { @() }
+        $CatalogRbacDetails = @(if ($CatalogRbacPrincipalIndex.ContainsKey([string]$item.Id)) { @($CatalogRbacPrincipalIndex[[string]$item.Id]) } else { @() })
         $CatalogRBAC = if ($CatalogRbacAssessmentAvailable) { $CatalogRbacDetails.Count } else { '-' }
 
     #Format warning messages
@@ -1199,7 +1199,7 @@ function Invoke-CheckUsers {
             Enabled = $item.AccountEnabled
             UserType = $item.UserType
             Agent = $Agent
-            Licenses = $($item.AssignedLicenses).count
+            Licenses = @($item.AssignedLicenses).Count
             LicenseStatus = $LicenseStatus
             OnPrem = $OnPrem
             OnPremisesSamAccountName = $OnPremisesSamAccountName
@@ -1974,7 +1974,7 @@ function Write-EntraFalconUsersReport {
     }
 
     # Get the total count of group memberships. If this is to high the amount groups in the HTML report will be limited
-    $TotalMemberGroups = $($AllUsersDetails.UserMemberGroups).count
+    $TotalMemberGroups = @($AllUsersDetails.UserMemberGroups).Count
     Write-Log -Level Debug -Message "Total transitive group memberships across all users: $TotalMemberGroups"
     $ShowMemberGroupCatalogRbac = @($AllUsersDetails | Where-Object {
         $_.PSObject.Properties['CatalogRbacAssessmentAvailable'] -and [bool]$_.CatalogRbacAssessmentAvailable

@@ -782,7 +782,7 @@ function Invoke-AgentIdentityBlueprints {
             AppRoles = ($AppRolesDetails | Measure-Object).Count
             Oauth2PermissionScopesDetails = $Oauth2PermissionScopesDetails
             Oauth2PermissionScopes = ($Oauth2PermissionScopesDetails | Measure-Object).Count
-            DistinctAPIs = $($item.RequiredResourceAccess).Count
+            DistinctAPIs = @($item.RequiredResourceAccess).Count
             DirectImpact = [math]::Round($DirectImpactScore)
             InheritedImpact = [math]::Round($InheritedImpactScore)
             Risk = [math]::Round(($ImpactScore * $LikelihoodScore))
