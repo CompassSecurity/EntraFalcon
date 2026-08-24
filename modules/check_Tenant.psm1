@@ -1830,7 +1830,7 @@ function Invoke-CheckTenant {
         Restricted = @{
             Status = "NotVulnerable"
             Description = "<p>Secure configuration in place:<br>Guest users are restricted to the properties and memberships of their own directory objects (most restrictive).</p>"
-            Threat = "<p>Depending on the configured guest permission, guest users can access internal information various information.</p>"
+            Threat = "<p>Depending on the configured guest permission, guest users can access various internal information.</p>"
 
 
         }
@@ -2149,7 +2149,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
         Skipped = @{
             Status = "Skipped"
-            Description = "<p>Check skipped because the current permissions or license do not allow retrieval of users SignInActivity properties. The usage of synchronized on-premises accounts in Entra ID could not be evaluated.</p>"
+            Description = "<p>Check skipped because the current permissions or license do not allow retrieval of users' SignInActivity properties. The usage of synchronized on-premises accounts in Entra ID could not be evaluated.</p>"
             AffectedObjects = @()
             RelatedReportUrl = ""
         }
@@ -2508,7 +2508,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $ENT013VariantProps = @{
         Default = @{
             Threat = "<p>If the identified enterprise application is confirmed to be malicious and has been granted permissions in the tenant, attackers may be able to access sensitive Microsoft 365 or Entra ID resources, modify tenant configuration, or maintain persistence, depending on the assigned permissions.</p>"
-            Remediation = "<p>Review the identified enterprise applications and the referenced source URLs. If the application is confirmed to be malicious, disable it immideatly, and conduct an investigation of related sign-in activity, consent events, credentials, and affected users.</p><p>To prevent similar incidents, normal users should not be allowed to add enterprise applications without review. A secure approval process should be established to ensure that third-party applications are thoroughly reviewed before they are added to the tenant.</p>"
+            Remediation = "<p>Review the identified enterprise applications and the referenced source URLs. If the application is confirmed to be malicious, disable it immediately, and conduct an investigation of related sign-in activity, consent events, credentials, and affected users.</p><p>To prevent similar incidents, normal users should not be allowed to add enterprise applications without review. A secure approval process should be established to ensure that third-party applications are thoroughly reviewed before they are added to the tenant.</p>"
         }
         Vulnerable = @{
             Status = "Vulnerable"
@@ -2581,7 +2581,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     #region AGT VariantProps
     $AGT001VariantProps = @{
         Default = @{
-            Threat = "<p>Client secrets are prone to accidental exposure through configuration files, scripts, or log files.</p><p>If attackers obtains a client secret, they may be able to authenticate as a child identity (Agent Identity, or Agent User) and perform any actions for which that identity is authorized.</p>"
+            Threat = "<p>Client secrets are prone to accidental exposure through configuration files, scripts, or log files.</p><p>If attackers obtain a client secret, they may be able to authenticate as a child identity (Agent Identity, or Agent User) and perform any actions for which that identity is authorized.</p>"
             Remediation = '<p>Replace client secrets with certificate-based authentication where possible. Microsoft recommends using federated identity credentials (managed identities) or certificates in production.</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/agent-id/best-practices-agent-id#manage-credentials-securely" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/agent-id/best-practices-agent-id#manage-credentials-securely</a></li></ul>'
         }
         Vulnerable = @{ Status = "Vulnerable" }
@@ -2599,7 +2599,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $AGT002VariantProps = @{
         Default = @{
             Threat = "<p>If the external tenant of the corresponding parent blueprint is compromised or its client credentials are leaked, attackers may gain control of the agent identity. They could then authenticate in all tenants where the Blueprint Principal exists, take over the child agent identity, and abuse its extensive API privileges.</p>"
-            Remediation = "<p>Privileged foreign agent identity should be reviewed regularly and removed if not clearly required for the intended functionality.</p><p>If it is unclear whether assigned privileges are required, contact the publisher to validate the permission model and confirm the expected usage of the agent.</p><p>General guidance:</p><ul><li>API permissions should be limited to the absolute minimum required (for example, use <code>Mail.Read</code> instead of <code>Mail.ReadWrite</code>).</li><li>Where technically possible, the agent should use <code>Delegated</code> permissions instead of <code>Application</code> permissions.</li></ul>"
+            Remediation = "<p>Privileged foreign agent identities should be reviewed regularly and removed if not clearly required for the intended functionality.</p><p>If it is unclear whether assigned privileges are required, contact the publisher to validate the permission model and confirm the expected usage of the agent.</p><p>General guidance:</p><ul><li>API permissions should be limited to the absolute minimum required (for example, use <code>Mail.Read</code> instead of <code>Mail.ReadWrite</code>).</li><li>Where technically possible, the agent should use <code>Delegated</code> permissions instead of <code>Application</code> permissions.</li></ul>"
         }
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
@@ -2616,7 +2616,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     $AGT003VariantProps = @{
         Default = @{
             Threat = "<p>The parent blueprint of this agent identity is registered in an external organization's tenant.</p><p>If the external organization acts maliciously, or if its tenant or blueprint credentials are compromised by a third party, attackers may be able to abuse the delegated permissions associated with this agent identity on behalf of the affected user(s).</p>"
-            Remediation = "<p>Privileged foreign agent identity should be reviewed regularly and removed if not clearly required for the intended functionality.</p><p>If it is unclear whether assigned privileges are required, contact the publisher to validate the permission model and confirm the expected usage of the agent.</p>"
+            Remediation = "<p>Privileged foreign agent identities should be reviewed regularly and removed if not clearly required for the intended functionality.</p><p>If it is unclear whether assigned privileges are required, contact the publisher to validate the permission model and confirm the expected usage of the agent.</p>"
         }
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
@@ -2922,7 +2922,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Secure = @{
             Status = "NotVulnerable"
             Confidence = "Requires Verification"
-            Description = "<p>No assessed foreign, non-Microsoft agent blueprint principals that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p>"
+            Description = "<p>No assessed foreign, non-Microsoft agent blueprint principals were identified that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p>"
         }
         Skipped = @{
             Status = "Skipped"
@@ -2942,7 +2942,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No managed identities identified which have extensive API privileges.</p>"
+            Description = "<p>No managed identities were identified which have extensive API privileges.</p>"
         }
     }
     $MAI002VariantProps = @{
@@ -2953,7 +2953,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No managed identities identified which have privileged Entra ID roles (tier-0 or tier-1) assigned.</p>"
+            Description = "<p>No managed identities were identified which have privileged Entra ID roles (tier-0 or tier-1) assigned.</p>"
         }
     }
     $MAI003VariantProps = @{
@@ -2964,7 +2964,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No managed identities identified which have privileged Azure roles (tier-0 or tier-1) assigned.</p>"
+            Description = "<p>No managed identities were identified which have privileged Azure roles (tier-0 or tier-1) assigned.</p>"
         }
     }
     #endregion
@@ -5000,7 +5000,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[CAP-009] No policy enforces basic MFA baseline."
         Set-FindingOverride -FindingId "CAP-009" -Props $CAP009VariantProps.Vulnerable
         Set-FindingOverride -FindingId "CAP-009" -Props @{
-            Description = "<p>No Conditional Access enforcing basic MFA.</p>"
+            Description = "<p>No Conditional Access policy enforcing basic MFA.</p>"
             RelatedReportUrl = $cap009ReportUrl
         }
     } else {
@@ -6032,7 +6032,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             # Escalate threat when dangerous delegated permissions exist.
             Set-FindingOverride -FindingId "ENT-010" -Props @{
                 Severity = 3
-                Threat = "<p>If attackers can manipulate the application, they might be able to a user's access token as soon as the user authenticates with the compromised application.<br>Using this access token, attackers can abuse the consented permissions to perform malicious actions on behalf of the user, inheriting the user's identity and privileges. If attackers also obtain the refresh token (permission <code>offline_access</code>), they may be able to maintain persistent unauthorized access.</p><p>Since at least one application has highly dangerous privileges assigned, attackers may be able to compromise the entire tenant if a highly privileged user authenticates to the application.</p>"
+                Threat = "<p>If attackers can manipulate the application, they might be able to obtain a user's access token as soon as the user authenticates with the compromised application.<br>Using this access token, attackers can abuse the consented permissions to perform malicious actions on behalf of the user, inheriting the user's identity and privileges. If attackers also obtain the refresh token (permission <code>offline_access</code>), they may be able to maintain persistent unauthorized access.</p><p>Since at least one application has highly dangerous privileges assigned, attackers may be able to compromise the entire tenant if a highly privileged user authenticates to the application.</p>"
             }
         }
     } else {
@@ -6371,7 +6371,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "ENT-014" -Props @{
             Severity = if ($ent014Critical) { 4 } else { 3 }
             Confidence = "Requires Verification"
-            Description = "<p>$($entAppsSuspiciousNames.Count) foreign, non-Microsoft enterprise application(s) had a name that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate applications may also use such characters.</p>"
+            Description = "<p>$($entAppsSuspiciousNames.Count) foreign, non-Microsoft enterprise application(s) had a name that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p><p>These characters can appear almost identical to Latin characters and may therefore be difficult to detect.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate applications may also use such characters.</p>"
             RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Possible%20impersonation%20via%20look-alike%20characters"
             AffectedSortKey = "Impact"
             AffectedSortDir = "DESC"
@@ -6822,7 +6822,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "AGT-018" -Props @{
             Severity = if ($agt018Critical) { 4 } else { 3 }
             Confidence = "Requires Verification"
-            Description = "<p>$($agentBlueprintPrincipalsSuspiciousNames.Count) foreign, non-Microsoft agent blueprint principal(s) had a name that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p><p>These characters can look almost identical to common Latin characters and may therefore be difficult to notice during a manual review.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate agent integrations may also use such characters.</p>"
+            Description = "<p>$($agentBlueprintPrincipalsSuspiciousNames.Count) foreign, non-Microsoft agent blueprint principal(s) had a name that primarily used Latin characters but also contained non-Latin characters that visually resemble common Latin characters.</p><p>These characters can appear almost identical to Latin characters and may therefore be difficult to detect.</p><p><strong>Important:</strong> This finding requires manual verification, as legitimate agent integrations may also use such characters.</p>"
             RelatedReportUrl = "AgentIdentityBlueprintsPrincipals_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Warnings=Possible%20impersonation%20via%20look-alike%20characters"
             AffectedSortKey = "Impact"
             AffectedSortDir = "DESC"
@@ -9866,7 +9866,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "PIM-009" -Props @{
             Status = "Vulnerable"
             Confidence = $pim009Confidence
-            Description = "<p>There are $($pimTier0WithoutApprovalAndStrongReauth.Count) Tier-0 roles with eligible assignments that do not require approval, do not enforce re-authentication with MFA using an Authentication Context, or have issues or gaps in the linked Conditional Access policies.</p><p>Important: The setting <code>On activation, require: Azure MFA</code> does not require the user to provide MFA again if he authenticated with strong credentials or provided multifactor authentication earlier in the session.</p>"
+            Description = "<p>There are $($pimTier0WithoutApprovalAndStrongReauth.Count) Tier-0 roles with eligible assignments that do not require approval, do not enforce re-authentication with MFA using an Authentication Context, or have issues or gaps in the linked Conditional Access policies.</p><p>Important: The setting <code>On activation, require: Azure MFA</code> does not require the user to provide MFA again if they authenticated with strong credentials or provided multifactor authentication earlier in the session.</p>"
             RelatedReportUrl = "PIM_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?or_Warnings=CAP&or_ActivationAuthContext=false&Tier=%3DTier-0&ActivationApproval=%3Dfalse&Eligible=%3E0&columns=Role%2CTier%2CEligible%2CDirect%2CActivated%2CActivationAuthContext%2CActivationMFA%2CActivationApproval%2CWarnings"
             AffectedObjects = $pimTier0WeakActivationControlsAffected
         }
@@ -9874,7 +9874,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[PIM-009] No used Tier-0 roles found with missing approval/auth-context controls."
         Set-FindingOverride -FindingId "PIM-009" -Props @{
             Status = "NotVulnerable"
-            Description = "<p>No used Tier-0 Entra ID roles were identified that require approval, lack an enforced authentication context, or have misconfigured related Conditional Access policies.</p>"
+            Description = "<p>No used Tier-0 Entra ID roles were identified that do not require approval, lack an enforced authentication context, or have misconfigured related Conditional Access policies.</p>"
             AffectedObjects = @()
         }
     }
@@ -10422,7 +10422,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 # Apply base variant and then inject dynamic permission list.
                 Set-FindingOverride -FindingId "USR-004" -Props $USR004VariantProps.LowSpecific
                 Set-FindingOverride -FindingId "USR-004" -Props @{
-                    Description = "<p>Users are allowed to consent to specific permissions. However none of these permissions is categorized as extensive.</p>$detail$riskBasedConsentParagraph"
+                    Description = "<p>Users are allowed to consent to specific permissions. However, none of these permissions is categorized as extensive.</p>$detail$riskBasedConsentParagraph"
                 }
             }
         } else {
@@ -10437,7 +10437,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[USR-005] Skipping check because SignInActivity could not be retrieved during user enumeration."
         Set-FindingOverride -FindingId "USR-005" -Props @{
             Status = "Skipped"
-            Description = "<p>Check skipped because the current permissions or license do not allow retrieval of users SignInActivity properties. Inactive user status could not be evaluated.</p>"
+            Description = "<p>Check skipped because the current permissions or license do not allow retrieval of users' SignInActivity properties. Inactive user status could not be evaluated.</p>"
             RelatedReportUrl = ""
             AffectedObjects = @()
         }
@@ -10556,7 +10556,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         Set-FindingOverride -FindingId "USR-007" -Props $USR007VariantProps.Vulnerable
         Set-FindingOverride -FindingId "USR-007" -Props @{
-            Description = "<p>There are $($enabledTier0OnPremUsers.Count) hybrid (on-premises synchronized) users with a Tier-0 Entra ID role assigned (directly or through groups)</p>"
+            Description = "<p>There are $($enabledTier0OnPremUsers.Count) hybrid (on-premises synchronized) users with a Tier-0 Entra ID role assigned (directly or through groups).</p>"
             RelatedReportUrl = "Users_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?EntraMaxTier=%3DTier-0&Enabled=%3Dtrue&OnPrem=%3Dtrue&columns=UPN%2CEnabled%2CUserType%2COnPrem%2CProtected%2CEntraRoles%2CEntraMaxTier%2CInactive%2CMfaCap%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "Impact"
             AffectedSortDir = "DESC"
@@ -10763,7 +10763,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         } else {
             Set-FindingOverride -FindingId "USR-012" -Props $USR012VariantProps.VulnerableCapSecure
             Set-FindingOverride -FindingId "USR-012" -Props @{
-                Description = "<p>There are $usr012PopulationText without any registered MFA methods in Entra ID.</p>$usr012CoverageText<p><strong>Note:</strong> Finding CAP-002 was assessed as not vulnerable. Therefore, attackers should not be able to register new MFA methods even if a user`s password is compromised.</p>"
+                Description = "<p>There are $usr012PopulationText without any registered MFA methods in Entra ID.</p>$usr012CoverageText<p><strong>Note:</strong> Finding CAP-002 was assessed as not vulnerable. Therefore, attackers should not be able to register new MFA methods even if a user's password is compromised.</p>"
             }
         }
 

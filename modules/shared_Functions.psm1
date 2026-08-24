@@ -185,7 +185,7 @@ $global:GLOBALJavaScript_Table = @'
                 {
                     id: "PVU-006",
                     group: "Security",
-                    description: "Role holders and app owners which can be influenced by low-tier admins",
+                    description: "Role holders and app owners who can be influenced by low-tier admins",
                     label: "Privileged Unprotected Users",
                     filters: {
                         Protected: "=false",
@@ -244,7 +244,7 @@ $global:GLOBALJavaScript_Table = @'
                 {
                     id: "PVU-015",
                     group: "Lifecycle",
-                    description: "Enabled synced user older than 90 days with no sign-in",
+                    description: "Enabled synced users older than 90 days with no sign-in",
                     label: "Unnecessary Synced Users",
                     filters: {
                         Enabled: "=true",
@@ -1381,7 +1381,7 @@ $global:GLOBALJavaScript_Table = @'
                 {
                     id: "PVAI-007",
                     group: "Lifecycle",
-                    description: "Enabled but no sign-on activity in the last 180 days.",
+                    description: "Enabled but no sign-in activity in the last 180 days.",
                     label: "Inactive Agent Identities",
                     filters: {
                         Inactive: "=true",
@@ -1512,7 +1512,7 @@ $global:GLOBALJavaScript_Table = @'
                 {
                     id: "PVB-004",
                     group: "Permissions",
-                    description: "Blueprints that allow inherit API permissions to the Agent Identity.",
+                    description: "Blueprints that allow API permissions to be inherited by the Agent Identity.",
                     label: "Inheritable Permissions",
                     filters: {
                         InheritableScopes: "or_>0",
@@ -1937,7 +1937,7 @@ $global:GLOBALJavaScript_Table = @'
             "SPOwn": "Owner of ServicePrincipals",
             "ApiDeleg": "Unique consented delegated API permissions",
             "PIM": "Onboarded to PIM for Groups",
-            "Protected": "Not role assignable, not synced from on-prem, not in a restricted Administrative Unit.\nTherefore: cannot be modified by low-tier admin",
+            "Protected": "Not role assignable, not synced from on-prem, not in a restricted Administrative Unit.\nTherefore: cannot be modified by low-tier admins",
             "Eligible": "Number of eligible role assignments",
             "Active": "Number of currently active assignments",
             "Direct": "Number of directly assigned active role assignments that are not activated via PIM",
@@ -4362,7 +4362,7 @@ $global:GLOBALJavaScript_Nav = @'
                     <strong>General</strong>
                     <ul>
                         <li>Click the \u2699\uFE0F <strong>Columns</strong> button to show or hide specific columns.</li>
-                        <li>Click \u{1F4BE} <strong>Export</strong> to download CSV/JSON or copy CSV/TSV/JSON the currently visible data.</li>
+                        <li>Click \u{1F4BE} <strong>Export</strong> to download CSV/JSON or copy CSV/TSV/JSON of the currently visible data.</li>
                         <li>Click \u{1F441} <strong>Share View</strong> to copy filters, sorting, and column selection as a shareable link.</li>
                         <li>Click \uD83E\uDDF0 <strong>Preset Views</strong> to apply preconfigured filters and column selections.</li>
                         <li>Click \uD83D\uDD01 <strong>Reset View</strong> to reset the view to the default.</li>
@@ -4390,7 +4390,7 @@ $global:GLOBALJavaScript_Nav = @'
                     </ul>
                     <strong>Rating</strong>
                     <ul>
-                        <li><strong>Impact</strong>: Represents the amount or severity of permission the object has.</li>
+                        <li><strong>Impact</strong>: Represents the amount or severity of permissions the object has.</li>
                         <li><strong>Likelihood</strong>: Represents how easily the object can be influenced or how strongly it is protected.</li>
                         <li><strong>Risk</strong>: Calculated as: <em>Impact x Likelihood = Risk</em>.</li>
                         <li><strong>Important</strong>:
@@ -8132,7 +8132,6 @@ $global:GLOBALApiPermissionCategorizationList= @{
     "3011c876-62b7-4ada-afa2-506cbbecc68c" = "High" #User.EnableDisableAccount.All
     "8e8e4742-1d95-4f68-9d56-6ee75648c72a" = "High" #DelegatedPermissionGrant.ReadWrite.All
     "01c0a623-fc9b-48e9-b794-0756f8e8f067" = "High" #Policy.ReadWrite.ConditionalAccess
-    "0e263e50-5827-48a4-b97c-d940288653c7" = "High" #Directory.AccessAsUser.All
     "9241abd9-d0e6-425a-bd4f-47ba86e767a4" = "High" #DeviceManagementConfiguration.ReadWrite.All
     "e330c4f0-4170-414e-a55a-2f022ec2b57b" = "High" #DeviceManagementRBAC.ReadWrite.Al
     "19dbc75e-c2e2-444c-a770-ec69d8559fc7" = "High" #Directory.ReadWrite.All
@@ -8255,7 +8254,7 @@ $global:GLOBALDelegatedApiPermissionCategorizationList= @{
     "openid" = "Low" #37f7f235-527c-4136-accd-4a02d197296e
     "email" = "Low" #64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0
     "profile" = "Low" #14dad69e-099b-42c9-810b-d002981feec1
-    "User.Read" = "Low" #14dad69e-099b-42c9-810b-d002981feec1
+    "User.Read" = "Low" #e1fe6dd8-ba31-4d61-89e7-88639da4683d
 }
 
 #Store the MS Tenant IDs in an array to check if an Enterprise Application is a Microsoft app
@@ -8763,7 +8762,7 @@ function Get-AllAzureIAMAssignmentsNative {
         Write-Log -Level Debug -Message "Got $($AssignmentsActive.count) active role assignments"
 
         #Eligible Roles
-        # If HTTP 400 assuing error message is "The tenant needs to have Microsoft Entra ID P2 or Microsoft Entra ID Governance license.",
+        # If HTTP 400 assuming error message is "The tenant needs to have Microsoft Entra ID P2 or Microsoft Entra ID Governance license.",
         $AzurePIM = $true
         $response = @()
         try {

@@ -1,6 +1,6 @@
 # EntraFalcon
 
-![alt text](/images/EntraFalcon_logo.png)
+![alt text](images/EntraFalcon_logo.png)
 
 EntraFalcon is a PowerShell-based assessment tool for pentesters, security analysts, and system administrators to evaluate the security posture of a Microsoft Entra ID environment.
 
@@ -23,7 +23,7 @@ Findings are presented in interactive HTML reports to support efficient explorat
 - Built-in authentication supporting multiple methods
 - Uses first-party Microsoft applications with pre-consented scopes to bypass Graph API consent prompts
 - Generates navigable HTML reports that support filtering, sorting, data export, etc.
-- Performs >80 automated checks and summarizes the results in a Security Findings Report
+- Performs >90 automated checks and summarizes the results in a Security Findings Report
     - Includes checks for weak tenant configurations and risky object properties or permissions
     - Provides severity ratings as well as descriptions of the issue, potential threats, and remediation guidance
     - Lists affected objects and links directly to their detailed reports for further investigation
@@ -187,6 +187,7 @@ Grant the following **Application** permissions (not Delegated) on the app regis
 | `RoleManagement.Read.Directory` | Application |
 | `RoleManagementPolicy.Read.AzureADGroup` | Application |
 | `User.Read.All` | Application |
+| `DeviceManagementRBAC.Read.All` | Application |
 
 In addition, assign the **Azure Reader** role on the root management group (or every relevant subscription) and optionally the **Global Reader** role to the service principal in Entra ID (required for per-user MFA status).
 
@@ -260,45 +261,45 @@ This also skips the standalone `PIM for Groups` settings report.
 ## 📊 Some Example Reports
 
 ### Security Finding Report
-![alt text](/images/security_findings_report.png)
-![alt text](/images/security_findings_report2.png)
+![alt text](images/security_findings_report.png)
+![alt text](images/security_findings_report2.png)
 
 ### Users
-![alt text](/images/user.png)
+![alt text](images/user.png)
 
 ### Users (Details Section)
-![alt text](/images/user_details.png)
+![alt text](images/user_details.png)
 
 ### Entra ID Roles
-![alt text](/images/entra_roles.png)
+![alt text](images/entra_roles.png)
 
 ### Azure Roles
-![alt text](/images/azure_roles.png)
+![alt text](images/azure_roles.png)
 
 ### Enterprise Application (Details Section)
-![alt text](/images/sp_details.png)
+![alt text](images/sp_details.png)
 
 ### Conditional Access Policies
-![alt text](/images/caps.png)
+![alt text](images/caps.png)
 
 ### Conditional Access Policies (Details Section)
-![alt text](/images/caps_details.png)
+![alt text](images/caps_details.png)
 
 ### PIM Role Settings (Entra)
-![alt text](/images/pim_settings.png)
+![alt text](images/pim_settings.png)
 
 ### Agent Identities
-![alt text](/images/agent_identities.png)
+![alt text](images/agent_identities.png)
 
 ### Enumeration Summary
-![alt text](/images/enumeration_overview.png)
+![alt text](images/enumeration_overview.png)
 
 
 ## 📑 HTML Report
 
 ### **General**
 - Click the ⚙️ **Columns** button to show or hide specific columns.
-- Click 💾 **Export** to download CSV/JSON or copy CSV/TSV/JSON the currently visible data.
+- Click 💾 **Export** to download CSV/JSON or copy CSV/TSV/JSON of the currently visible data.
 - Click 👁 **Share View** to copy filters, sorting, and column selection as a shareable link.
 - Click 🧰 **Preset Views** to apply preconfigured filters and column selections.
 - Click 🔄 **Reset View** to reset the view to the default.
@@ -324,13 +325,13 @@ This also skips the standalone `PIM for Groups` settings report.
 
 ### **Controls using GET Parameters**
 - *Filtering*: Apply filters using field names as HTTP GET parameters, e.g., `?EntraRoles=>1&Enabled=true`.  
-To apply OR logic across columns, use `or_` or `group1_` prefix in (e.g., `?or_EntraRoles=>0&or_GrpMem=>0`).
+To apply OR logic across columns, use the `or_` or `group1_` prefix (e.g., `?or_EntraRoles=>0&or_GrpMem=>0`).
 - *Column Selection*:  Choose which columns to display using the `columns` parameter. Example: `?columns=DisplayName,Owner`.
 - *Sorting*: Sort the data using `sort` and `sortDir` parameters. Example: `?sort=Impact&sortDir=desc` or `?sort=OwnerCount&sortDir=asc`.
 - *Object Details*: Jump directly to a specific object in the report using an anchor (`#`) and the object id, e.g. `#%ObjectID%`.
 
 ### **Rating**
-- **Impact**: Represents the amount or severity of permission the object has.
+- **Impact**: Represents the amount or severity of permissions the object has.
 - **Likelihood**: Represents how easily the object can be influenced or how well it is protected.
 - **Risk**: Calculated score: *Impact × Likelihood = Risk*.
 - **Important**: 
@@ -390,6 +391,8 @@ For Azure roles, this categorization is less precise, as the actual impact depen
 | Cloud Device Administrator                    | 2          | 7698a772-787b-4ac8-901f-60d6b08affd2   |
 | Global Reader                                 | 2          | f2ef992c-3afb-46b9-b7cf-a126ee74c451   |
 | Guest Inviter                                 | 2          | 95e79109-95c0-4d8e-aee3-d01accf2d47b   |
+| Security Reader                               | 2          | 5d6b6bb7-de71-4623-b4af-96380a352509   |
+| Directory Readers                             | 2          | 88d8e3e3-8f55-4a1e-953a-9b9898b8876b   |
 
 </details>
 
@@ -462,7 +465,7 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | Group.ReadWrite.All                                         | High       | 62a82d76-70ea-41e2-9197-370581804d09   |
 | GroupMember.ReadWrite.All                                   | High       | dbaae8cf-10b5-4b86-a4a1-f871c94c6695   |
 | UserAuthenticationMethod.ReadWrite.All                      | High       | 50483e42-d915-4231-9639-7fdb7fd190e5   |
-| User-PasswordProfile.ReadWrite.All                          | High       | 56760768-b641-451f-8906-e1b8ab31bca7   |
+| User-PasswordProfile.ReadWrite.All                          | High       | cc117bb9-00cf-4eb8-b580-ea2a878fe8f7   |
 | Sites.FullControl.All                                       | High       | a82116e5-55eb-4c41-a434-62fe8a61c773   |
 | Sites.FullControl.All SharePointAPI                         | High       | 678536fe-1083-478a-9c59-b99265e6b0d3   |
 | Sites.Manage.All SharePointAPI                              | High       | 9bff6588-13f2-4c48-bbf2-ddab62256b36   |
@@ -480,6 +483,7 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | UserAuthMethod-QR.ReadWrite.All                             | High       | 4869299f-18c3-40c8-98f2-222657e67db1   |
 | UserAuthMethod-TAP.ReadWrite.All                            | High       | 627169a8-8c15-451c-861a-5b80e383de5c   |
 | User.ReadWrite.All                                          | Medium     | 741f803b-c850-494e-b5df-cde7c675a1ca   |
+| Application.ReadWrite.OwnedBy                               | Medium     | 18a4783c-866b-4cc7-a460-3d5e5662c884   |
 | Chat.Read.All                                               | Medium     | 6b7d71aa-70aa-4810-a8d9-5d9fb2830017   |
 | Chat.ReadWrite.All                                          | Medium     | 294ce7c9-31ba-490a-ad7d-97a7d075e4ed   |
 | Calendars.Read                                              | Medium     | 798ee544-9d2d-430c-a058-570e29e34338   |
@@ -491,6 +495,7 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | OnlineMeetings.ReadWrite.All                                | Medium     | b8bb2037-6e08-44ac-a4ea-4674e010e2a4   |
 | CustomSecAttributeAssignment.ReadWrite.All                  | Medium     | de89b5e4-5b8f-48eb-8925-29c2b33bd8bd   |
 | ServicePrincipalEndpoint.ReadWrite.All                      | Medium     | 89c8469c-83ad-45f7-8ff2-6e3d4285709e   |
+| AgentIdUser.ReadWrite.IdentityParentedBy                    | Medium     | 4aa6e624-eee0-40ab-bdd8-f9639038a614   |
 | AgentIdentity.CreateAsManager                               | Low        | 4c390976-b2b7-42e0-9187-c6be3bead001   |
 
 </details>
@@ -536,6 +541,10 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | Files.Read.All                                       | High     | df85f4d6-205c-4ac5-a5ea-6bf408dba283   |
 | Files.ReadWrite.All                                  | High     | 863451e7-0667-486c-a5d6-d135439485f0   |
 | DeviceLocalCredential.Read.All                       | High     | 9917900e-410b-4d15-846e-42a357488545   |
+| UserAuthMethod-Phone.ReadWrite                       | High     | 6c4aad61-f76b-46ad-a22c-57d4d3d962af   |
+| UserAuthMethod-Phone.ReadWrite.All                   | High     | 48c99302-9a24-4f27-a8a7-acef4debba14   |
+| UserAuthMethod-Password.ReadWrite.All                | High     | 7f5b683d-df96-4690-a88d-6e336ed6dc7c   |
+| UserAuthMethod-Password.ReadWrite                    | High     | 60cce20d-d41e-4594-b391-84bbf8cc31f3   |
 | AdministrativeUnit.ReadWrite.All                     | High     | 7b8a2d34-6b3f-4542-a343-54651608ad81   |
 | User.ReadWrite.All                                   | Medium   | 204e0828-b5ca-4ad8-b9f3-f32a958e7cc4   |
 | Chat.ReadWrite.All                                   | Medium   | 7e9a077b-3711-42b9-b7cb-5fa5f3f7fea7   |
@@ -577,7 +586,7 @@ Certain API permissions allow an application to directly escalate to Global Admi
 | openid                                               | Low      | 37f7f235-527c-4136-accd-4a02d197296e   |
 | email                                                | Low      | 64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0   |
 | profile                                              | Low      | 14dad69e-099b-42c9-810b-d002981feec1   |
-| User.Read                                            | Low      | 14dad69e-099b-42c9-810b-d002981feec1   |
+| User.Read                                            | Low      | e1fe6dd8-ba31-4d61-89e7-88639da4683d   |
 
 </details>
 
@@ -622,6 +631,8 @@ The following table roughly summarizes the checks performed, along with their im
 |EnterpriseApp|Entra Role|Yes|Yes|
 |EnterpriseApp|Azure Role|Yes|Yes|
 |EnterpriseApp|Foreign|Yes|No|
+|EnterpriseApp|Disabled by Microsoft|No|Yes|
+|EnterpriseApp|Suspicious name (look-alike characters)|Yes|Yes|
 |EnterpriseApp|API Permission (Application)|Yes|Yes|
 |EnterpriseApp|API Permission (Delegated)|Yes|Yes|
 |EnterpriseApp|Credentials|Yes|Yes|
@@ -681,6 +692,7 @@ The following table roughly summarizes the checks performed, along with their im
 |AgentIdentityBlueprintPrincipal|Foreign parent blueprint origin|Yes|No|
 |AgentIdentityBlueprintPrincipal|Entra Role|No|No|
 |AgentIdentityBlueprintPrincipal|Azure Role|No|No|
+|AgentIdentityBlueprintPrincipal|Suspicious name (look-alike characters)|Yes|Yes|
 |AgentIdentityBlueprint|Blueprint principals|Yes|No|
 |AgentIdentityBlueprint|Linked Agent Identities|Yes|No|
 |AgentIdentityBlueprint|Linked Agent Users|Yes|No|
