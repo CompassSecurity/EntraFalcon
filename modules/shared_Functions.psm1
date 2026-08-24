@@ -68,6 +68,8 @@ $global:GLOBALKnownMaliciousEnterpriseApps = @{
     '626b6813-13dc-45d7-abfe-a7fe09fd5276' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
     '443efa1c-8a0a-47a0-bd31-7c30fe32dee4' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
     '3280b1dc-4b64-4f90-a16a-b0804e6ec4ca' = 'https://www.wiz.io/blog/detecting-malicious-oauth-applications'
+    'b1c4926a-5fb6-4aad-b920-709c957be148' = 'https://github.com/KelvinTegelaar/CIPP-API/blob/master/Config/MaliciousApps.json'
+    '1a9b8d93-0d60-4835-896f-83016de95ff5' = 'https://github.com/KelvinTegelaar/CIPP-API/blob/master/Config/MaliciousApps.json'
 }
 
 function Get-KnownMaliciousEnterpriseApp {
