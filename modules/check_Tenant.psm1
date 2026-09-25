@@ -12165,8 +12165,16 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
     .finding-header-right {
         display: flex;
-        align-items: center;
-        gap: 8px;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+    }
+
+    .finding-header-summary {
+        font-size: 11px;
+        opacity: 0.7;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
     }
 
     .caret {
@@ -14080,7 +14088,8 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                         ".finding-card{border:1px solid #ddd;border-radius:10px;margin:0 0 10px;padding:10px;break-inside:avoid;}" +
                         ".finding-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:0;background:transparent;padding:0;cursor:default;color:#111;}" +
                         ".finding-header-left{flex:1 1 auto;min-width:0;}" +
-                        ".finding-header-right{float:none;display:flex;align-items:center;justify-content:flex-end;margin-left:10px;align-self:center;}" +
+                        ".finding-header-right{float:none;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:3px;margin-left:10px;align-self:center;}" +
+                        ".finding-header-summary{font-size:11px;color:#555;white-space:nowrap;}" +
                         ".finding-title{font-weight:700;font-size:15px;margin-bottom:6px;}" +
                         ".finding-header-meta{display:flex;flex-wrap:wrap;gap:6px;}" +
                         ".sev-badge{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid transparent;font-size:12px;font-weight:700;line-height:1.1;white-space:nowrap;}" +
@@ -14763,6 +14772,37 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             return expanded;
         }
 
+        // Short count shown under the severity badge on the collapsed card.
+        // Conditional Access rows are candidate policies (Evaluation Result column), so they are summarised by result.
+        function getFindingHeaderSummary(finding) {
+            if (finding.Status === "Skipped") return null;
+            var rows = finding.AffectedObjects || [];
+            if (!rows.length) return null;
+
+            var isPolicyEvaluation = rows.every(function (row) {
+                return row && Object.prototype.hasOwnProperty.call(row, "Evaluation Result");
+            });
+            if (isPolicyEvaluation) {
+                var pass = 0, soft = 0, hard = 0;
+                rows.forEach(function (row) {
+                    var result = toText(row["Evaluation Result"], "");
+                    if (result === "Pass") pass++;
+                    else if (result === "SoftFail") soft++;
+                    else if (result === "HardFail") hard++;
+                });
+                var total = rows.length;
+                return {
+                    text: pass + " of " + total + (total === 1 ? " policy passes" : " policies pass"),
+                    title: pass + " pass \u00B7 " + soft + " soft-fail \u00B7 " + hard + " hard-fail"
+                };
+            }
+
+            // Rows on passed checks are evidence, not affected objects.
+            if (finding.Status !== "Vulnerable") return null;
+            var noun = rows.length === 1 ? " object" : " objects";
+            return { text: rows.length + noun, title: rows.length + " affected" + noun };
+        }
+
         function buildFindingCard(finding, state, onStateChange) {
             var card = buildElement("div", "finding-card");
             card.setAttribute("data-finding-key", getFindingKey(finding));
@@ -14798,6 +14838,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             metaLine.appendChild(certaintyPill);
             metaLine.appendChild(statusWrap);
             headerRight.appendChild(sevBadge);
+            var headerSummary = getFindingHeaderSummary(finding);
+            if (headerSummary) {
+                var summaryEl = buildElement("span", "finding-header-summary", headerSummary.text);
+                summaryEl.title = headerSummary.title;
+                headerRight.appendChild(summaryEl);
+            }
 
             headerLeft.appendChild(title);
             headerLeft.appendChild(metaLine);
