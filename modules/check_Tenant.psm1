@@ -423,7 +423,9 @@ function Invoke-CheckTenant {
         return " ($count from Microsoft-owned blueprints, such as Copilot Studio)"
     }
 
-    $AzureForeignExposureThreshold = [int]$GLOBALAzureExposureLevels.Medium
+    # Foreign principals are reported for any Azure role; internal principals only from High upward.
+    $AzureForeignExposureThreshold = 1
+    $AzureMediumExposureThreshold = [int]$GLOBALAzureExposureLevels.Medium
     $AzureHighExposureThreshold = [int]$GLOBALAzureExposureLevels.High
     $AzureCriticalExposureThreshold = [int]$GLOBALAzureExposureLevels.Critical
     $AzurePrincipalExposureCache = @{}
@@ -440,7 +442,10 @@ function Invoke-CheckTenant {
             [int]$High = 0,
 
             [Parameter(Mandatory = $false)]
-            [int]$Medium = 0
+            [int]$Medium = 0,
+
+            [Parameter(Mandatory = $false)]
+            [int]$Low = 0
         )
 
         # Lists only non-zero impact levels, most severe first.
@@ -448,7 +453,17 @@ function Invoke-CheckTenant {
         if ($Critical -gt 0) { [void]$items.Add("<li>Critical: $Critical</li>") }
         if ($High -gt 0) { [void]$items.Add("<li>High: $High</li>") }
         if ($Medium -gt 0) { [void]$items.Add("<li>Medium: $Medium</li>") }
+        if ($Low -gt 0) { [void]$items.Add("<li>Low: $Low</li>") }
         return "<p>$ObjectLabel by highest Azure impact:</p><ul>$($items -join '')</ul><p>Includes Azure roles gained through group membership or group ownership.</p>"
+    }
+
+    # True when the principal's highest effective Azure role tier is Tier-2 or Tier-3.
+    # Unresolved or missing tiers are treated as privileged.
+    function Test-AzureLimitedTierOnly {
+        param([object]$Principal)
+
+        if ($null -eq $Principal -or -not $Principal.PSObject.Properties['AzureMaxTier']) { return $false }
+        return ("$($Principal.AzureMaxTier)".Trim() -match '^(?:Tier-)?[23]$')
     }
 
     function Get-AzurePrincipalExposure {
@@ -1753,14 +1768,14 @@ function Invoke-CheckTenant {
   },
   {
     "FindingId": "ENT-007",
-    "Title": "Foreign Enterprise Applications with Impactful Azure Access",
+    "Title": "Foreign Enterprise Applications with Azure Roles",
     "Category": "Enterprise Applications",
     "Severity": 3,
     "Description": "",
     "Threat": "",
     "Status": "NotVulnerable",
     "Remediation": "",
-    "Confidence": "Requires Verification",
+    "Confidence": "Sure",
     "AffectedObjects": []
   },
   {
@@ -1933,7 +1948,7 @@ function Invoke-CheckTenant {
   },
   {
     "FindingId": "AGT-005",
-    "Title": "Foreign Agent Identities with Impactful Azure Access",
+    "Title": "Foreign Agent Identities with Azure Roles",
     "Category": "Agent Identities",
     "Severity": 3,
     "Description": "",
@@ -2017,7 +2032,7 @@ function Invoke-CheckTenant {
   },
   {
     "FindingId": "AGT-012",
-    "Title": "Foreign Agent Users with Impactful Azure Access",
+    "Title": "Foreign Agent Users with Azure Roles",
     "Category": "Agent Identities",
     "Severity": 3,
     "Description": "",
@@ -3019,7 +3034,13 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Vulnerable = @{ Status = "Vulnerable" }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No enabled foreign enterprise applications with Azure access of medium or higher impact were identified.</p>"
+            Description = "<p>No enabled foreign enterprise applications with Azure roles were identified.</p>"
+        }
+        Skipped = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because Azure role assignments were not enumerated.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
         }
     }
     $ENT008VariantProps = @{
@@ -3234,11 +3255,17 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No enabled foreign, non-Microsoft agent identities with Azure access of medium or higher impact were identified.</p>"
+            Description = "<p>No enabled foreign, non-Microsoft agent identities with Azure roles were identified.</p>"
         }
         Skipped = @{
             Status = "Skipped"
             Description = "<p>Check skipped because no agent identities were identified in the tenant.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
+        SkippedAzure = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because Azure role assignments were not enumerated.</p>"
             AffectedObjects = @()
             RelatedReportUrl = ""
         }
@@ -3373,11 +3400,17 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
         Secure = @{
             Status = "NotVulnerable"
-            Description = "<p>No enabled foreign, non-Microsoft agent users with Azure access of medium or higher impact were identified.</p>"
+            Description = "<p>No enabled foreign, non-Microsoft agent users with Azure roles were identified.</p>"
         }
         Skipped = @{
             Status = "Skipped"
             Description = "<p>Check skipped because no agent users were identified in the tenant.</p>"
+            AffectedObjects = @()
+            RelatedReportUrl = ""
+        }
+        SkippedAzure = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because Azure role assignments were not enumerated.</p>"
             AffectedObjects = @()
             RelatedReportUrl = ""
         }
@@ -3875,7 +3908,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     # ENT-001/ENT-002/ENT-003/ENT-004/ENT-005/ENT-006/ENT-007/ENT-008/ENT-009/ENT-010/ENT-011/ENT-012/ENT-013/ENT-014: Reuse a single pass over enterprise apps.
     # ENT-001 = effectively enabled + non-SAML + credentials; ENT-002 = locally enabled + inactive; ENT-003 = effectively enabled + owners + impact>=threshold;
     # ENT-004 = enabled + foreign + extensive API permissions (application); ENT-005 = enabled + foreign + extensive API permissions (delegated);
-    # ENT-006 = enabled + foreign + Entra ID roles; ENT-007 = enabled + foreign + medium-or-higher Azure exposure; ENT-008 = enabled + foreign + owns groups/apps/SPs;
+    # ENT-006 = enabled + foreign + Entra ID roles; ENT-007 = enabled + foreign + any Azure role; ENT-008 = enabled + foreign + owns groups/apps/SPs;
     # ENT-009 = enabled + internal + extensive API permissions (application) excluding ConnectSyncProvisioning_;
     # ENT-010 = enabled + internal + extensive API permissions (delegated);
     # ENT-011 = enabled + internal + Entra max tier 0/1; ENT-012 = enabled + internal + high-impact Azure exposure; ENT-013 = known malicious AppId match;
@@ -6316,9 +6349,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "ENT-006" -Props $ENT006VariantProps.Secure
     }
 
-    # ENT-007: Apply result for foreign apps with medium-or-higher Azure exposure.
-    if ($entAppsForeignAzureRoles.Count -gt 0) {
-        Write-Log -Level Verbose -Message "[ENT-007] Found $($entAppsForeignAzureRoles.Count) foreign enterprise apps with Azure exposure impact of at least $AzureForeignExposureThreshold."
+    # ENT-007: Apply result for foreign apps with any Azure role. Severity follows the role tier and rises to 4 on critical impact.
+    if (-not $GLOBALAzurePsChecks) {
+        Write-Log -Level Verbose -Message "[ENT-007] Skipping check because Azure role assignments were not enumerated."
+        Set-FindingOverride -FindingId "ENT-007" -Props $ENT007VariantProps.Skipped
+    } elseif ($entAppsForeignAzureRoles.Count -gt 0) {
+        Write-Log -Level Verbose -Message "[ENT-007] Found $($entAppsForeignAzureRoles.Count) foreign enterprise apps with Azure roles."
         Set-FindingOverride -FindingId "ENT-007" -Props $ENT007VariantProps.Vulnerable
         Set-FindingOverride -FindingId "ENT-007" -Props @{
             RelatedReportUrl = "EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Foreign=%3DTrue&AzureMaxImpact=%3E%3D$AzureForeignExposureThreshold&Enabled=%3Dtrue&columns=DisplayName%2CPublisherName%2CForeign%2CEnabled%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
@@ -6326,9 +6362,11 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             AffectedSortDir = "DESC"
         }
 
+        $azLow = 0
         $azMedium = 0
         $azHigh = 0
         $azCritical = 0
+        $ent007LimitedOnly = $true
         $entAzureRoleAffected = [System.Collections.Generic.List[object]]::new()
         foreach ($app in $entAppsForeignAzureRoles) {
             $azureExposure = Get-AzurePrincipalExposure -Principal $app
@@ -6336,15 +6374,18 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $azCritical += 1
             } elseif ($azureExposure.Impact -ge $AzureHighExposureThreshold) {
                 $azHigh += 1
-            } else {
+            } elseif ($azureExposure.Impact -ge $AzureMediumExposureThreshold) {
                 $azMedium += 1
+            } else {
+                $azLow += 1
             }
+            if (-not (Test-AzureLimitedTierOnly -Principal $app)) { $ent007LimitedOnly = $false }
             $roleDisplay = Get-AzurePrincipalRoleEvidence -Principal $app
             $roleCount = Get-AzurePrincipalRoleCount -Principal $app
             $entAzureRoleAffected.Add([pscustomobject][ordered]@{
                 "DisplayName" = "<a href=`"EnterpriseApps_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($app.Id)`" target=`"_blank`">$($app.DisplayName)</a>"
                 "Publisher Name" = $app.PublisherName
-                "Role Count" = $roleCount
+                "Azure Roles" = $roleCount
                 "Max Azure Level" = Get-AzureImpactLevel -Impact $azureExposure.Impact
                 "Azure Access Summary" = $roleDisplay
                 "_SortAzureImpact" = $azureExposure.Impact
@@ -6353,8 +6394,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         $ent007Subject = if ($entAppsForeignAzureRoles.Count -eq 1) { 'enabled foreign enterprise application has' } else { 'enabled foreign enterprise applications have' }
         Set-FindingOverride -FindingId "ENT-007" -Props @{
-            Description = "<p>$($entAppsForeignAzureRoles.Count) $ent007Subject Azure access with medium or higher impact.</p>$(Get-AzureImpactBreakdownHtml -ObjectLabel 'Applications' -Critical $azCritical -High $azHigh -Medium $azMedium)"
-            AffectedObjects = $entAzureRoleAffected
+            Description = "<p>$($entAppsForeignAzureRoles.Count) $ent007Subject Azure roles assigned.</p>$(Get-AzureImpactBreakdownHtml -ObjectLabel 'Applications' -Critical $azCritical -High $azHigh -Medium $azMedium -Low $azLow)"
+            AffectedObjects = @(Sort-AzureFindingAffectedObjects -Objects @($entAzureRoleAffected))
+        }
+        if ($azCritical -eq 0 -and $ent007LimitedOnly) {
+            Set-FindingOverride -FindingId "ENT-007" -Props @{
+                Severity = 2
+                Threat = "$($ENT007VariantProps.Default.Threat)<p>All affected applications hold only Azure roles with limited permissions, such as read access or narrowly scoped changes.</p>"
+            }
         }
         if ($azCritical -gt 0) {
             Set-FindingOverride -FindingId "ENT-007" -Props @{
@@ -6363,7 +6410,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
         }
     } else {
-        Write-Log -Level Verbose -Message "[ENT-007] No foreign enterprise apps with impactful Azure access found."
+        Write-Log -Level Verbose -Message "[ENT-007] No foreign enterprise apps with Azure roles found."
         Set-FindingOverride -FindingId "ENT-007" -Props $ENT007VariantProps.Secure
     }
 
@@ -7649,23 +7696,27 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "AGT-004" -Props $AGT004VariantProps.Secure
     }
 
-    # AGT-005: Apply result for enabled foreign agent identities with medium-or-higher Azure exposure.
+    # AGT-005: Apply result for enabled foreign agent identities with any Azure role. Severity follows the role tier and rises to 4 on critical impact.
     if ($agentIdentityCount -eq 0) {
         Write-Log -Level Verbose -Message "[AGT-005] Skipped because no agent identities were found."
         Set-FindingOverride -FindingId "AGT-005" -Props $AGT005VariantProps.Skipped
+    } elseif (-not $GLOBALAzurePsChecks) {
+        Write-Log -Level Verbose -Message "[AGT-005] Skipping check because Azure role assignments were not enumerated."
+        Set-FindingOverride -FindingId "AGT-005" -Props $AGT005VariantProps.SkippedAzure
     } elseif ($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count -gt 0) {
-        Write-Log -Level Verbose -Message "[AGT-005] Found $($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled foreign agent identities with impactful Azure access."
+        Write-Log -Level Verbose -Message "[AGT-005] Found $($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) enabled foreign agent identities with Azure roles."
         Set-FindingOverride -FindingId "AGT-005" -Props $AGT005VariantProps.Vulnerable
         Set-FindingOverride -FindingId "AGT-005" -Props @{
-            Confidence = "Requires Verification"
             RelatedReportUrl = "AgentIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Foreign=%3Dtrue&MSOwned=%3Dfalse&Enabled=%3Dtrue&AzureMaxImpact=%3E%3D$AzureForeignExposureThreshold&columns=DisplayName%2CPublisherName%2CForeign%2CMSOwned%2CEnabled%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortAzureImpact"
             AffectedSortDir = "DESC"
         }
 
+        $agt005Low = 0
         $agt005Medium = 0
         $agt005High = 0
         $agt005Critical = 0
+        $agt005LimitedOnly = $true
         $agt005Affected = [System.Collections.Generic.List[object]]::new()
         foreach ($agentIdentity in $foreignAgentIdentitiesWithPrivilegedAzureRoles) {
             $azureExposure = Get-AzurePrincipalExposure -Principal $agentIdentity
@@ -7673,9 +7724,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $agt005Critical += 1
             } elseif ($azureExposure.Impact -ge $AzureHighExposureThreshold) {
                 $agt005High += 1
-            } else {
+            } elseif ($azureExposure.Impact -ge $AzureMediumExposureThreshold) {
                 $agt005Medium += 1
+            } else {
+                $agt005Low += 1
             }
+            if (-not (Test-AzureLimitedTierOnly -Principal $agentIdentity)) { $agt005LimitedOnly = $false }
             $roleDisplay = Get-AzurePrincipalRoleEvidence -Principal $agentIdentity
             $roleCount = Get-AzurePrincipalRoleCount -Principal $agentIdentity
             $parentPrincipal = "-"
@@ -7698,8 +7752,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
 
         $agt005Subject = if ($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count -eq 1) { 'enabled foreign, non-Microsoft agent identity has' } else { 'enabled foreign, non-Microsoft agent identities have' }
         Set-FindingOverride -FindingId "AGT-005" -Props @{
-            Description = "<p>$($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) $agt005Subject Azure access with medium or higher impact.</p>$(Get-AzureImpactBreakdownHtml -ObjectLabel 'Agent identities' -Critical $agt005Critical -High $agt005High -Medium $agt005Medium)"
-            AffectedObjects = $agt005Affected
+            Description = "<p>$($foreignAgentIdentitiesWithPrivilegedAzureRoles.Count) $agt005Subject Azure roles assigned.</p>$(Get-AzureImpactBreakdownHtml -ObjectLabel 'Agent identities' -Critical $agt005Critical -High $agt005High -Medium $agt005Medium -Low $agt005Low)"
+            AffectedObjects = @(Sort-AzureFindingAffectedObjects -Objects @($agt005Affected))
+        }
+        if ($agt005Critical -eq 0 -and $agt005LimitedOnly) {
+            Set-FindingOverride -FindingId "AGT-005" -Props @{
+                Severity = 2
+                Threat = "$($AGT005VariantProps.Default.Threat)<p>All affected agent identities hold only Azure roles with limited permissions, such as read access or narrowly scoped changes.</p>"
+            }
         }
         if ($agt005Critical -gt 0) {
             Set-FindingOverride -FindingId "AGT-005" -Props @{
@@ -7708,7 +7768,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
         }
     } else {
-        Write-Log -Level Verbose -Message "[AGT-005] No enabled foreign agent identities with impactful Azure access found."
+        Write-Log -Level Verbose -Message "[AGT-005] No enabled foreign agent identities with Azure roles found."
         Set-FindingOverride -FindingId "AGT-005" -Props $AGT005VariantProps.Secure
     }
 
@@ -8278,21 +8338,26 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Set-FindingOverride -FindingId "AGT-011" -Props $AGT011VariantProps.Secure
     }
 
-    # AGT-012: Apply result for enabled foreign agent users with medium-or-higher Azure exposure.
+    # AGT-012: Apply result for enabled foreign agent users with any Azure role. Severity follows the role tier and rises to 4 on critical impact.
     if ($agentUserCount -eq 0) {
         Write-Log -Level Verbose -Message "[AGT-012] Skipped because no agent users were found."
         Set-FindingOverride -FindingId "AGT-012" -Props $AGT012VariantProps.Skipped
+    } elseif (-not $GLOBALAzurePsChecks) {
+        Write-Log -Level Verbose -Message "[AGT-012] Skipping check because Azure role assignments were not enumerated."
+        Set-FindingOverride -FindingId "AGT-012" -Props $AGT012VariantProps.SkippedAzure
     } elseif ($foreignAgentUsersWithPrivilegedAzureRoles.Count -gt 0) {
-        Write-Log -Level Verbose -Message "[AGT-012] Found $($foreignAgentUsersWithPrivilegedAzureRoles.Count) enabled foreign agent users with impactful Azure access."
+        Write-Log -Level Verbose -Message "[AGT-012] Found $($foreignAgentUsersWithPrivilegedAzureRoles.Count) enabled foreign agent users with Azure roles."
         Set-FindingOverride -FindingId "AGT-012" -Props $AGT012VariantProps.Vulnerable
         Set-FindingOverride -FindingId "AGT-012" -Props @{
             RelatedReportUrl = "Users_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?Agent=%3Dtrue&ForeignAgent=%3Dtrue&MSOwnedAgent=%3Dfalse&Enabled=%3Dtrue&AzureMaxImpact=%3E%3D$AzureForeignExposureThreshold&columns=UPN%2CEnabled%2CAgent%2CForeignAgent%2CMSOwnedAgent%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CInactive%2CLastSignInDays%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortAzureImpact"
             AffectedSortDir = "DESC"
         }
+        $agt012Low = 0
         $agt012Medium = 0
         $agt012High = 0
         $agt012Critical = 0
+        $agt012LimitedOnly = $true
         $agt012Affected = [System.Collections.Generic.List[object]]::new()
         foreach ($entry in $foreignAgentUsersWithPrivilegedAzureRoles) {
             $user = $entry.User
@@ -8301,9 +8366,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $agt012Critical += 1
             } elseif ($azureExposure.Impact -ge $AzureHighExposureThreshold) {
                 $agt012High += 1
-            } else {
+            } elseif ($azureExposure.Impact -ge $AzureMediumExposureThreshold) {
                 $agt012Medium += 1
+            } else {
+                $agt012Low += 1
             }
+            if (-not (Test-AzureLimitedTierOnly -Principal $user)) { $agt012LimitedOnly = $false }
             $displayName = "$($user.UPN)"
             if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = "$($entry.Id)" }
 
@@ -8333,8 +8401,14 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
         $agt012Subject = if ($foreignAgentUsersWithPrivilegedAzureRoles.Count -eq 1) { 'enabled foreign, non-Microsoft agent user has' } else { 'enabled foreign, non-Microsoft agent users have' }
         Set-FindingOverride -FindingId "AGT-012" -Props @{
-            Description = "<p>$($foreignAgentUsersWithPrivilegedAzureRoles.Count) $agt012Subject Azure access with medium or higher impact.</p>$(Get-AzureImpactBreakdownHtml -ObjectLabel 'Agent users' -Critical $agt012Critical -High $agt012High -Medium $agt012Medium)"
+            Description = "<p>$($foreignAgentUsersWithPrivilegedAzureRoles.Count) $agt012Subject Azure roles assigned.</p>$(Get-AzureImpactBreakdownHtml -ObjectLabel 'Agent users' -Critical $agt012Critical -High $agt012High -Medium $agt012Medium -Low $agt012Low)"
             AffectedObjects = @(Sort-AzureFindingAffectedObjects -Objects @($agt012Affected))
+        }
+        if ($agt012Critical -eq 0 -and $agt012LimitedOnly) {
+            Set-FindingOverride -FindingId "AGT-012" -Props @{
+                Severity = 2
+                Threat = "$($AGT012VariantProps.Default.Threat)<p>All affected agent users hold only Azure roles with limited permissions, such as read access or narrowly scoped changes.</p>"
+            }
         }
         if ($agt012Critical -gt 0) {
             Set-FindingOverride -FindingId "AGT-012" -Props @{
@@ -8342,9 +8416,8 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 Threat = "<p>If the external tenant of the corresponding parent blueprint is compromised or its client credentials are leaked, attackers may gain control of the agent user and abuse its Azure role assignments.</p><p>At least one foreign agent user has critical Azure exposure impact and may provide control over critical Azure resources.</p>"
             }
         }
-        Set-AzureFindingFallbackConfidence -FindingId 'AGT-012' -Candidates @($foreignAgentUsersWithPrivilegedAzureRoles)
     } else {
-        Write-Log -Level Verbose -Message "[AGT-012] No enabled foreign agent users with impactful Azure access found."
+        Write-Log -Level Verbose -Message "[AGT-012] No enabled foreign agent users with Azure roles found."
         Set-FindingOverride -FindingId "AGT-012" -Props $AGT012VariantProps.Secure
     }
 
