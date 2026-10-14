@@ -1334,9 +1334,9 @@ function Invoke-CheckRoles {
 
 
     if ($DebugObjectDump) {
-        $mainAzureTable = $SortedAzureRoles | Select-Object -Property $azureRoleLinkColumn,Scope,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},ImpactExplanation,RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},Identities
+        $mainAzureTable = $SortedAzureRoles | Select-Object -Property $azureRoleLinkColumn,Scope,ScopeType,Environment,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},@{Name = "Resources"; Expression = { $_.ObservedResources}},ImpactExplanation,RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},Identities
     } else {
-        $mainAzureTable = $SortedAzureRoles | Select-Object -Property $azureRoleLinkColumn,Scope,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},Identities
+        $mainAzureTable = $SortedAzureRoles | Select-Object -Property $azureRoleLinkColumn,Scope,ScopeType,Environment,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},Identities
     }
     $mainAzureTableJson  = $mainAzureTable | ConvertTo-Json -Depth 5 -Compress
 

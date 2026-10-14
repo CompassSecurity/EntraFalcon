@@ -4244,6 +4244,13 @@ $global:GLOBALJavaScript_Table = @'
                     const cell = cells[j];
                     const columnHeader = headers[j] || "";
 
+                    if (window.__reportManifest && window.__reportManifest.currentReportKey === "RoleAz" &&
+                        (columnHeader === "Level" || columnHeader === "Impact" ||
+                         columnHeader === "Resources" || columnHeader === "Identities")) {
+                        cell.style.backgroundColor = "";
+                        continue;
+                    }
+
                     let bg = "";
 
                     // Fast path: boolean columns or numeric columns
