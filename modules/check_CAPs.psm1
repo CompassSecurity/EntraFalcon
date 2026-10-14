@@ -1319,6 +1319,79 @@ function Invoke-CheckCaps {
         return $Guid  # Return original if not found
     }
 
+    function Get-CapExportReferences {
+        param([Parameter(Mandatory=$true)]$Policy)
+
+        $selectors = @(
+            @{ Path = 'conditions.users.includeUsers'; Type = 'User'; Lookup = $Users }
+            @{ Path = 'conditions.users.excludeUsers'; Type = 'User'; Lookup = $Users }
+            @{ Path = 'conditions.users.includeGroups'; Type = 'Group'; Lookup = $AllGroupsDetails }
+            @{ Path = 'conditions.users.excludeGroups'; Type = 'Group'; Lookup = $AllGroupsDetails }
+            @{ Path = 'conditions.users.includeRoles'; Type = 'DirectoryRoleTemplate'; Lookup = $RoleTemplatesHT }
+            @{ Path = 'conditions.users.excludeRoles'; Type = 'DirectoryRoleTemplate'; Lookup = $RoleTemplatesHT }
+            @{ Path = 'conditions.applications.includeApplications'; Type = 'Application'; Lookup = $EnterpriseAppsHT }
+            @{ Path = 'conditions.applications.excludeApplications'; Type = 'Application'; Lookup = $EnterpriseAppsHT }
+            @{ Path = 'conditions.clientApplications.includeServicePrincipals'; Type = 'ServicePrincipal'; Lookup = $EnterpriseAppsHT }
+            @{ Path = 'conditions.clientApplications.excludeServicePrincipals'; Type = 'ServicePrincipal'; Lookup = $EnterpriseAppsHT }
+            @{ Path = 'conditions.clientApplications.includeAgentIdServicePrincipals'; Type = 'ServicePrincipal'; Lookup = $EnterpriseAppsHT }
+            @{ Path = 'conditions.clientApplications.excludeAgentIdServicePrincipals'; Type = 'ServicePrincipal'; Lookup = $EnterpriseAppsHT }
+            @{ Path = 'conditions.locations.includeLocations'; Type = 'NamedLocation'; Lookup = $NamedLocationExportLookup }
+            @{ Path = 'conditions.locations.excludeLocations'; Type = 'NamedLocation'; Lookup = $NamedLocationExportLookup }
+            @{ Path = 'conditions.applications.includeAuthenticationContextClassReferences'; Type = 'AuthenticationContext'; Lookup = @{} }
+            @{ Path = 'grantControls.termsOfUse'; Type = 'TermsOfUse'; Lookup = @{} }
+            @{ Path = 'grantControls.authenticationStrength.id'; Type = 'AuthenticationStrength'; Lookup = @{} }
+            @{ Path = 'conditions.users.includeGuestsOrExternalUsers.externalTenants.members'; Type = 'Tenant'; Lookup = @{} }
+            @{ Path = 'conditions.users.excludeGuestsOrExternalUsers.externalTenants.members'; Type = 'Tenant'; Lookup = @{} }
+        )
+
+        foreach ($selector in $selectors) {
+            $values = $Policy
+            foreach ($segment in $selector.Path.Split('.')) {
+                $values = $values.$segment
+            }
+            foreach ($value in @($values)) {
+                $referenceId = [string]$value
+                if ([string]::IsNullOrWhiteSpace($referenceId)) { continue }
+
+                $reference = [ordered]@{
+                    Path = $selector.Path
+                    Id = $referenceId
+                    ObjectType = $selector.Type
+                    DisplayName = $null
+                    ObjectId = $null
+                    AppId = $null
+                    UserPrincipalName = $null
+                    ResolutionStatus = 'Unresolved'
+                }
+                if ($referenceId -in @('All', 'None', 'GuestsOrExternalUsers', 'Office365', 'MicrosoftAdminPortals', 'AllTrusted')) {
+                    $reference.DisplayName = $referenceId
+                    $reference.ResolutionStatus = 'SpecialValue'
+                } elseif ($selector.Lookup.ContainsKey($referenceId)) {
+                    $resolvedObject = $selector.Lookup[$referenceId]
+                    if ($selector.Type -eq 'DirectoryRoleTemplate') {
+                        $reference.DisplayName = [string]$resolvedObject
+                    } else {
+                        $reference.DisplayName = $resolvedObject.DisplayName
+                        $reference.ObjectId = $resolvedObject.Id
+                        if ($selector.Type -in @('Application', 'ServicePrincipal')) {
+                            $reference.AppId = $resolvedObject.AppId
+                        } elseif ($selector.Type -eq 'User') {
+                            $reference.UserPrincipalName = $resolvedObject.UPN
+                        } elseif ($selector.Type -eq 'NamedLocation') {
+                            $reference['Details'] = $resolvedObject
+                        }
+                    }
+                    $reference.ResolutionStatus = 'Resolved'
+                } elseif ($selector.Type -eq 'AuthenticationStrength' -and
+                    -not [string]::IsNullOrWhiteSpace([string]$Policy.grantControls.authenticationStrength.displayName)) {
+                    $reference.DisplayName = $Policy.grantControls.authenticationStrength.displayName
+                    $reference.ResolutionStatus = 'Resolved'
+                }
+                [pscustomobject]$reference
+            }
+        }
+    }
+
     # Function to convert object to YAML and replacing GUIDs with names
     function ConvertTo-Yaml {
         param(
@@ -1452,6 +1525,14 @@ function Invoke-CheckCaps {
     $AllPoliciesCount = @($AllPolicies).count
     write-host "[+] Got $AllPoliciesCount policies"
 
+    # Preserve Graph state values before assessment processing normalizes report-only policies.
+    $PolicyExportLookup = @{}
+    if ($ExportDataJson) {
+        foreach ($policy in $AllPolicies) {
+            $PolicyExportLookup[[string]$policy.Id] = $policy | Select-Object *
+        }
+    }
+
     #Check Named locations
     write-host "[*] Enumerate Named locations"
     $LocationsRaw = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/identity/conditionalAccess/namedLocations" -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
@@ -1540,6 +1621,13 @@ function Invoke-CheckCaps {
         $NamedLocationsHT[$location.Id] = $location
     }
     write-host "[+] Got $($($NamedLocations | Measure-Object).count) named locations"
+
+    $NamedLocationExportLookup = @{}
+    if ($ExportDataJson) {
+        foreach ($location in $LocationsRaw) {
+            $NamedLocationExportLookup[[string]$location.Id] = $location
+        }
+    }
 
     # Cache supported external-user categories once so policies can reuse the same approximate user sets.
     $CapRelevantUsersLookup = @{}
@@ -3201,7 +3289,16 @@ if ($AllPoliciesCount -gt 0) {
 }
 
     if ($ExportDataJson) {
-        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "ConditionalAccessPolicies" -Data $ConditionalAccessPolicies | Out-Null
+        $policyExport = @(
+            foreach ($assessment in $ConditionalAccessPolicies) {
+                $exportEntry = $assessment | Select-Object *
+                $rawPolicy = $PolicyExportLookup[[string]$assessment.Id]
+                $exportEntry | Add-Member -NotePropertyName Policy -NotePropertyValue $rawPolicy
+                $exportEntry | Add-Member -NotePropertyName ResolvedReferences -NotePropertyValue @(Get-CapExportReferences -Policy $rawPolicy)
+                $exportEntry
+            }
+        )
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "ConditionalAccessPolicies" -Data $policyExport | Out-Null
     }
 
 
