@@ -2303,6 +2303,7 @@ $tableOutput | Format-table -Property $GroupOutputProperties | Out-File -Width 5
             "SecurityEnabled" = $item.SecurityEnabled
             "Protected" = $item.Protected
             "Synced from on-prem" = $item.OnPrem
+            "Members" = "Users: $($item.Users), Service Principals: $($item.SPCount), Devices: $($item.Devices)"
             "Entra Max Tier" = $item.EntraMaxTier
             "Azure Max Level" = $item.AzureMaxLevel
             "Azure Max Impact" = $item.AzureExposureImpact
