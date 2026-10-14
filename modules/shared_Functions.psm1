@@ -4225,6 +4225,7 @@ $global:GLOBALJavaScript_Table = @'
             const redIfFalseHeaders = new Set(['AppLock', 'MfaCap', 'Protected', 'Enabled', 'EnabledInTenant', 'RoleAssignable', 'ActivationMFA', 'ActivationAuthContext', 'ActivationApproval', 'ActiveAssignMFA', 'EligibleExpiration', 'ActiveExpiration', 'ActivationJustification', 'ActivationTicketing', 'ActiveAssignJustification', 'AlertAssignEligible', 'AlertAssignActive', 'AlertActivation', 'Approval', 'Expiration', 'AccessReview', 'PolicyEnabled', 'CatalogEnabled', 'MSOwned', 'MSOwnedAgent']);
             const redIfContent = new Set(['all', 'alltrusted', 'report-only', 'disabled', 'public', 'guest', 'customrole', 'active', 'tier-0', 'tier-1', 'tier-2', 'critical', 'high', 'medium', 'low', 'all users', 'all internal users', 'all service principals', 'all agent identities', 'all external users', 'all external orgs']);
             const redIfContentHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms', 'State', 'Visibility', 'UserType', 'RoleType', 'AssignmentType', 'EntraMaxTier', 'AzureMaxTier', 'AzureMaxLevel', 'Level', 'PerUserMfa', 'AllowedTargetScope']);
+            const mixedNumericHeaders = new Set(['IncUsers', 'IncResources', 'IncNw', 'ExcNw', 'IncPlatforms']);
 
             const redColor = isDark ? "#800000" : "#FFB6C1";
             const greenColor = isDark ? "#005f00" : "#98FB98";
@@ -4255,7 +4256,12 @@ $global:GLOBALJavaScript_Table = @'
                         }
                     } else if (redIfContentHeaders.has(columnHeader)) {
                         const text = (cell.textContent || "").trim().toLowerCase();
-                        bg = redIfContent.has(text) ? redColor : greenColor;
+                        const number = Number(text);
+                        if (mixedNumericHeaders.has(columnHeader) && text !== "" && Number.isFinite(number)) {
+                            bg = number === 0 ? greenColor : redColor;
+                        } else {
+                            bg = redIfContent.has(text) ? redColor : greenColor;
+                        }
                     } else {
                         // Numeric heuristic: only attempt parse when it looks like a number
                         const raw = (cell.textContent || "").trim();
