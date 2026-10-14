@@ -1645,7 +1645,15 @@ function Invoke-CheckGroups {
             if ($null -eq $IntuneRoleScore) { $IntuneRoleScore = 0 }
             $ImpactScore += [double]$IntuneRoleScore
 
-            [void]$Warnings.Add("Intune RBAC privileged role")
+            $hasPrivilegedIntuneRole = @($IntuneRoleDetails | Where-Object { $_.HighRiskRole -eq $true }).Count -gt 0
+            $hasCustomIntuneRole = @($IntuneRoleDetails | Where-Object { $_.IsBuiltIn -eq $false }).Count -gt 0
+            if ($hasPrivilegedIntuneRole -and $hasCustomIntuneRole) {
+                [void]$Warnings.Add("Intune RBAC privileged and custom roles")
+            } elseif ($hasPrivilegedIntuneRole) {
+                [void]$Warnings.Add("Intune RBAC privileged role")
+            } elseif ($hasCustomIntuneRole) {
+                [void]$Warnings.Add("Intune RBAC custom role")
+            }
 
             if ($memberGroup.count -ge 1) {
 	            $NestedGroupsHighvalue.Add([pscustomobject]@{
