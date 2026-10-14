@@ -3,6 +3,79 @@
 	   Enumerates groups and evaluates their configurations, ownership, roles, and risk posture.
 #>
 
+function Get-RoleGroupIdentityCountIndex {
+    param(
+        [string[]]$GroupIds = @(),
+        [hashtable]$KnownGroups = @{},
+        [hashtable]$MembersByGroupId = @{},
+        [hashtable]$CompleteMemberCountsByGroupId = @{},
+        [hashtable]$IncompleteMembershipByGroupId = @{},
+        [hashtable]$EligibleMembersByGroupId = @{},
+        [bool]$EligibilityDiscoveryComplete = $false,
+        [string[]]$IncompleteEligibilityGroupIds = @()
+    )
+
+    $index = @{}
+    $memberTypeCategories = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $compactTypeCategories = @{
+        user = 'Identity'; guest = 'Identity'; guestUser = 'Identity'; agentUser = 'Identity'
+        servicePrincipal = 'Identity'; enterpriseApplication = 'Identity'; managedIdentity = 'Identity'
+        agentIdentity = 'Identity'; agentIdentityBlueprintPrincipal = 'Identity'; serviceIdentity = 'Identity'
+        group = 'Group'; device = 'Device'
+    }
+    foreach ($typeName in $compactTypeCategories.Keys) {
+        $memberTypeCategories.Add($typeName, $compactTypeCategories[$typeName])
+        $memberTypeCategories.Add("#microsoft.graph.$typeName", $compactTypeCategories[$typeName])
+    }
+    foreach ($typeName in @('Guest User', 'Agent User', 'Service Principal', 'Enterprise Application', 'Managed Identity', 'Agent Identity', 'Agent Identity Blueprint Principal', 'Service Identity')) {
+        $memberTypeCategories.Add($typeName, 'Identity')
+    }
+    $eligibilityGaps = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($groupId in $IncompleteEligibilityGroupIds) { [void]$eligibilityGaps.Add($groupId) }
+    foreach ($rootId in $GroupIds) {
+        if ([string]::IsNullOrWhiteSpace($rootId) -or $index.ContainsKey($rootId)) { continue }
+        $identities = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $unresolvedMembers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $visited = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $queue = [System.Collections.Generic.Queue[string]]::new()
+        $queue.Enqueue($rootId)
+        $complete = $EligibilityDiscoveryComplete
+        while ($queue.Count -gt 0) {
+            $groupId = $queue.Dequeue()
+            if (-not $visited.Add($groupId)) { continue }
+            if (-not $KnownGroups.ContainsKey($groupId) -or
+                -not $CompleteMemberCountsByGroupId.ContainsKey($groupId) -or
+                $IncompleteMembershipByGroupId.ContainsKey($groupId) -or $eligibilityGaps.Contains($groupId)) {
+                $complete = $false
+            }
+            foreach ($membershipIndex in @($MembersByGroupId, $EligibleMembersByGroupId)) {
+                foreach ($member in $membershipIndex[$groupId]) {
+                    if ($null -eq $member) { continue }
+                    $memberId = [string]$member.Id
+                    if ([string]::IsNullOrWhiteSpace($memberId)) { $complete = $false; continue }
+                    $memberType = [string]$member.'@odata.type'
+                    if ([string]::IsNullOrWhiteSpace($memberType)) { $memberType = [string]$member.Type }
+                    $memberCategory = 'Unknown'
+                    if (-not $memberTypeCategories.TryGetValue($memberType, [ref]$memberCategory)) { $memberCategory = 'Unknown' }
+                    if ($memberCategory -eq 'Group' -or $KnownGroups.ContainsKey($memberId)) {
+                        $queue.Enqueue($memberId)
+                    } elseif ($memberCategory -eq 'Identity') {
+                        [void]$identities.Add($memberId)
+                    } elseif ($memberCategory -eq 'Unknown') {
+                        [void]$unresolvedMembers.Add($memberId)
+                    }
+                }
+            }
+        }
+        # Another membership path can establish the type of an otherwise unresolved eligible member.
+        foreach ($memberId in $unresolvedMembers) {
+            if (-not $identities.Contains($memberId)) { $complete = $false; break }
+        }
+        $index[$rootId] = [pscustomobject]@{ Count = $identities.Count; Complete = $complete }
+    }
+    return $index
+}
+
 function Resolve-AzureGroupExposureImpactIndex {
     [CmdletBinding()]
     param(
@@ -129,6 +202,7 @@ function Invoke-CheckGroups {
         [Parameter(Mandatory=$false)][hashtable]$CatalogRbacPrincipalIndex = @{},
         [Parameter(Mandatory=$false)][bool]$CatalogRbacAssessmentAvailable = $false,
         [Parameter(Mandatory=$false)][ref]$AzureGroupExposureImpactIndexOut,
+        [Parameter(Mandatory=$false)][ref]$RoleGroupIdentityCountIndexOut,
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
         [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
     )
@@ -136,6 +210,10 @@ function Invoke-CheckGroups {
     ############################## Function section ########################
 
     $AzureGroupExposureImpactIndex = @{}
+    $roleGroupIdentityCountIndex = @{}
+    if ($null -ne $RoleGroupIdentityCountIndexOut) {
+        $RoleGroupIdentityCountIndexOut.Value = $roleGroupIdentityCountIndex
+    }
     $AzureGroupExposureSeedImpact = @{}
 
     function Set-AzureGroupExposureSeedImpact {
@@ -934,6 +1012,22 @@ function Invoke-CheckGroups {
         $GroupScriptWarningList.Add("Coverage gap: the service principal lookup could not be retrieved; service principal members and owners may be shown by object ID only.")
     }
     
+
+    # Calculate shared identity counts only for Azure/Entra-assigned groups when requested by the caller.
+    if ($null -ne $RoleGroupIdentityCountIndexOut) {
+        $assignedGroupIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($assignmentIndex in @($AzureIAMAssignments, $TenantRoleAssignments)) {
+            foreach ($principalId in $assignmentIndex.Keys) {
+                if ($AllGroupsHT.ContainsKey([string]$principalId)) { [void]$assignedGroupIds.Add([string]$principalId) }
+            }
+        }
+        $roleGroupIdentityCountIndex = Get-RoleGroupIdentityCountIndex -GroupIds @($assignedGroupIds) `
+            -KnownGroups $AllGroupsHT -MembersByGroupId $GroupMembers -CompleteMemberCountsByGroupId $DirectActiveMemberCountById `
+            -IncompleteMembershipByGroupId $GroupMemberCoverage -EligibleMembersByGroupId $PimForGroupsEligibleMembersHT `
+            -EligibilityDiscoveryComplete:([bool]$GLOBALPimForGroupsChecked -and [bool]$GLOBALPimForGroupsDiscoveryComplete) `
+            -IncompleteEligibilityGroupIds @($GLOBALPimForGroupsIncompleteGroupIds)
+        $RoleGroupIdentityCountIndexOut.Value = $roleGroupIdentityCountIndex
+    }
 
     #Remove Variables
     remove-variable parents -ErrorAction SilentlyContinue

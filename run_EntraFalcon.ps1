@@ -194,7 +194,7 @@ Param (
 )
 
 #Constants
-$EntraFalconVersion = "V20260924"
+$EntraFalconVersion = "V20261014_PRE"
 
 # Import shared functions
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -330,6 +330,8 @@ write-host "********************************** PIM for Groups: Pre-Collection Ph
     $TenantPimForGroupsAssignments = Get-PimforGroupsAssignments
 } else {
     $global:GLOBALPimForGroupsChecked = $false
+    $global:GLOBALPimForGroupsDiscoveryComplete = $false
+    $global:GLOBALPimForGroupsIncompleteGroupIds = @()
     $global:GLOBALPimForGroupsHT = @{}
     $global:GLOBALPimForGroupsResources = @()
     $global:GLOBALPimForGroupsAssignmentObjects = @()
@@ -512,7 +514,8 @@ $ServicePrincipalSignInActivityLookup = Get-ServicePrincipalSignInActivityLookup
 # Main enumeration
 write-host "`n********************************** [1/18] Enumerating Groups **********************************"
 $AzureGroupExposureImpactIndex = @{}
-$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex -AccessPackageAutoAssignmentPolicyIndex $AccessPackageAutoAssignmentPolicyIndex -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable $CatalogRbacAssessmentComplete -AzureGroupExposureImpactIndexOut ([ref]$AzureGroupExposureImpactIndex) @optionalParamsUserandGroup @optionalParamsOutput
+$RoleGroupIdentityCountIndex = @{}
+$AllGroupsDetails = Invoke-CheckGroups -AdminUnitWithMembers $AdminUnitWithMembers -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -ConditionalAccessPolicies $Caps -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -IntuneRbacRoleAssignments $IntuneRbacRoleAssignments -TenantPimForGroupsAssignments $TenantPimForGroupsAssignments -OutputFolder $OutputFolder -Devices $Devices -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -AccessPackageGroupSpecificTargetIndex $AccessPackageGroupSpecificTargetIndex -AccessPackageAutoAssignmentPolicyIndex $AccessPackageAutoAssignmentPolicyIndex -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable $CatalogRbacAssessmentComplete -RoleGroupIdentityCountIndexOut ([ref]$RoleGroupIdentityCountIndex) -AzureGroupExposureImpactIndexOut ([ref]$AzureGroupExposureImpactIndex) @optionalParamsUserandGroup @optionalParamsOutput
 
 write-host "`n********************************** [2/18] Enumerating Enterprise Apps **********************************"
 $AppRoleReferenceCache = @{}
@@ -605,7 +608,7 @@ Update-EntraFalconUserBlueprintOwnershipImpact -Users $Users -AgentIdentityBluep
 Write-EntraFalconUsersReport -UserReportState $UserReportState -Users $Users
 
 write-host "`n********************************** [13/18] Generating Role Assignments **********************************"
-Invoke-CheckRoles -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -Users $Users -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -DebugObjectDump:$DebugObjectDump @optionalParamsOutput
+Invoke-CheckRoles -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -RoleGroupIdentityCountIndex $RoleGroupIdentityCountIndex -AllGroupsDetails $AllGroupsDetails -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AppRegistrations $AppRegistrations -AdminUnitWithMembers $AdminUnitWithMembers -Users $Users -ManagedIdentities $ManagedIdentities -AgentIdentities $AgentIdentities -AgentIdentityBlueprintsPrincipals $AgentIdentityBlueprintsPrincipals -OutputFolder $OutputFolder -DebugObjectDump:$DebugObjectDump @optionalParamsOutput
 
 write-host "`n********************************** [14/18] Enumerating Conditional Access Policies **********************************"
 $AllCaps = Invoke-CheckCaps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AllGroupsDetails $AllGroupsDetails -Users $Users -OutputFolder $OutputFolder -TenantRoleAssignments $TenantRoleAssignments -ApiTop $ApiTop @optionalParamsOutput @optionalParamsCap
@@ -694,6 +697,7 @@ if ($DebugObjectDump) {
         UserReportState                       = $UserReportState
         Users                                 = $Users
         AllGroupsDetails                      = $AllGroupsDetails
+        RoleGroupIdentityCountIndex            = $RoleGroupIdentityCountIndex
         AgentObjectBasics                     = $AgentObjectBasics
         ServicePrincipalSignInActivityLookup = $ServicePrincipalSignInActivityLookup
         AppRoleReferenceCache                 = $AppRoleReferenceCache

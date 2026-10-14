@@ -3,6 +3,650 @@
    Collects and enriches Entra ID and Azure IAM role assignments, producing output in HTML, TXT, and CSV formats.
 #>
 
+function Get-RoleAssignmentIdentityCount {
+    param([string]$PrincipalId, [string]$PrincipalType, [hashtable]$RoleGroupIdentityCountIndex = @{})
+
+    if (-not [string]::IsNullOrWhiteSpace($PrincipalId) -and $RoleGroupIdentityCountIndex.ContainsKey($PrincipalId)) {
+        return $RoleGroupIdentityCountIndex[$PrincipalId]
+    }
+    $normalizedType = ($PrincipalType -replace '[\s_-]', '').ToLowerInvariant()
+    if (-not [string]::IsNullOrWhiteSpace($PrincipalId) -and $normalizedType -in @('user', 'guest', 'guestuser', 'agentuser', 'serviceprincipal', 'enterpriseapplication', 'managedidentity', 'agentidentity', 'agentidentityblueprintprincipal', 'serviceidentity', 'foreignuser', 'foreignserviceprincipal')) {
+        return [pscustomobject]@{ Count = 1; Complete = $true }
+    }
+    return [pscustomobject]@{ Count = 0; Complete = $false }
+}
+
+# Formats an Azure role definition timestamp as a UTC date; ARM values arrive as strings on 5.1 and as DateTime on 7.
+function Format-AzureRoleDefinitionDate {
+    param (
+        [Parameter(Mandatory = $false)]
+        [object]$Value
+    )
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
+
+    if ($Value -is [datetime]) {
+        $dateValue = if ($Value.Kind -eq [System.DateTimeKind]::Local) { $Value.ToUniversalTime() } else { $Value }
+        return $dateValue.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    $parsedValue = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse([string]$Value, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref]$parsedValue)) {
+        return $parsedValue.UtcDateTime.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    return [string]$Value
+}
+
+# Builds the report model for one Azure role definition from its definition and its assignments in this report.
+function Get-AzureRoleDefinitionDetailModel {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$RoleDefinitionId,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$Assignments,
+
+        [Parameter(Mandatory = $false)]
+        [object]$Definition
+    )
+
+    $firstAssignment = @($Assignments)[0]
+    $roleName = [string]$firstAssignment.Role
+    $roleType = [string]$firstAssignment.RoleType
+    if ($null -ne $Definition) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$Definition.RoleName)) { $roleName = [string]$Definition.RoleName }
+        if (-not [string]::IsNullOrWhiteSpace([string]$Definition.RoleType)) { $roleType = [string]$Definition.RoleType }
+    }
+    $isCustomRole = $roleType -match 'Custom'
+
+    $activeCount = 0
+    $eligibleCount = 0
+    $scopeTypeCounts = @{}
+    $impacts = [System.Collections.Generic.List[int]]::new()
+    foreach ($assignment in @($Assignments)) {
+        if ([string]$assignment.AssignmentType -eq 'Eligible') { $eligibleCount++ } else { $activeCount++ }
+        $scopeType = if ([string]::IsNullOrWhiteSpace([string]$assignment.ScopeType)) { 'Unknown' } else { [string]$assignment.ScopeType }
+        if ($scopeTypeCounts.ContainsKey($scopeType)) { $scopeTypeCounts[$scopeType]++ } else { $scopeTypeCounts[$scopeType] = 1 }
+        $impactValue = 0
+        if ([int]::TryParse([string]$assignment.AssignmentImpact, [ref]$impactValue)) { $impacts.Add($impactValue) }
+    }
+
+    $scopeTypeOrder = @('Root', 'ManagementGroup', 'Subscription', 'ResourceGroup', 'Resource', 'Unknown')
+    $orderedScopeTypes = @($scopeTypeOrder | Where-Object { $scopeTypeCounts.ContainsKey($_) }) + @($scopeTypeCounts.Keys | Where-Object { $scopeTypeOrder -notcontains $_ } | Sort-Object)
+    $scopeTypeText = (@($orderedScopeTypes | ForEach-Object { "$_ ($($scopeTypeCounts[$_]))" }) -join ', ')
+
+    $impactRange = '-'
+    $highestLevel = '-'
+    if ($impacts.Count -gt 0) {
+        $impactStatistics = $impacts | Measure-Object -Minimum -Maximum
+        $minimumImpact = [int]$impactStatistics.Minimum
+        $maximumImpact = [int]$impactStatistics.Maximum
+        $impactRange = if ($minimumImpact -eq $maximumImpact) { "$maximumImpact" } else { "$minimumImpact - $maximumImpact" }
+        $highestLevel = Get-AzureImpactLevel -Impact $maximumImpact
+    }
+
+    $generalInformation = [ordered]@{
+        'Role'        = $roleName
+        'Role ID'     = $RoleDefinitionId
+        'Type'        = $roleType
+        'Description' = if ($null -ne $Definition) { [string]$Definition.Description } else { $null }
+    }
+    if ($null -eq $Definition) {
+        $generalInformation['Role Definition'] = 'Not available'
+    } elseif ($isCustomRole) {
+        $generalInformation['Assignable Scopes'] = (@(@($Definition.AssignableScopes) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join ', ')
+        $generalInformation['Created'] = Format-AzureRoleDefinitionDate -Value $Definition.CreatedOn
+        $generalInformation['Updated'] = Format-AzureRoleDefinitionDate -Value $Definition.UpdatedOn
+    }
+    $generalInformation['Assignments'] = @($Assignments).Count
+    $generalInformation['Active / Eligible'] = "$activeCount / $eligibleCount"
+    $generalInformation['Scope Types'] = $scopeTypeText
+    $generalInformation['Highest Level'] = $highestLevel
+    $generalInformation['Assignment Impact'] = $impactRange
+
+    # Tier, source and reason are resolved per role ID, so every assignment of the role carries the same values.
+    $tierReason = [string]$firstAssignment.TierReason
+    $tierSource = [string]$firstAssignment.TierSource
+    $sourceLabel = switch ($tierSource) {
+        'Rated' { 'Curated rating' }
+        'Derived' { 'Derived from permissions' }
+        'Unknown' { 'Unknown' }
+        default { '-' }
+    }
+    $reasonDescription = Get-AzureRoleTierReasonDescription -Reason $tierReason
+    $tierLabel = if ([string]::IsNullOrWhiteSpace([string]$firstAssignment.RoleTier)) { 'Uncategorized' } else { [string]$firstAssignment.RoleTier }
+    $baseImpact = Get-AzureRoleBaseImpact -RoleTier $tierLabel -RoleDefinitionId $RoleDefinitionId
+
+    $classification = [ordered]@{
+        'Tier'   = $tierLabel
+        'Source' = $sourceLabel
+        'Rule'   = $reasonDescription.Rule
+    }
+    # The cached classification exists for derived roles; curated roles are analysed here for display only and never cached.
+    $permissionAnalysis = $null
+    if ($GLOBALAzureRoleClassifications -and $GLOBALAzureRoleClassifications.ContainsKey($RoleDefinitionId)) {
+        $permissionAnalysis = $GLOBALAzureRoleClassifications[$RoleDefinitionId]
+    } elseif ($null -ne $Definition) {
+        $permissionAnalysis = Get-AzureRoleTierFromPermissions -Permissions @($Definition.Permissions)
+    }
+
+    $writeResourceTypes = @()
+    if ($null -ne $permissionAnalysis) {
+        $writeResourceTypes = @(@($permissionAnalysis.WriteResourceTypes) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    }
+    $definitionBlockCount = 0
+    if ($null -ne $Definition) {
+        $definitionBlockCount = @(@($Definition.Permissions) | Where-Object { $null -ne $_ }).Count
+    }
+    $operationLabels = Get-AzureRoleOperationLabels
+    $operationCaveats = Get-AzureRoleOperationCaveats
+    $operationDescriptions = Get-AzureRoleOperationDisplayDescriptions
+    $ruleMatches = [System.Collections.Generic.List[object]]::new()
+    $matchedRules = [System.Collections.Generic.List[object]]::new()
+    $riskItems = [System.Collections.Generic.List[object]]::new()
+    if ($null -ne $permissionAnalysis) {
+        foreach ($ruleMatch in @($permissionAnalysis.Matches)) {
+            if ($null -eq $ruleMatch) { continue }
+            $ruleMatches.Add($ruleMatch)
+            $ruleId = [string]$ruleMatch.Rule
+            $permission = [string]$ruleMatch.Permission
+            $grantedBy = [string]$ruleMatch.GrantedBy
+            $blockSuffix = if ($definitionBlockCount -gt 1) { " (block $($ruleMatch.Block))" } else { '' }
+            $ruleDescription = (Get-AzureRoleTierReasonDescription -Reason ([string]$ruleMatch.Reason)).Rule
+            if ($ruleId -eq 'B1' -and $operationLabels.Contains($permission)) {
+                $ruleDescription = [string]$operationLabels[$permission]
+                if ($operationCaveats.Contains($permission)) {
+                    $ruleDescription += ". $($operationCaveats[$permission])"
+                }
+            }
+            $matchedRules.Add([pscustomobject]@{
+                Rule         = $ruleDescription
+                Permission   = $permission
+                'Granted By' = "$grantedBy$blockSuffix"
+            })
+        }
+        foreach ($ruleMatch in @(Select-AzureRoleDisplayRuleMatches -RuleMatches $ruleMatches.ToArray())) {
+            $ruleId = [string]$ruleMatch.Rule
+            $permission = [string]$ruleMatch.Permission
+            $grantedBy = [string]$ruleMatch.GrantedBy
+            $blockSuffix = if ($definitionBlockCount -gt 1) { " (block $($ruleMatch.Block))" } else { '' }
+            $viaSuffix = if (-not [string]::IsNullOrWhiteSpace($grantedBy) -and $grantedBy -ne $permission) { " (via $grantedBy)" } else { '' }
+            $noteSuffix = ''
+            if ($ruleId -eq 'A3') {
+                $noteSuffix = ' - only effective at root scope'
+            } elseif ($ruleId -eq 'B1' -and $operationDescriptions.Contains($permission)) {
+                $noteSuffix = " - $($operationDescriptions[$permission])"
+            } elseif ($ruleId -eq 'B1' -and $operationLabels.Contains($permission)) {
+                $noteSuffix = " - $($operationLabels[$permission])"
+                if ($operationCaveats.Contains($permission)) {
+                    $noteSuffix += ". $($operationCaveats[$permission])"
+                }
+            }
+            $itemGroup = switch -Wildcard ($ruleId) {
+                'A*' { 'Access control' }
+                'B1' { 'Potentially high-impact operations' }
+                'B2' { 'Debug snapshots' }
+                'B3' { 'Data plane' }
+                default { 'Writes and actions' }
+            }
+            $riskItems.Add([pscustomobject]@{ Group = $itemGroup; Text = "$permission$viaSuffix$blockSuffix$noteSuffix" })
+        }
+    }
+
+    # Keep supporting detail in the rule only when the matched permissions do not already cover it.
+    $summaryCoversReason = ($ruleMatches.Count -gt 0 -and [string]$ruleMatches[0].Reason -eq $tierReason)
+    if (-not [string]::IsNullOrWhiteSpace([string]$reasonDescription.Evidence) -and -not $summaryCoversReason) {
+        $classification['Rule'] = "$($reasonDescription.Rule): $($reasonDescription.Evidence)"
+    } elseif ($tierReason -in @('bounded resource write or delete', 'cross-family resource control') -and $writeResourceTypes.Count -gt 0) {
+        $classification['Rule'] = "$($reasonDescription.Rule): $($writeResourceTypes -join ', ')"
+    }
+
+    $assignableRoles = [System.Collections.Generic.List[object]]::new()
+    $cachedClassification = $null
+    if ($tierSource -eq 'Derived' -and $GLOBALAzureRoleClassifications -and $GLOBALAzureRoleClassifications.ContainsKey($RoleDefinitionId)) {
+        $cachedClassification = $GLOBALAzureRoleClassifications[$RoleDefinitionId]
+    }
+    if ($null -ne $cachedClassification -and $cachedClassification.ConstrainedAssignment) {
+        # When an assignable role raised the tier, the displayed reason names that role; the permission rule is the role's own result.
+        $permissionReason = [string]$cachedClassification.Reason
+        if (-not [string]::IsNullOrWhiteSpace($permissionReason) -and $permissionReason -ne $tierReason) {
+            $permissionDescription = Get-AzureRoleTierReasonDescription -Reason $permissionReason
+            $classification['Permission Rule'] = if ([string]::IsNullOrWhiteSpace([string]$permissionDescription.Evidence)) {
+                $permissionDescription.Rule
+            } else {
+                "$($permissionDescription.Rule): $($permissionDescription.Evidence)"
+            }
+        }
+
+        foreach ($assignableRoleId in @($cachedClassification.AssignableRoleIds)) {
+            $assignableRoleKey = [string]$assignableRoleId
+            if ([string]::IsNullOrWhiteSpace($assignableRoleKey)) { continue }
+            $assignableRoleName = $assignableRoleKey
+            if ($GLOBALAzureRoleDefinitions -and $GLOBALAzureRoleDefinitions.ContainsKey($assignableRoleKey)) {
+                $assignableRoleName = [string]$GLOBALAzureRoleDefinitions[$assignableRoleKey].RoleName
+            }
+            $assignableTier = Resolve-AzureRoleTier -RoleDefinitionId $assignableRoleKey
+            $assignableSource = switch ([string]$assignableTier.Source) {
+                'Rated' { 'Curated rating' }
+                'Derived' { 'Derived from permissions' }
+                default { 'Unknown' }
+            }
+            $assignableRoles.Add([pscustomobject]@{
+                RoleDefinitionId = $assignableRoleKey
+                Role             = $assignableRoleName
+                Tier             = if ([string]$assignableTier.Tier -eq '?') { 'Uncategorized' } else { "Tier-$($assignableTier.Tier)" }
+                Source           = $assignableSource
+            })
+        }
+    }
+
+    $permissionSections = [ordered]@{}
+    if ($null -ne $Definition) {
+        $permissionBlocks = @(@($Definition.Permissions) | Where-Object { $null -ne $_ })
+        $blockIndex = 0
+        foreach ($permissionBlock in $permissionBlocks) {
+            $blockIndex++
+            $sectionSuffix = if ($permissionBlocks.Count -gt 1) { " (block $blockIndex)" } else { '' }
+            foreach ($sectionName in @('Actions', 'NotActions', 'DataActions', 'NotDataActions')) {
+                $sectionValues = @(@($permissionBlock.$sectionName) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
+                if ($sectionValues.Count -gt 0) {
+                    $permissionSections["$sectionName$sectionSuffix"] = $sectionValues
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$permissionBlock.condition)) {
+                $permissionSections["Condition$sectionSuffix"] = @([string]$permissionBlock.condition)
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        RoleDefinitionId    = $RoleDefinitionId
+        RoleName            = $roleName
+        DefinitionAvailable = ($null -ne $Definition)
+        BaseImpact          = $baseImpact
+        GeneralInformation  = $generalInformation
+        Classification      = $classification
+        TierLabel           = $tierLabel
+        TierSource          = $tierSource
+        HasRootAssignment   = $scopeTypeCounts.ContainsKey('Root')
+        RuleMatches         = $ruleMatches.ToArray()
+        MatchedRules        = $matchedRules.ToArray()
+        RiskItems           = $riskItems.ToArray()
+        AssignableRoles     = $assignableRoles.ToArray()
+        PermissionSections  = $permissionSections
+    }
+}
+
+# Plain-language labels for explicit potentially high-impact operations; the order decides which examples a summary names first.
+function Get-AzureRoleOperationLabels {
+    return [ordered]@{
+        'Microsoft.Compute/virtualMachines/runCommand/action'                                  = 'executing commands inside VMs, potentially affecting workloads'
+        'Microsoft.Storage/storageAccounts/listKeys/action'                                    = 'retrieving storage keys that may enable data access'
+        'Microsoft.KeyVault/vaults/accessPolicies/write'                                       = 'changing Key Vault policies that may grant data access'
+        'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/write' = 'adding federated credentials that may enable managed-identity impersonation'
+        'Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action'         = 'retrieving AKS admin credentials for potential cluster control'
+        'Microsoft.Compute/virtualMachines/extensions/write'                                   = 'installing VM extensions that may execute code'
+        'Microsoft.ManagedIdentity/userAssignedIdentities/assign/action'                       = 'attaching managed identities'
+        'Microsoft.Web/sites/config/list/action'                                               = 'reading web app settings that may contain credentials'
+        'Microsoft.Web/sites/host/listkeys/action'                                             = 'retrieving Function App keys that may enable invocation'
+        'Microsoft.Web/sites/publishxml/action'                                                = 'retrieving publish credentials that may enable application deployment'
+        'Microsoft.Sql/servers/administrators/write'                                           = 'setting SQL server administrators'
+        'Microsoft.Automation/automationAccounts/runbooks/write'                               = 'changing automation runbooks'
+        'Microsoft.Logic/workflows/write'                                                      = 'changing Logic Apps'
+        'Microsoft.ContainerRegistry/registries/push/write'                                    = 'pushing container images'
+        'Microsoft.Network/networkSecurityGroups/write'                                        = 'changing network security groups'
+        'Microsoft.Security/policies/write'                                                    = 'changing security policies'
+        'Microsoft.HybridCompute/machines/extensions/write'                                    = 'installing extensions on Arc servers'
+        'Microsoft.Compute/virtualMachines/write'                                              = 'changing VMs'
+        'Microsoft.KeyVault/vaults/write'                                                      = 'changing Key Vaults'
+        'Microsoft.Storage/storageAccounts/write'                                              = 'changing storage accounts'
+        'Microsoft.Web/sites/write'                                                            = 'changing web apps'
+        'Microsoft.ContainerService/managedClusters/listClusterUserCredential/action'          = 'retrieving AKS user credentials for potential Kubernetes access'
+        'Microsoft.RecoveryServices/vaults/write'                                              = 'changing backup vaults'
+        'Microsoft.Compute/virtualMachines/runCommands/write' = 'executing managed VM commands, potentially affecting workloads'
+        'Microsoft.ContainerService/managedClusters/runcommand/action' = 'executing AKS commands, potentially affecting cluster workloads'
+        'Microsoft.Storage/storageAccounts/listAccountSas/action' = 'generating account SAS credentials for potential storage data access'
+        'Microsoft.Storage/storageAccounts/listServiceSas/action' = 'generating service SAS credentials for potential storage data access'
+        'Microsoft.ContainerService/managedClusters/accessProfiles/listCredential/action' = 'retrieving AKS access-profile credentials for potential Kubernetes access'
+        'Microsoft.ContainerService/managedClusters/listClusterMonitoringUserCredential/action' = 'retrieving AKS monitoring credentials for potential Kubernetes access'
+        'Microsoft.Web/sites/functions/listkeys/action' = 'retrieving individual Function keys that may enable invocation'
+        'Microsoft.Logic/workflows/triggers/listCallbackUrl/action' = 'retrieving signed trigger URLs that may enable workflow invocation'
+        'Microsoft.Compute/disks/beginGetAccess/action' = 'generating disk export credentials that may expose disk contents'
+        'Microsoft.Compute/snapshots/beginGetAccess/action' = 'generating snapshot export credentials that may expose snapshot contents'
+        'Microsoft.KeyVault/vaults/deploy/action' = 'resolving Key Vault secret references with potential secret exposure'
+    }
+}
+
+# Compact HTML notes; summaries and TXT audit descriptions retain the fuller labels and caveats.
+function Get-AzureRoleOperationDisplayDescriptions {
+    return [ordered]@{
+        'Microsoft.Compute/virtualMachines/runCommands/write' = 'Executes VM commands; requires a working guest agent.'
+        'Microsoft.ContainerService/managedClusters/runcommand/action' = 'Executes cluster commands; availability depends on configuration.'
+        'Microsoft.Storage/storageAccounts/listAccountSas/action' = 'Issues storage access credentials; access depends on SAS scope and configuration.'
+        'Microsoft.Storage/storageAccounts/listServiceSas/action' = 'Issues resource-specific storage credentials; access depends on SAS scope and configuration.'
+        'Microsoft.ContainerService/managedClusters/accessProfiles/listCredential/action' = 'Returns cluster credentials; deprecated endpoint, configuration-dependent access.'
+        'Microsoft.ContainerService/managedClusters/listClusterMonitoringUserCredential/action' = 'Returns monitoring credentials; Kubernetes permissions vary.'
+        'Microsoft.Web/sites/functions/listkeys/action' = 'Returns invocation keys; endpoint and authentication restrictions apply.'
+        'Microsoft.Logic/workflows/triggers/listCallbackUrl/action' = 'Returns a signed invocation URL; trigger and network restrictions apply.'
+        'Microsoft.Compute/disks/beginGetAccess/action' = 'Issues disk export credentials; configuration and network restrictions apply.'
+        'Microsoft.Compute/snapshots/beginGetAccess/action' = 'Issues snapshot export credentials; configuration and network restrictions apply.'
+        'Microsoft.KeyVault/vaults/deploy/action' = 'Resolves deployment secret references; requires deployment access and vault enablement.'
+    }
+}
+
+function Get-AzureRoleOperationCaveats {
+    return [ordered]@{
+        'Microsoft.Compute/virtualMachines/runCommands/write' = 'Requires a compatible VM and working guest agent.'
+        'Microsoft.ContainerService/managedClusters/runcommand/action' = 'Effective behavior depends on cluster configuration and Run Command availability.'
+        'Microsoft.Storage/storageAccounts/listAccountSas/action' = 'Access depends on the requested services, permissions, expiry, and storage configuration.'
+        'Microsoft.Storage/storageAccounts/listServiceSas/action' = 'Access depends on the requested resource, permissions, expiry, and storage configuration.'
+        'Microsoft.ContainerService/managedClusters/accessProfiles/listCredential/action' = 'Uses a deprecated endpoint; effective cluster access depends on the returned credentials and cluster configuration.'
+        'Microsoft.ContainerService/managedClusters/listClusterMonitoringUserCredential/action' = 'Effective Kubernetes permissions depend on cluster configuration.'
+        'Microsoft.Web/sites/functions/listkeys/action' = 'Invocation requires an applicable key and reachable endpoint; additional authentication controls may apply.'
+        'Microsoft.Logic/workflows/triggers/listCallbackUrl/action' = 'Invocation depends on trigger configuration and network restrictions.'
+        'Microsoft.Compute/disks/beginGetAccess/action' = 'Data access depends on disk configuration and network restrictions; export access can be revoked with endGetAccess.'
+        'Microsoft.Compute/snapshots/beginGetAccess/action' = 'Data access depends on snapshot configuration and network restrictions; export access can be revoked with endGetAccess.'
+        'Microsoft.KeyVault/vaults/deploy/action' = 'Requires template deployment to be enabled on the vault and permission to perform the deployment; the lab demonstrated reference resolution rather than extraction of the secret value.'
+    }
+}
+
+# Prefer specific evidence and retain distinct blocks, granting patterns, and permission layers.
+function Select-AzureRoleDisplayRuleMatches {
+    param([object[]]$RuleMatches = @())
+
+    function Get-DisplayMatchKey {
+        param([object[]]$Values)
+        # Length prefixes keep arbitrary reason text from colliding with another tuple.
+        return (@($Values | ForEach-Object { $valueText = [string]$_; "$($valueText.Length):$valueText" }) -join '')
+    }
+
+    $matchesToDisplay = @($RuleMatches | Where-Object { $null -ne $_ })
+    $explicitKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $broadControlKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $seenMatches = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($match in $matchesToDisplay) {
+        $tupleKey = Get-DisplayMatchKey -Values @($match.Permission, $match.Block, $match.GrantedBy)
+        if ($match.Rule -in @('A1', 'A2', 'A3', 'B1')) {
+            [void]$explicitKeys.Add($tupleKey)
+        } elseif ($match.Rule -eq 'A4' -and $match.Permission -eq '*') {
+            [void]$broadControlKeys.Add($tupleKey)
+        }
+    }
+    foreach ($match in $matchesToDisplay) {
+        if ($match.Rule -eq 'B4') {
+            $tupleKey = Get-DisplayMatchKey -Values @($match.Permission, $match.Block, $match.GrantedBy)
+            if ([string]$match.Permission -notmatch '[*?]' -and $explicitKeys.Contains($tupleKey)) { continue }
+            if ($match.Permission -eq '*' -and $broadControlKeys.Contains($tupleKey)) { continue }
+        }
+        $matchKey = Get-DisplayMatchKey -Values @($match.Rule, $match.Tier, $match.Reason, $match.Permission, $match.Block, $match.GrantedBy)
+        if (-not $seenMatches.Add($matchKey)) { continue }
+        $match
+    }
+}
+
+# Keeps summaries in plain language; technical permissions and granting patterns stay in the evidence list.
+function Format-AzureRoleRiskSummary {
+    param (
+        [Parameter(Mandatory = $false)]
+        [object[]]$RuleMatches = @(),
+
+        [Parameter(Mandatory = $false)]
+        [string]$TierSource,
+
+        [Parameter(Mandatory = $false)]
+        [string]$TierLabel,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$HasRootAssignment,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Html
+    )
+
+    $ruleMatchList = @(Select-AzureRoleDisplayRuleMatches -RuleMatches $RuleMatches)
+    if ($ruleMatchList.Count -eq 0) { return $null }
+
+    $atRootScope = $HasRootAssignment.IsPresent
+    $joinPhrases = {
+        param([string[]]$Phrases)
+        if ($Phrases.Count -le 1) { return ($Phrases -join '') }
+        return (($Phrases[0..($Phrases.Count - 2)] -join ', ') + ' and ' + $Phrases[-1])
+    }
+    $countPhrase = {
+        param([int]$Count, [string]$Singular, [string]$Plural)
+        if ($Count -eq 1) { return "1 $Singular" }
+        return "$Count $Plural"
+    }
+    # Names the resource providers of several matches, e.g. "across Compute, Network and Storage".
+    $providerPhrase = {
+        param([object[]]$ProviderMatches)
+        if (@($ProviderMatches).Count -le 1) { return '' }
+        $providers = [System.Collections.Generic.List[string]]::new()
+        foreach ($providerMatch in @($ProviderMatches)) {
+            if ([string]$providerMatch.Permission -match '^([^/*]+)/') {
+                $provider = $Matches[1] -replace '^Microsoft\.', ''
+                if (-not $providers.Contains($provider)) { $providers.Add($provider) }
+            }
+        }
+        if ($providers.Count -eq 0) { return '' }
+        if ($providers.Count -gt 3) {
+            return " across $(($providers.GetRange(0, 3)) -join ', ') and $($providers.Count - 3) more"
+        }
+        return ' across ' + (& $joinPhrases $providers.ToArray())
+    }
+
+    $rules = @($ruleMatchList | ForEach-Object { [string]$_.Rule })
+    $verbs = [System.Collections.Generic.List[string]]::new()
+    if ($rules -contains 'A1') { $verbs.Add('assign roles') }
+    if ($rules -contains 'A2') { $verbs.Add('change role definitions') }
+    # Elevating access only works at the tenant root, so it is mentioned only for roles assigned there.
+    if ($rules -contains 'A3' -and $atRootScope) { $verbs.Add('elevate access at root scope') }
+
+    # Broad control covers the wildcard write and explicit-operation examples; keep their evidence in the list.
+    $grantsBroadControl = $rules -contains 'A4'
+    $writeMatches = @($ruleMatchList | Where-Object { [string]$_.Rule -eq 'B4' })
+    $highRiskWrites = @($writeMatches | Where-Object { ([string]$_.Reason).StartsWith('high-risk write or action:') })
+    $unrecognizedWrites = @($writeMatches | Where-Object { -not ([string]$_.Reason).StartsWith('high-risk write or action:') })
+    $knownOperations = @($ruleMatchList | Where-Object { [string]$_.Rule -eq 'B1' })
+    $dataPermissions = @($ruleMatchList | Where-Object { [string]$_.Rule -eq 'B3' })
+
+    $nouns = [System.Collections.Generic.List[string]]::new()
+    if ($grantsBroadControl) { $nouns.Add('broad resource-management permissions') }
+    if ($knownOperations.Count -gt 0 -and -not $grantsBroadControl) {
+        $operationLabels = Get-AzureRoleOperationLabels
+        $knownPermissions = @($knownOperations | ForEach-Object { [string]$_.Permission })
+        $matchedLabels = @(@($operationLabels.Keys) | Where-Object { $knownPermissions -contains $_ } | ForEach-Object { $operationLabels[$_] })
+        $knownPhrase = & $countPhrase $knownOperations.Count 'potentially high-impact operation' 'potentially high-impact operations'
+        if ($matchedLabels.Count -gt 0) {
+            if ($ruleMatchList.Count -eq 1 -and $matchedLabels.Count -eq 1) {
+                $knownPhrase += ': ' + $matchedLabels[0]
+            } elseif ($matchedLabels.Count -gt 3) {
+                $knownPhrase += ' (such as ' + (& $joinPhrases @($matchedLabels | Select-Object -First 3)) + ')'
+            } else {
+                $knownPhrase += ' (' + (& $joinPhrases $matchedLabels) + ')'
+            }
+        }
+        $nouns.Add($knownPhrase)
+    }
+    if ($rules -contains 'B2') { $nouns.Add('debug snapshot read access') }
+    foreach ($phraseGroup in @(
+        @{ Matches = $dataPermissions; Singular = 'data-plane permission'; Plural = 'data-plane permissions' },
+        @{ Matches = $highRiskWrites; Singular = 'potentially sensitive write or action'; Plural = 'potentially sensitive writes or actions' },
+        @{ Matches = $unrecognizedWrites; Singular = 'write or action outside the reviewed low-risk set'; Plural = 'writes or actions outside the reviewed low-risk set' }
+    )) {
+        $groupMatches = @($phraseGroup.Matches)
+        if ($groupMatches.Count -eq 0) { continue }
+        $acrossProviders = & $providerPhrase $groupMatches
+        $nouns.Add((& $countPhrase $groupMatches.Count $phraseGroup.Singular $phraseGroup.Plural) + $acrossProviders)
+    }
+
+    if ($verbs.Count -eq 0 -and $nouns.Count -eq 0) {
+        # Only the elevate-access permission matched, and the role is not assigned at the root.
+        $nouns.Add('the elevate access permission, which only takes effect at root scope')
+    }
+
+    if ($verbs.Count -gt 0) {
+        $sentence = 'Can ' + (& $joinPhrases $verbs.ToArray())
+        if ($nouns.Count -gt 0) {
+            $separator = if ($verbs.Count -gt 1) { ', and grants ' } else { ' and grants ' }
+            $sentence += $separator + (& $joinPhrases $nouns.ToArray())
+        }
+    } else {
+        $sentence = 'Grants ' + (& $joinPhrases $nouns.ToArray())
+    }
+
+    $sentence += '.'
+
+    # A curated rating stays authoritative even when the permission check would rate the role higher.
+    if ($TierSource -eq 'Rated' -and $TierLabel -match '^Tier-(\d)$') {
+        $curatedTier = [int]$Matches[1]
+        $strongestMatchTier = [int](($ruleMatchList | ForEach-Object { [int]$_.Tier } | Measure-Object -Minimum).Minimum)
+        if ($strongestMatchTier -lt $curatedTier) {
+            $sentence += " The curated $TierLabel rating takes precedence over these matches."
+        }
+    }
+
+    if ($Html.IsPresent) { return (ConvertTo-EntraFalconHtmlText -Value $sentence) }
+    return $sentence
+}
+
+# Converts a role detail model into a report details object. Tenant-controlled values are HTML-encoded because the details renderer writes with innerHTML.
+function ConvertTo-AzureRoleDefinitionDetailObject {
+    param (
+        [Parameter(Mandatory = $true)]
+        [object]$Model,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$LinkableRoleIds = @(),
+
+        [Parameter(Mandatory = $false)]
+        [int]$RiskItemLimit = 50
+    )
+
+    $detail = [ordered]@{
+        # The details summary is set with textContent, so the name stays unencoded.
+        'Object Name' = $Model.RoleName
+        'Object ID'   = $Model.RoleDefinitionId
+    }
+
+    foreach ($sectionName in @('General Information', 'Classification')) {
+        $sourceSection = if ($sectionName -eq 'General Information') { $Model.GeneralInformation } else { $Model.Classification }
+        $encodedSection = [ordered]@{}
+        foreach ($entryName in @($sourceSection.Keys)) {
+            $entryValue = $sourceSection[$entryName]
+            $encodedSection[$entryName] = if ($entryValue -is [int]) { $entryValue } else { ConvertTo-EntraFalconHtmlText -Value $entryValue -DefaultValue '-' }
+        }
+        $detail[$sectionName] = [pscustomobject]$encodedSection
+    }
+
+    # The renderer shows Summary as a sentence and keeps Items behind a toggle; the TXT report keeps every row.
+    $riskItems = @($Model.RiskItems | Where-Object { $null -ne $_ })
+    if ($riskItems.Count -gt 0) {
+        # Items are grouped by rule family; headings are only worth showing when there is more than one group.
+        $groupOrder = @('Access control', 'Potentially high-impact operations', 'Debug snapshots', 'Data plane', 'Writes and actions')
+        $presentGroups = @($groupOrder | Where-Object { $groupName = $_; @($riskItems | Where-Object { $_.Group -eq $groupName }).Count -gt 0 })
+        $showHeadings = $presentGroups.Count -gt 1
+        $itemIndent = if ($showHeadings) { '  ' } else { '' }
+        $shownLines = [System.Collections.Generic.List[string]]::new()
+        $shownItemCount = 0
+        foreach ($groupName in $presentGroups) {
+            if ($shownItemCount -ge $RiskItemLimit) { break }
+            if ($showHeadings) { $shownLines.Add("<strong>$groupName</strong>") }
+            foreach ($riskItem in @($riskItems | Where-Object { $_.Group -eq $groupName })) {
+                if ($shownItemCount -ge $RiskItemLimit) { break }
+                $shownLines.Add($itemIndent + (ConvertTo-EntraFalconHtmlText -Value $riskItem.Text -DefaultValue '-'))
+                $shownItemCount++
+            }
+        }
+        if ($riskItems.Count -gt $shownItemCount) {
+            $shownLines.Add("... and $($riskItems.Count - $shownItemCount) more (full list in the TXT report)")
+        }
+        $detail['Potential impact'] = [pscustomobject]@{
+            Summary    = Format-AzureRoleRiskSummary -RuleMatches @($Model.RuleMatches) -TierSource $Model.TierSource -TierLabel $Model.TierLabel -HasRootAssignment:([bool]$Model.HasRootAssignment) -Html
+            Toggle     = "Show matched permissions ($($riskItems.Count))"
+            ToggleHide = 'Hide matched permissions'
+            Items      = $shownLines.ToArray()
+        }
+    }
+
+    $assignableRoles = @($Model.AssignableRoles)
+    if ($assignableRoles.Count -gt 0) {
+        $detail['Assignable Roles'] = @(foreach ($assignableRole in $assignableRoles) {
+            $roleText = ConvertTo-EntraFalconHtmlText -Value $assignableRole.Role -DefaultValue '-'
+            [pscustomobject]@{
+                Role   = if ($LinkableRoleIds -contains [string]$assignableRole.RoleDefinitionId) { "<a href=#$($assignableRole.RoleDefinitionId)>$roleText</a>" } else { $roleText }
+                Tier   = ConvertTo-EntraFalconHtmlText -Value $assignableRole.Tier -DefaultValue '-'
+                Source = ConvertTo-EntraFalconHtmlText -Value $assignableRole.Source -DefaultValue '-'
+            }
+        })
+    }
+
+    foreach ($permissionSectionName in @($Model.PermissionSections.Keys)) {
+        $detail[$permissionSectionName] = @(@($Model.PermissionSections[$permissionSectionName]) | ForEach-Object { ConvertTo-EntraFalconHtmlText -Value $_ })
+    }
+
+    return [pscustomobject]$detail
+}
+
+# Serializes role details for the object-data script block. PowerShell 7 does not escape "<", so "</" is escaped to keep a role name from closing the script element.
+function ConvertTo-AzureRoleDefinitionDetailsJson {
+    param (
+        [Parameter(Mandatory = $false)]
+        [object[]]$DetailObjects = @()
+    )
+
+    if (@($DetailObjects).Count -eq 0) { return '[]' }
+    $detailsJson = ConvertTo-Json -InputObject @($DetailObjects) -Depth 6 -Compress
+    return ($detailsJson -replace '</', '<\/')
+}
+
+# Formats a role detail model for the TXT report.
+function Format-AzureRoleDefinitionDetailText {
+    param (
+        [Parameter(Mandatory = $true)]
+        [object]$Model
+    )
+
+    $builder = [System.Text.StringBuilder]::new()
+    [void]$builder.AppendLine("############################################################################################################################################")
+    [void]$builder.AppendLine(([pscustomobject]$Model.GeneralInformation | Format-List | Out-String -Width 512))
+
+    [void]$builder.AppendLine("================================================================================================")
+    [void]$builder.AppendLine("Classification")
+    [void]$builder.AppendLine("================================================================================================")
+    [void]$builder.AppendLine(([pscustomobject]$Model.Classification | Format-List | Out-String -Width 512))
+
+    if (@($Model.MatchedRules).Count -gt 0) {
+        [void]$builder.AppendLine("Potential impact")
+        [void]$builder.AppendLine("----------------")
+        [void]$builder.AppendLine((Format-AzureRoleRiskSummary -RuleMatches @($Model.RuleMatches) -TierSource $Model.TierSource -TierLabel $Model.TierLabel -HasRootAssignment:([bool]$Model.HasRootAssignment)))
+        [void]$builder.AppendLine((@($Model.MatchedRules) | Format-Table -Property Rule, Permission, 'Granted By' | Out-String -Width 512))
+    }
+
+    if (@($Model.AssignableRoles).Count -gt 0) {
+        [void]$builder.AppendLine("Assignable Roles")
+        [void]$builder.AppendLine("----------------")
+        [void]$builder.AppendLine((@($Model.AssignableRoles) | Format-Table -Property Role, Tier, Source | Out-String -Width 512))
+    }
+
+    if (@($Model.PermissionSections.Keys).Count -gt 0) {
+        [void]$builder.AppendLine("================================================================================================")
+        [void]$builder.AppendLine("Permissions")
+        [void]$builder.AppendLine("================================================================================================")
+        foreach ($permissionSectionName in @($Model.PermissionSections.Keys)) {
+            [void]$builder.AppendLine($permissionSectionName)
+            [void]$builder.AppendLine(('-' * $permissionSectionName.Length))
+            foreach ($permissionLine in @($Model.PermissionSections[$permissionSectionName])) {
+                [void]$builder.AppendLine($permissionLine)
+            }
+            [void]$builder.AppendLine()
+        }
+    }
+
+    return $builder.ToString()
+}
+
 function Invoke-CheckRoles {
 
     ############################## Parameter section ########################
@@ -15,6 +659,7 @@ function Invoke-CheckRoles {
         [Parameter(Mandatory=$true)][hashtable]$TenantRoleAssignments,
         [Parameter(Mandatory=$true)][String[]]$StartTimestamp,
         [Parameter(Mandatory=$true)][hashtable]$AllGroupsDetails,
+        [Parameter(Mandatory=$false)][hashtable]$RoleGroupIdentityCountIndex = @{},
         [Parameter(Mandatory=$true)][hashtable]$EnterpriseApps,
         [Parameter(Mandatory=$true)][hashtable]$ManagedIdentities,
         [Parameter(Mandatory=$true)][hashtable]$AppRegistrations,
@@ -584,6 +1229,27 @@ function Invoke-CheckRoles {
     }
 
     $SortedAzureRoles = $SortedAzureRolesList
+    $identityCountsByPrincipal = @{}
+    $identityWarningsByReport = @{}
+    foreach ($reportKey in @('Entra', 'Azure')) {
+        $assignmentRows = if ($reportKey -eq 'Entra') { $SortedEntraRoles } else { $SortedAzureRoles }
+        $incompleteIdentityAssignments = 0
+        foreach ($row in $assignmentRows) {
+            $identityKey = "$($row.PrincipalType)|$($row.PrincipalId)"
+            if (-not $identityCountsByPrincipal.ContainsKey($identityKey)) {
+                $identityCountsByPrincipal[$identityKey] = Get-RoleAssignmentIdentityCount -PrincipalId $row.PrincipalId -PrincipalType $row.PrincipalType -RoleGroupIdentityCountIndex $RoleGroupIdentityCountIndex
+            }
+            $identityCount = $identityCountsByPrincipal[$identityKey]
+            $row | Add-Member -NotePropertyName Identities -NotePropertyValue ([int]$identityCount.Count)
+            if (-not $identityCount.Complete) { $incompleteIdentityAssignments++ }
+        }
+        $identityWarningsByReport[$reportKey] = @()
+        if ($incompleteIdentityAssignments -gt 0) {
+            $identityWarningsByReport[$reportKey] = @("Coverage gap: identity counts for $incompleteIdentityAssignments assignment(s) may be understated because membership, eligibility, or principal information was incomplete.")
+        }
+    }
+    $entraIdentityWarnings = @($identityWarningsByReport['Entra'])
+    $azureIdentityWarnings = @($identityWarningsByReport['Azure'])
 
 
     # Highest contextual impact first; scope hierarchy and role priority break ties
@@ -621,24 +1287,94 @@ function Invoke-CheckRoles {
         Expression = {$_.Role}
     }
 
+    # One details block per assigned role definition, ordered by the highest-impact assignment of each role
+    $azureRoleAssignmentsById = [ordered]@{}
+    foreach ($azureRoleAssignment in @($SortedAzureRoles)) {
+        $roleDefinitionId = [string]$azureRoleAssignment.RoleDefinitionId
+        if ([string]::IsNullOrWhiteSpace($roleDefinitionId)) { continue }
+        if (-not $azureRoleAssignmentsById.Contains($roleDefinitionId)) {
+            $azureRoleAssignmentsById[$roleDefinitionId] = [System.Collections.Generic.List[object]]::new()
+        }
+        $azureRoleAssignmentsById[$roleDefinitionId].Add($azureRoleAssignment)
+    }
 
+    $linkableAzureRoleIds = @($azureRoleAssignmentsById.Keys | ForEach-Object { [string]$_ })
+    $azureRoleDetailObjects = [System.Collections.Generic.List[object]]::new()
+    $azureRoleDetailTxtBuilder = [System.Text.StringBuilder]::new()
+    foreach ($roleDefinitionId in $linkableAzureRoleIds) {
+        $roleDefinition = $null
+        if ($GLOBALAzureRoleDefinitions -and $GLOBALAzureRoleDefinitions.ContainsKey($roleDefinitionId)) {
+            $roleDefinition = $GLOBALAzureRoleDefinitions[$roleDefinitionId]
+        }
+        $roleDetailModel = Get-AzureRoleDefinitionDetailModel -RoleDefinitionId $roleDefinitionId -Assignments $azureRoleAssignmentsById[$roleDefinitionId].ToArray() -Definition $roleDefinition
+        $azureRoleDetailObjects.Add((ConvertTo-AzureRoleDefinitionDetailObject -Model $roleDetailModel -LinkableRoleIds $linkableAzureRoleIds))
+        [void]$azureRoleDetailTxtBuilder.Append((Format-AzureRoleDefinitionDetailText -Model $roleDetailModel))
+    }
+
+    # The HTML table links each role to its details block; the details renderer takes the anchor from the first column.
+    $azureRoleLinkColumn = @{
+        Name       = "Role"
+        Expression = {
+            $roleText = ConvertTo-EntraFalconHtmlText -Value $_.Role
+            $rowRoleDefinitionId = [string]$_.RoleDefinitionId
+            if (-not [string]::IsNullOrWhiteSpace($rowRoleDefinitionId) -and $linkableAzureRoleIds -contains $rowRoleDefinitionId) {
+                "<a href=#$rowRoleDefinitionId>$roleText</a>"
+            } else {
+                $roleText
+            }
+        }
+    }
 
     write-host "[*] Writing report files..."
 
-    $mainEntraTable = $SortedEntraRoles | select-object -Property Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType,ActivatedViaPIM,Start,Expires,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},PrincipalType,@{Name = "Scope"; Expression = { $_.ScopeResolvedLink}}
+    $mainEntraTable = $SortedEntraRoles | select-object -Property Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType,ActivatedViaPIM,Start,Expires,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},PrincipalType,@{Name = "Scope"; Expression = { $_.ScopeResolvedLink}},Identities
     $mainEntraTableJson  = $mainEntraTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainEntraTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainEntraTableJson + "`n" + '</script>'
 
 
     if ($DebugObjectDump) {
-        $mainAzureTable = $SortedAzureRoles | Select-Object -Property Scope,Role,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},ImpactExplanation,RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}}
+        $mainAzureTable = $SortedAzureRoles | Select-Object -Property $azureRoleLinkColumn,Scope,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},ImpactExplanation,RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},Identities
     } else {
-        $mainAzureTable = $SortedAzureRoles | Select-Object -Property Scope,Role,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}}
+        $mainAzureTable = $SortedAzureRoles | Select-Object -Property $azureRoleLinkColumn,Scope,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalType,@{Name = "Principal"; Expression = { $_.PrincipalDisplayNameLink}},Identities
     }
     $mainAzureTableJson  = $mainAzureTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainAzureTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainAzureTableJson + "`n" + '</script>'
+
+    $azureRoleDetailsHEAD = @'
+    <h2>Azure Role Details</h2>
+    <div class="details-toolbar">
+        <button id="toggle-expand">Expand All</button>
+        <div class="details-search-wrapper">
+            <div class="details-search-box">
+                <input type="text" id="details-search" placeholder="Search details..." />
+                <button class="details-search-help-btn" type="button" title="Search help">?</button>
+                <div class="details-search-help-popover hidden">
+                    <div class="search-help-title">Search guide</div>
+                    <ul class="search-help-list">
+                        <li><code>term</code> &mdash; substring match anywhere in object</li>
+                        <li><code>!term</code> &mdash; exclude objects containing term</li>
+                        <li><code>=value</code> &mdash; exact field value match</li>
+                        <li><code>^prefix</code> &mdash; field value starts with</li>
+                        <li><code>$suffix</code> &mdash; field value ends with</li>
+                        <li><code>a && b</code> &mdash; both must match</li>
+                        <li><code>a || b</code> &mdash; either must match</li>
+                    </ul>
+                </div>
+            </div>
+            <button id="details-search-clear" style="display:none" title="Clear search">&#x2715;</button>
+            <div class="detail-scope-toggle">
+                <button class="scope-btn active" data-scope="current">Filtered</button>
+                <button class="scope-btn" data-scope="global">All objects</button>
+            </div>
+        </div>
+        <div id="details-info" class="details-info">Showing 0-0 of 0 entries</div>
+    </div>
+    <div id="object-container"></div>
+    <script id="object-data" type="application/json">
+'@
+    $azureRoleDetailsHTML = $azureRoleDetailsHEAD + "`n" + (ConvertTo-AzureRoleDefinitionDetailsJson -DetailObjects $azureRoleDetailObjects.ToArray()) + "`n" + '</script>'
 
     if ($ExportDataJson) {
         Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "EntraRoleAssignments" -Data $SortedEntraRoles | Out-Null
@@ -660,9 +1396,15 @@ Execution Warnings = $($WarningReport  -join ' / ')
 $headerTXTEntraRoles = "
 Entra Roles
 ****************************
+Execution Warnings = $($entraIdentityWarnings -join ' / ')
 "
 $headerTXTAzureRoles = "
 Azure Roles
+****************************
+Execution Warnings = $($azureIdentityWarnings -join ' / ')
+"
+$headerTXTAzureRoleDetails = "
+Azure Role Details
 ****************************
 "
     # HTML header below the navbar
@@ -675,16 +1417,16 @@ $headerHtml = @"
 "@
 
     #Generate and write HTML Entra role report
-    Set-GlobalReportManifest -CurrentReportKey 'RoleEntra' -CurrentReportName 'Role Assignments Entra ID' -Warnings $WarningReport
+    Set-GlobalReportManifest -CurrentReportKey 'RoleEntra' -CurrentReportName 'Role Assignments Entra ID' -Warnings @($WarningReport + $entraIdentityWarnings)
     $Report = ConvertTo-HTML -Body "$headerHtml $mainEntraTableHTML" -Head ("<title>EF - Role Assignments (Entra)</title>`n" + $global:GLOBALReportManifestScript + $global:GLOBALCss) -PostContent $GLOBALJavaScript
     $Report | Out-File "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).html"
 
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     $headerTXTEntraRoles | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-    $SortedEntraRoles | format-table Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType,ScopeResolved | Out-File -Width 512 "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+    $SortedEntraRoles | format-table Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType,ScopeResolved,Identities | Out-File -Width 512 "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Csv) {
-        $SortedEntraRoles | select-object Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType,ScopeResolved | Export-Csv -Path "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+        $SortedEntraRoles | select-object Role,RoleTier,IsPrivileged,IsBuiltIn,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType,ScopeResolved,Identities | Export-Csv -Path "$outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
     }
     $OutputFormats = if ($Csv) { "CSV,TXT,HTML" } else { "TXT,HTML" }
     write-host "[+] Details of $(@($SortedEntraRoles).count) Entra ID role assignments stored in output files ($OutputFormats): $outputFolder\$($Title)_Entra_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName)"
@@ -753,13 +1495,15 @@ $headerHtml = @"
 
     # Wrap in @() because a single assignment is a bare object, which has no Count on PowerShell 5.1
     if (@($SortedAzureRoles).count -ge 1) {
-        Set-GlobalReportManifest -CurrentReportKey 'RoleAz' -CurrentReportName 'Role Assignments Azure IAM'
-        $Report = ConvertTo-HTML -Body "$headerHtml $mainAzureTableHTML" -Head ("<title>EF - Role Assignments (Azure)</title>`n" + $global:GLOBALReportManifestScript + $global:GLOBALCss) -PostContent $GLOBALJavaScript
+        Set-GlobalReportManifest -CurrentReportKey 'RoleAz' -CurrentReportName 'Role Assignments Azure IAM' -Warnings $azureIdentityWarnings
+        $Report = ConvertTo-HTML -Body "$headerHtml $mainAzureTableHTML" -Head ("<title>EF - Role Assignments (Azure)</title>`n" + $global:GLOBALReportManifestScript + $global:GLOBALCss) -PostContent $GLOBALJavaScript -PreContent $azureRoleDetailsHTML
         $Report | Out-File "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).html"
         $headerTXTAzureRoles | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $SortedAzureRoles | Format-Table Scope,Role,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType | Out-File -Width 512 "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $SortedAzureRoles | Format-Table Scope,Role,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType,Identities | Out-File -Width 512 "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $headerTXTAzureRoleDetails | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $azureRoleDetailTxtBuilder.ToString() | Out-File "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $SortedAzureRoles | Select-Object Scope,Role,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType | Export-Csv -Path "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+            $SortedAzureRoles | Select-Object Scope,Role,RoleTier,Level,@{Name = "Impact"; Expression = { $_.AssignmentImpact}},ScopeType,Environment,@{Name = "Resources"; Expression = { $_.ObservedResources}},RoleType,Conditions,AssignmentType,ActivatedViaPIM,Start,Expires,PrincipalDisplayName,PrincipalType,Identities | Export-Csv -Path "$outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
         }
         write-host "[+] Details of $(@($SortedAzureRoles).count) Azure role assignments stored in output files ($OutputFormats): $outputFolder\$($Title)_Azure_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName)"
         
@@ -850,4 +1594,6 @@ $headerHtml = @"
     }
 
 }
+
+Export-ModuleMember -Function Invoke-CheckRoles
 

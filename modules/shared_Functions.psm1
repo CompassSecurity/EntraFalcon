@@ -1929,14 +1929,14 @@ $global:GLOBALJavaScript_Table = @'
                 laptop: {
                     maxWidth: 1600,
                     columns: [
-                        "Scope", "Role", "Level", "Impact", "Environment", "Resources",
+                        "Role", "Scope", "Level", "Impact", "Environment", "Resources",
                         "AssignmentType", "ActivatedViaPIM", "PrincipalType", "Principal"
                     ]
                 },
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "Scope", "Role", "Level", "Impact", "Environment", "AssignmentType", "Principal"
+                        "Role", "Scope", "Level", "Impact", "Environment", "AssignmentType", "Principal"
                     ]
                 }
             },
@@ -2044,6 +2044,7 @@ $global:GLOBALJavaScript_Table = @'
             "Direct": "Number of directly assigned active role assignments that are not activated via PIM",
             "Activated": "Number of currently active role assignments activated via PIM",
             "AssignmentType": "Activated eligible assignments also appear as active",
+            "Identities": "Unique users and workload identities found through active or eligible membership, including nested groups. Incomplete collection may understate counts; zero does not establish absence when coverage warnings exist. Counts cannot be summed and do not imply active access.",
             "Conditions": "Has additional conditions",
             "TargetType": "Conditional Access target category: Users, Workloads, or Agents",
             "Groups": "Access Package resources of type Group",
@@ -2402,7 +2403,8 @@ $global:GLOBALJavaScript_Table = @'
                         rows: viewData.map(row => {
                             const output = {};
                             visibleColumns.forEach(col => {
-                                const val = col.toLowerCase() === "principal" ? stripHtmlToText(row[col]) : row[col];
+                                const lowerCol = col.toLowerCase();
+                                const val = (lowerCol === "principal" || lowerCol === "role") ? stripHtmlToText(row[col]) : row[col];
                                 output[col] = val ?? "";
                             });
                             return output;
@@ -3773,7 +3775,9 @@ $global:GLOBALJavaScript_Table = @'
                             detailsEl.appendChild(renderPreBlock(key, value));
                         }
                     } else if (typeof value === 'object') {
-                        if (key === "General Information" || key === "Policy Information" || key === "Catalog Information") {
+                        if (typeof value.Summary === 'string' && Array.isArray(value.Items)) {
+                            detailsEl.appendChild(renderSummaryWithItems(key, value));
+                        } else if (key === "General Information" || key === "Policy Information" || key === "Catalog Information" || key === "Classification") {
                             detailsEl.appendChild(renderVerticalTable(key, value));
                         } else {
                             detailsEl.appendChild(renderDetailsTable(key, [value]));
@@ -3903,6 +3907,52 @@ $global:GLOBALJavaScript_Table = @'
             pre.innerHTML = lines.join('\n');
 
             section.appendChild(pre);
+            return section;
+        }
+
+        // Sentence with a list revealed by a button. A nested <details> would be counted as an entry and opened by Expand All.
+        function renderSummaryWithItems(title, data) {
+            const section = document.createElement('div');
+            const heading = document.createElement('h3');
+            heading.textContent = title;
+            section.appendChild(heading);
+
+            // Summary and items arrive HTML-encoded from the report generator.
+            const summary = document.createElement('p');
+            summary.className = 'detail-summary';
+            summary.innerHTML = data.Summary;
+            section.appendChild(summary);
+
+            const items = data.Items.filter(item => typeof item === 'string');
+            if (!items.length) return section;
+
+            renderSummaryWithItems.count = (renderSummaryWithItems.count || 0) + 1;
+            const listId = `detail-toggle-list-${renderSummaryWithItems.count}`;
+            const showLabel = data.Toggle || `Show details (${items.length})`;
+            const hideLabel = data.ToggleHide || 'Hide details';
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'detail-toggle';
+            button.textContent = showLabel;
+            button.setAttribute('aria-expanded', 'false');
+            button.setAttribute('aria-controls', listId);
+
+            const list = document.createElement('pre');
+            list.className = 'yaml-block detail-toggle-list';
+            list.id = listId;
+            list.hidden = true;
+            list.innerHTML = items.join('\n');
+
+            button.addEventListener('click', () => {
+                const expand = list.hidden;
+                list.hidden = !expand;
+                button.setAttribute('aria-expanded', expand ? 'true' : 'false');
+                button.textContent = expand ? hideLabel : showLabel;
+            });
+
+            section.appendChild(button);
+            section.appendChild(list);
             return section;
         }
 
@@ -5402,6 +5452,22 @@ $global:GLOBALCss = @"
         font-style: italic;
         margin: 2px 0 8px 0;
         opacity: 0.75;
+    }
+
+    .detail-summary {
+        font-size: 13px;
+        margin: 4px 0 8px 0;
+        max-width: 110ch;
+    }
+
+    .detail-toggle {
+        font-size: 12px;
+        padding: 4px 8px;
+        cursor: pointer;
+    }
+
+    .detail-toggle-list[hidden] {
+        display: none;
     }
 
     .cap-targeting-caption {
@@ -7547,6 +7613,9 @@ function Export-EntraFalconDebugObjectDump {
         [object]$AllGroupsDetails,
 
         [Parameter(Mandatory = $false)]
+        [object]$RoleGroupIdentityCountIndex,
+
+        [Parameter(Mandatory = $false)]
         [object]$AgentObjectBasics,
 
         [Parameter(Mandatory = $false)]
@@ -7707,6 +7776,7 @@ function Export-EntraFalconDebugObjectDump {
             "31_RawCatalogs.clixml"                        = $RawCatalogs
             "32_Catalogs.clixml"                           = $Catalogs
             "33_CatalogAssessment.clixml"                  = $CatalogAssessment
+            "34_RoleGroupIdentityCountIndex.clixml"        = $RoleGroupIdentityCountIndex
         }
 
         $summaryProperties = [ordered]@{
@@ -9333,7 +9403,7 @@ $global:GLOBALAzureExposureLevels = @{
 }
 
 $global:GLOBALAzureRoleImpactPolicy = @{
-    Version = "2.6"
+    Version = "2.8"
     MaximumAssignmentFactor = 1.20
     CriticalTier1BaseImpact = 125
     CriticalTier1RoleIds = @{
@@ -9413,9 +9483,14 @@ $global:GLOBALAzureRoleImpactPolicy = @{
         "microsoft.containerservice/managedclusters",
         "microsoft.kubernetes/connectedclusters",
         "microsoft.hybridcompute/machines",
-        "microsoft.containerregistry/registries"
+        "microsoft.containerregistry/registries",
+        "microsoft.storage/storageaccounts",
+        "microsoft.web/sites",
+        "microsoft.logic/workflows",
+        "microsoft.sql/servers",
+        "microsoft.sql/managedinstances"
     )
-    SensitiveResourceMinimumScopeFactor = 0.30
+    SensitiveResourceMinimumScopeFactor = 0.40
 }
 
 $global:GLOBALApiPermissionCategorizationList= @{
@@ -9729,6 +9804,23 @@ function Get-AzureRbacPatternProbes {
     }
 
     return $probes
+}
+
+# Returns the first allow pattern that matches an operation, so reports can show which permission grants it.
+function Get-AzureRbacGrantingPattern {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Operation,
+        [Parameter(Mandatory = $false)]
+        [string[]]$Patterns = @()
+    )
+
+    foreach ($pattern in @($Patterns)) {
+        if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+        if (Test-AzureRbacPatternMatch -Operation $Operation -Patterns @($pattern)) { return $pattern.Trim() }
+    }
+
+    return $null
 }
 
 # Resolves the tier of an Azure role: the curated rating first, then a tier derived from the role's permissions.
@@ -10056,27 +10148,45 @@ function Get-AzureRoleTierFromPermissionSet {
         'Microsoft.Sql/servers/administrators/write',
         'Microsoft.RecoveryServices/vaults/write',
         'Microsoft.Network/networkSecurityGroups/write',
-        'Microsoft.Security/policies/write'
+        'Microsoft.Security/policies/write',
+        'Microsoft.Compute/virtualMachines/runCommands/write',
+        'Microsoft.ContainerService/managedClusters/runcommand/action',
+        'Microsoft.Storage/storageAccounts/listAccountSas/action',
+        'Microsoft.Storage/storageAccounts/listServiceSas/action',
+        'Microsoft.ContainerService/managedClusters/accessProfiles/listCredential/action',
+        'Microsoft.ContainerService/managedClusters/listClusterMonitoringUserCredential/action',
+        'Microsoft.Web/sites/functions/listkeys/action',
+        'Microsoft.Logic/workflows/triggers/listCallbackUrl/action',
+        'Microsoft.Compute/disks/beginGetAccess/action',
+        'Microsoft.Compute/snapshots/beginGetAccess/action',
+        'Microsoft.KeyVault/vaults/deploy/action'
     )
+    # Every rule hit is recorded in check order; the first hit decides the tier and the rest are report evidence.
+    $matchedRules = [System.Collections.Generic.List[object]]::new()
+    $accessControlOperations = [ordered]@{
+        'Microsoft.Authorization/roleAssignments/write' = 'A1'
+        'Microsoft.Authorization/roleDefinitions/write' = 'A2'
+        'Microsoft.Authorization/elevateAccess/action'  = 'A3'
+    }
+    $blockIndex = 0
     foreach ($block in @($Permissions)) {
         if ($null -eq $block) { continue }
+        $blockIndex++
         $blockAllow = @($block.actions | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
         $blockDeny = @($block.notActions | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ }) + @($ExcludedOperations)
-        foreach ($operation in @(
-            'Microsoft.Authorization/roleAssignments/write',
-            'Microsoft.Authorization/roleDefinitions/write',
-            'Microsoft.Authorization/elevateAccess/action'
-        )) {
+        foreach ($operation in @($accessControlOperations.Keys)) {
             if (Test-AzureRbacOperationGranted -Operation $operation -Allow $blockAllow -Deny $blockDeny) {
-                return [pscustomobject]@{ Tier = 0; Reason = $operation }
+                $matchedRules.Add([pscustomobject]@{ Rule = $accessControlOperations[$operation]; Tier = 0; Reason = $operation; Permission = $operation; GrantedBy = (Get-AzureRbacGrantingPattern -Operation $operation -Patterns $blockAllow); Block = $blockIndex })
             }
         }
         if (Test-AzureRoleContributorLikePermissionBlock -Permission $block) {
-            return [pscustomobject]@{ Tier = 0; Reason = 'Contributor-like broad control' }
+            $matchedRules.Add([pscustomobject]@{ Rule = 'A4'; Tier = 0; Reason = 'Contributor-like broad control'; Permission = '*'; GrantedBy = '*'; Block = $blockIndex })
         }
     }
+    $blockIndex = 0
     foreach ($block in @($Permissions)) {
         if ($null -eq $block) { continue }
+        $blockIndex++
         $allow = @($block.actions | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
         $deny = @($block.notActions | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ }) + @($ExcludedOperations)
         $dataAllow = @($block.dataActions | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
@@ -10086,14 +10196,15 @@ function Get-AzureRoleTierFromPermissionSet {
 
         foreach ($operation in $tierOneOperations) {
             if (Test-AzureRbacOperationGranted -Operation $operation -Allow $allow -Deny $deny) {
-                return [pscustomobject]@{ Tier = 1; Reason = $operation }
+                $matchedRules.Add([pscustomobject]@{ Rule = 'B1'; Tier = 1; Reason = $operation; Permission = $operation; GrantedBy = (Get-AzureRbacGrantingPattern -Operation $operation -Patterns $allow); Block = $blockIndex })
             }
         }
         if ($allow -icontains 'Microsoft.Insights/snapshots/read' -and
             (Test-AzureRbacOperationGranted -Operation 'Microsoft.Insights/snapshots/read' -Allow $allow -Deny $deny)) {
-            return [pscustomobject]@{ Tier = 1; Reason = 'sensitive snapshot read' }
+            $matchedRules.Add([pscustomobject]@{ Rule = 'B2'; Tier = 1; Reason = 'sensitive snapshot read'; Permission = 'Microsoft.Insights/snapshots/read'; GrantedBy = 'Microsoft.Insights/snapshots/read'; Block = $blockIndex })
         }
 
+        # One hit per pattern: the reason names the pattern, not the probed operation.
         foreach ($pattern in $dataAllow) {
             foreach ($probe in (Get-AzureRbacPatternProbes -Pattern $pattern -Verbs @('read', 'action', 'write', 'delete'))) {
                 if (-not (Test-AzureRbacOperationGranted -Operation $probe -Allow $dataAllow -Deny $dataDeny)) { continue }
@@ -10105,7 +10216,8 @@ function Get-AzureRoleTierFromPermissionSet {
                     $ordinaryDataReadGranted = $true
                     continue
                 }
-                return [pscustomobject]@{ Tier = 1; Reason = "data access: $pattern" }
+                $matchedRules.Add([pscustomobject]@{ Rule = 'B3'; Tier = 1; Reason = "data access: $pattern"; Permission = $pattern; GrantedBy = $pattern; Block = $blockIndex })
+                break
             }
         }
 
@@ -10130,12 +10242,14 @@ function Get-AzureRoleTierFromPermissionSet {
                     $probe -imatch '^Microsoft\.ContainerRegistry/registries/(?:credentialSets|cacheRules|exportPipelines|importPipelines|pipelineRuns)/' -or
                     $probe -imatch '^Microsoft\.Resources/dataBoundaries/' -or
                     $probe -imatch '/[^/]*(?:secrets?|keys?|credentials?|tokens?|connectionstrings?)[^/]*(?:/|$)') {
-                    return [pscustomobject]@{ Tier = 1; Reason = "high-risk write or action: $pattern" }
+                    $matchedRules.Add([pscustomobject]@{ Rule = 'B4'; Tier = 1; Reason = "high-risk write or action: $pattern"; Permission = $pattern; GrantedBy = $pattern; Block = $blockIndex })
+                    break
                 }
                 if ($probe -imatch '^([^/]+/[^/]+)/(?:.+/)?(?:write|delete)$') {
                     [void]$boundedMutationFamilies.Add($Matches[1])
                 } else {
-                    return [pscustomobject]@{ Tier = 1; Reason = "unrecognized write or action: $pattern" }
+                    $matchedRules.Add([pscustomobject]@{ Rule = 'B4'; Tier = 1; Reason = "unrecognized write or action: $pattern"; Permission = $pattern; GrantedBy = $pattern; Block = $blockIndex })
+                    break
                 }
             }
         }
@@ -10150,19 +10264,35 @@ function Get-AzureRoleTierFromPermissionSet {
         }
     }
 
-    if (-not $hasPermissionData) { return [pscustomobject]@{ Tier = '?'; Reason = 'no permission data' } }
-    if ($boundedMutationFamilies.Count -gt 1) { return [pscustomobject]@{ Tier = 1; Reason = 'cross-family resource control' } }
-    if ($boundedMutationFamilies.Count -eq 1) { return [pscustomobject]@{ Tier = 2; Reason = 'bounded resource write or delete' } }
-    if ($ordinaryDataReadGranted) { return [pscustomobject]@{ Tier = 2; Reason = 'ordinary data read' } }
-    if ($reviewedOperationalActionGranted) { return [pscustomobject]@{ Tier = 2; Reason = 'reviewed operational action' } }
-    if ($deploymentHelperGranted) { return [pscustomobject]@{ Tier = 2; Reason = 'deployment helper permissions' } }
-    if ($broadReadGranted) { return [pscustomobject]@{ Tier = 2; Reason = 'broad read access' } }
     $narrowReadGranted = $narrowReadGranted -or $metadataDataGranted
-    if ($narrowReadGranted) {
-        return [pscustomobject]@{ Tier = 3; Reason = 'narrow read access' }
+    $result = if ($matchedRules.Count -gt 0) {
+        [pscustomobject]@{ Tier = $matchedRules[0].Tier; Reason = $matchedRules[0].Reason }
+    } elseif (-not $hasPermissionData) {
+        [pscustomobject]@{ Tier = '?'; Reason = 'no permission data' }
+    } elseif ($boundedMutationFamilies.Count -gt 1) {
+        [pscustomobject]@{ Tier = 1; Reason = 'cross-family resource control' }
+    } elseif ($boundedMutationFamilies.Count -eq 1) {
+        [pscustomobject]@{ Tier = 2; Reason = 'bounded resource write or delete' }
+    } elseif ($ordinaryDataReadGranted) {
+        [pscustomobject]@{ Tier = 2; Reason = 'ordinary data read' }
+    } elseif ($reviewedOperationalActionGranted) {
+        [pscustomobject]@{ Tier = 2; Reason = 'reviewed operational action' }
+    } elseif ($deploymentHelperGranted) {
+        [pscustomobject]@{ Tier = 2; Reason = 'deployment helper permissions' }
+    } elseif ($broadReadGranted) {
+        [pscustomobject]@{ Tier = 2; Reason = 'broad read access' }
+    } elseif ($narrowReadGranted) {
+        [pscustomobject]@{ Tier = 3; Reason = 'narrow read access' }
+    } else {
+        [pscustomobject]@{ Tier = 3; Reason = 'no effective permissions' }
     }
 
-    return [pscustomobject]@{ Tier = 3; Reason = 'no effective permissions' }
+    return [pscustomobject]@{
+        Tier               = $result.Tier
+        Reason             = $result.Reason
+        Matches            = $matchedRules.ToArray()
+        WriteResourceTypes = @($boundedMutationFamilies | Sort-Object)
+    }
 }
 
 # Classifies a role and reports whether its role-assignment rights are limited by an ABAC condition to specific role definitions.
@@ -10207,7 +10337,68 @@ function Get-AzureRoleTierFromPermissions {
         Reason                = $result.Reason
         ConstrainedAssignment = $constrainedAssignment
         AssignableRoleIds     = $assignableRoleIds.ToArray()
+        Matches               = $result.Matches
+        WriteResourceTypes    = $result.WriteResourceTypes
     }
+}
+
+# Explains an Azure role tier reason for reports. Mirrors the Reason values of Get-AzureRoleTierFromPermissionSet,
+# Update-AzureRoleTierCache and Resolve-AzureRoleTier; an unrecognized reason is returned unchanged.
+function Get-AzureRoleTierReasonDescription {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$Reason
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Reason)) {
+        return [pscustomobject]@{ Rule = '-'; Evidence = $null }
+    }
+    $trimmedReason = $Reason.Trim()
+
+    $fixedReasons = @{
+        'Contributor-like broad control'   = 'Grants all actions (*) with no exclusions beyond those of Contributor'
+        'sensitive snapshot read'          = 'Can read debug snapshots, which may contain secrets'
+        'cross-family resource control'    = 'Can write or delete resources of more than one resource type'
+        'bounded resource write or delete' = 'Can write or delete resources of a single resource type'
+        'ordinary data read'               = 'Can read ordinary data-plane content'
+        'reviewed operational action'      = 'Can run a reviewed operational action'
+        'deployment helper permissions'    = 'Can manage ARM deployments only'
+        'broad read access'                = 'Can read all resources'
+        'narrow read access'               = 'Can read selected resources or metadata only'
+        'no effective permissions'         = 'Grants no effective permissions'
+        'no permission data'               = 'The role definition contains no permissions'
+        'curated role rating'              = 'Curated EntraFalcon rating'
+        'no rating and no permission data' = 'No curated rating and no role definition to analyze'
+    }
+    if ($fixedReasons.ContainsKey($trimmedReason)) {
+        return [pscustomobject]@{ Rule = $fixedReasons[$trimmedReason]; Evidence = $null }
+    }
+
+    $prefixedReasons = [ordered]@{
+        'data access: '                            = 'Grants data-plane access'
+        'high-risk write or action: '              = 'Grants a potentially sensitive write or action'
+        'unrecognized write or action: '           = 'Grants a write or action outside the reviewed low-risk set'
+        'constrained role assignment: may assign ' = 'Can assign roles, limited by a condition; the strongest assignable role sets the tier'
+    }
+    foreach ($prefix in $prefixedReasons.Keys) {
+        if ($trimmedReason.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return [pscustomobject]@{ Rule = $prefixedReasons[$prefix]; Evidence = $trimmedReason.Substring($prefix.Length).Trim() }
+        }
+    }
+
+    $controlOperations = @{
+        'Microsoft.Authorization/roleAssignments/write' = 'Can create role assignments'
+        'Microsoft.Authorization/roleDefinitions/write' = 'Can create or change role definitions'
+        'Microsoft.Authorization/elevateAccess/action'  = 'Can elevate access to User Access Administrator at root scope'
+    }
+    if ($controlOperations.ContainsKey($trimmedReason)) {
+        return [pscustomobject]@{ Rule = $controlOperations[$trimmedReason]; Evidence = $trimmedReason }
+    }
+    if ($trimmedReason -match '^Microsoft\.[A-Za-z0-9.]+/\S+$') {
+        return [pscustomobject]@{ Rule = 'Grants a potentially high-impact operation'; Evidence = $trimmedReason }
+    }
+
+    return [pscustomobject]@{ Rule = $trimmedReason; Evidence = $null }
 }
 
 # Classifies only requested roles and the transitive targets of constrained role-assignment conditions.
@@ -11311,10 +11502,14 @@ function Get-AllAzureIAMAssignmentsNative {
     
         # Store the values in the hashtable (ObjectId as the key, RoleName as the value)
         $roleHashTable[$objectId] = @{
-            RoleName    = $roleName
-            RoleType    = $roleType
-            RoleId      = $objectId
-            Permissions = $_.properties.permissions
+            RoleName         = $roleName
+            RoleType         = $roleType
+            RoleId           = $objectId
+            Permissions      = $_.properties.permissions
+            Description      = $_.properties.description
+            AssignableScopes = @($_.properties.assignableScopes)
+            CreatedOn        = $_.properties.createdOn
+            UpdatedOn        = $_.properties.updatedOn
         }
     }
 
@@ -11330,10 +11525,14 @@ function Get-AllAzureIAMAssignmentsNative {
     
         # Store the values in the hashtable (ObjectId as the key, RoleName as the value)
         $roleHashTable[$objectId] = @{
-            RoleName    = $roleName
-            RoleType    = $roleType
-            RoleId      = $objectId
-            Permissions = $_.properties.permissions
+            RoleName         = $roleName
+            RoleType         = $roleType
+            RoleId           = $objectId
+            Permissions      = $_.properties.permissions
+            Description      = $_.properties.description
+            AssignableScopes = @($_.properties.assignableScopes)
+            CreatedOn        = $_.properties.createdOn
+            UpdatedOn        = $_.properties.updatedOn
         }
     }
     Write-Log -Level Debug -Message "Got $($roleHashTable.count) role definitions"
@@ -12494,6 +12693,8 @@ function Get-PimforGroupsAssignments {
     $global:GLOBALPimForGroupsAssignmentObjects = @()
     # Reset so a later run or early exit cannot leave a stale count for the report warnings.
     $global:GLOBALPimForGroupsIncompleteGroupCount = 0
+    $global:GLOBALPimForGroupsDiscoveryComplete = $false
+    $global:GLOBALPimForGroupsIncompleteGroupIds = @()
     $isBroCiFlow = $false
     if ($GLOBALAuthMethods -and $GLOBALAuthMethods.ContainsKey("AuthFlow")) {
         $isBroCiFlow = @("BroCi", "BroCiManualCode", "BroCiToken") -contains [string]$GLOBALAuthMethods.AuthFlow
@@ -12548,6 +12749,7 @@ function Get-PimforGroupsAssignments {
         }
 
         if ($proceed) {
+            $global:GLOBALPimForGroupsDiscoveryComplete = $true
             $PimEnabledGroups = $PimEnabledGroupsRaw | ForEach-Object {
                 [PSCustomObject]@{
                     Id          = $_.Id
@@ -12618,6 +12820,7 @@ function Get-PimforGroupsAssignments {
                 $PIMforGroupsAssignments = $CollectedAssignments.ToArray()
                 $global:GLOBALPimForGroupsAssignmentObjects = @($PIMforGroupsAssignments)
                 $global:GLOBALPimForGroupsIncompleteGroupCount = $IncompleteEligibilityGroups.Count
+                $global:GLOBALPimForGroupsIncompleteGroupIds = @($IncompleteEligibilityGroups.ToArray())
                 Write-Host "[+] Got $($PIMforGroupsAssignments.Count) objects eligible for a PIM-enabled group"
                 if ($IncompleteEligibilityGroups.Count -gt 0) {
                     Write-Host "[!] Eligibility could not be fully enumerated for $($IncompleteEligibilityGroups.Count) PIM-enabled group(s)."
@@ -14281,6 +14484,8 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALPimForGroupsResources -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsAssignmentObjects -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsIncompleteGroupCount -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALPimForGroupsDiscoveryComplete -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALPimForGroupsIncompleteGroupIds -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAdminUnitsUnavailable -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAdminUnitsIncompleteCount -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsPolicySettingsSupported -ErrorAction SilentlyContinue
@@ -14647,4 +14852,4 @@ function Show-EntraFalconBanner {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Test-EntraFalconServicePrincipalInactive,Get-EntraFalconMfaCapabilityState,Get-EntraFalconUsr012Decision,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-AzureRoleAssignmentImpact,Get-AzureRoleBaseImpact,Get-AzureRoleScopeTypeCounts,Get-AzureRoleExposureImpact,Get-AzureRoleTierFromPermissions,Resolve-AzureRoleTier,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,New-EntraFalconGraphTokenProvider,Reset-EntraFalconTokenProviderState,Get-EntraFalconBatchCoverage,Test-EntraFalconSuccessStatus,Invoke-EntraFalconGraphBatch,Get-EntraFalconObjectRelationshipChunked,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Format-CapGraphError,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,Initialize-EntraFalconObjectInfoCache,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Set-AssessmentIdentity,Get-HighestTierLabel,Merge-HigherTierLabel,Merge-HigherImpact,Get-AzureImpactLevel,Get-AzureInheritedRoleWarningText,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment
+Export-ModuleMember -Function Show-EntraFalconBanner,AuthenticationMSGraph,Get-TenantReportAvailability,Get-TenantDomains,Initialize-TenantReportTabs,Set-GlobalReportManifest,Get-EffectiveEntraLicense,Get-Devices,Get-UsersBasic,Get-AgentObjectBasics,Get-ServicePrincipalSignInActivityLookup,Test-EntraFalconServicePrincipalInactive,Get-EntraFalconMfaCapabilityState,Get-EntraFalconUsr012Decision,Resolve-DirectoryObjectReference,Export-EntraFalconDebugObjectDump,Export-EntraFalconSecurityFindingsJson,Export-EntraFalconDataJson,start-CleanUp,Format-ReportSection,ConvertTo-EntraFalconHtmlText,Get-OrgInfo,Get-LogLevel,Write-Log,Invoke-MsGraphRefreshPIM,Write-LogVerbose,Invoke-AzureRoleProcessing,Get-AzureRoleAssignmentImpact,Get-AzureRoleBaseImpact,Get-AzureRoleScopeTypeCounts,Get-AzureRoleExposureImpact,Get-AzureRoleTierFromPermissions,Get-AzureRoleTierReasonDescription,Resolve-AzureRoleTier,Get-RegisterAuthMethodsUsers,Invoke-EntraRoleProcessing,Get-EntraPIMRoleAssignments,AuthCheckMSGraph,RefreshAuthenticationMsGraph,EnsureAuthSecurityFindingsMsGraph,RefreshAuthenticationSecurityFindingsMsGraph,Get-PimforGroupsAssignments,Invoke-CheckTokenExpiration,New-EntraFalconGraphTokenProvider,Reset-EntraFalconTokenProviderState,Get-EntraFalconBatchCoverage,Test-EntraFalconSuccessStatus,Invoke-EntraFalconGraphBatch,Get-EntraFalconObjectRelationshipChunked,Invoke-MsGraphAuthPIM,EnsureAuthMsGraph,Get-AzureRoleDetails,Get-AdministrativeUnitsWithMembers,Get-ConditionalAccessPolicies,Format-CapGraphError,Get-EntraRoleAssignments,Get-IntuneRbacRoleAssignments,Get-APIPermissionCategory,New-AppRoleReferenceCache,Resolve-AppRoleReference,Get-AppRoleReferenceApiName,Get-AppRoleReferenceResourceAppId,Resolve-DelegatedPermissionGrantDetails,Resolve-AppRoleAssignmentRecord,Get-AppRoleAssignmentImpact,Get-ApiPermissionImpactSummary,Get-ObjectInfo,Initialize-EntraFalconObjectInfoCache,EnsureAuthAzurePsNative,checkSubscriptionNative,Get-AllAzureIAMAssignmentsNative,Get-PIMForGroupsAssignmentsDetails,Show-EnumerationSummary,start-InitTasks,Set-AssessmentIdentity,Get-HighestTierLabel,Merge-HigherTierLabel,Merge-HigherImpact,Get-AzureImpactLevel,Get-AzureInheritedRoleWarningText,Get-GroupDetails,Merge-EntraFalconCatalogRbacAssignments,Get-GroupActiveRoleMetrics,Get-EntraFalconHostOs,Test-NonWindowsAuthFlowCompatibility,Get-KnownMaliciousEnterpriseApp,Get-EntraFalconSPNameAssessment
