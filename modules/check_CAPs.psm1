@@ -3402,6 +3402,7 @@ if ($AllPoliciesCount -gt 0) {
             }
         )
         Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "ConditionalAccessPolicies" -Data $policyExport | Out-Null
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "NamedLocations" -Data @($LocationsRaw | Where-Object { $null -ne $_ }) | Out-Null
     }
 
 
