@@ -1695,6 +1695,18 @@ function Invoke-CheckTenant {
     "AffectedObjects": []
   },
   {
+    "FindingId": "CAP-012",
+    "Title": "Broad Trusted or Excluded Network Ranges",
+    "Category": "Conditional Access Policies",
+    "Severity": 1,
+    "Description": "",
+    "Threat": "",
+    "Status": "NotVulnerable",
+    "Remediation": "",
+    "Confidence": "Requires Verification",
+    "AffectedObjects": []
+  },
+  {
     "FindingId": "ENT-001",
     "Title": "Enterprise Applications with Client Credentials",
     "Category": "Enterprise Applications",
@@ -2942,6 +2954,16 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             Description = "<p>No enabled Conditional Access policies were identified that target roles with scoped assignments.</p>"
         }
     }
+    $CAP012VariantProps = @{
+        Default = @{
+            Threat = '<p>Broad exclusions from Conditional Access block policies may exempt more IP addresses than intended.</p><p>If the affected named locations are also marked as trusted, their broad ranges may influence Microsoft Entra ID Protection risk calculations for sign-ins from networks outside the intended organizational boundary.</p><p>Attackers able to connect from these IP addresses could benefit from the policy exclusion or be less likely to trigger certain Microsoft Entra ID Protection risk detections.</p>'
+            Remediation = '<p>Review each affected address range:</p><ul><li>Verify ownership, control, and intended use of the range. Do not trust or exclude ranges shared with other organizations, such as those of internet, cloud, hosting, or VPN providers.</li><li>Narrow trusted named locations and block-policy exclusions to the required public egress addresses or network ranges, or remove them if they are no longer needed.</li></ul><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-assignment-network" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-assignment-network</a></li></ul>'
+        }
+        Secure = @{
+            Status = 'NotVulnerable'
+            Description = '<p>No IP ranges meeting the broad-range thresholds were identified in trusted named locations or exclusions of enabled block policies.</p>'
+        }
+    }
     # Shared result applied to every CAP finding when the policies could not be retrieved.
     # RelatedReportUrl is cleared because the Conditional Access report is not written in that case.
     $capUnavailableReasonText = ConvertTo-EntraFalconHtmlText -Value $GLOBALCapsUnavailableReason -DefaultValue "The Microsoft Graph request for Conditional Access policies did not succeed."
@@ -3835,6 +3857,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "CAP-009" = $CAP009VariantProps.Default
         "CAP-010" = $CAP010VariantProps.Default
         "CAP-011" = $CAP011VariantProps.Default
+        "CAP-012" = $CAP012VariantProps.Default
         "ENT-001" = $ENT001VariantProps.Default
         "ENT-002" = $ENT002VariantProps.Default
         "ENT-003" = $ENT003VariantProps.Default
@@ -5801,11 +5824,58 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     }
 
+    # CAP-012 uses the raw named-location assessment collected alongside the policy report.
+    $cap012Assessment = $global:GLOBALCapBroadNetworkAssessment
+    if ($null -eq $cap012Assessment) {
+        Set-FindingOverride -FindingId 'CAP-012' -Props @{
+            Status = 'Skipped'
+            Description = '<p>The check could not be completed because the named-location assessment is unavailable. Broad trusted or excluded network ranges were not fully assessed.</p>'
+        }
+    } else {
+        Set-FindingOverride -FindingId 'CAP-012' -Props @{
+            Severity = $cap012Assessment.Severity
+            AffectedObjects = @($cap012Assessment.Rows)
+            RelatedReportUrl = "ConditionalAccessPolicies_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#appendix-network-location"
+        }
+        $cap012LimitationsHtml = ''
+        foreach ($limitation in $cap012Assessment.Limitations) {
+            $cap012LimitationsHtml += '<p>' + (ConvertTo-EntraFalconHtmlText -Value $limitation) + '</p>'
+        }
+        if (-not $cap012Assessment.Complete) {
+            $cap012Reason = ConvertTo-EntraFalconHtmlText -Value ($cap012Assessment.Reasons -join ' ')
+            Set-FindingOverride -FindingId 'CAP-012' -Props @{
+                Status = 'Skipped'
+                Description = "<p>The check could not be completed. $cap012Reason Broad trusted or excluded network ranges were not fully assessed.</p>$cap012LimitationsHtml"
+            }
+        } elseif (@($cap012Assessment.Rows).Count -eq 0) {
+            Set-FindingOverride -FindingId 'CAP-012' -Props $CAP012VariantProps.Secure
+        } else {
+            $cap012Counts = [System.Collections.Generic.List[string]]::new()
+            if ($cap012Assessment.TrustedLocationCount -gt 0) {
+                $cap012LocationNoun = 'locations'
+                if ($cap012Assessment.TrustedLocationCount -eq 1) { $cap012LocationNoun = 'location' }
+                $cap012Counts.Add("$($cap012Assessment.TrustedLocationCount) trusted named $cap012LocationNoun")
+            }
+            if ($cap012Assessment.BlockPolicyCount -gt 0) {
+                $cap012PolicyNoun = 'policies'
+                if ($cap012Assessment.BlockPolicyCount -eq 1) { $cap012PolicyNoun = 'policy' }
+                $cap012Counts.Add("$($cap012Assessment.BlockPolicyCount) enabled block $cap012PolicyNoun")
+            }
+            $cap012CountText = $cap012Counts -join ' and '
+            $cap012CountVerb = 'contain'
+            if (($cap012Assessment.TrustedLocationCount + $cap012Assessment.BlockPolicyCount) -eq 1) { $cap012CountVerb = 'contains' }
+            Set-FindingOverride -FindingId 'CAP-012' -Props @{
+                Status = 'Vulnerable'
+                Description = "<p>Broad IP ranges were identified in trusted named locations or location exclusions of enabled Conditional Access block policies.</p><p>$cap012CountText $cap012CountVerb ranges meeting the review thresholds (IPv4 /24 or broader; IPv6 /47 or broader).</p><p><strong>Important:</strong> This finding requires manual verification. Verify that the organization controls the relevant address space and that the full range is required.</p>$cap012LimitationsHtml"
+            }
+        }
+    }
+
     # CAP post-processing: remove report links when no affected objects are present.
     # This avoids rendering an "Affected Objects" action section with no object rows.
     $capFindingIds = @(
         "CAP-001","CAP-002","CAP-003","CAP-004","CAP-005","CAP-006",
-        "CAP-007","CAP-008","CAP-009","CAP-010","CAP-011"
+        "CAP-007","CAP-008","CAP-009","CAP-010","CAP-011","CAP-012"
     )
     if (-not $CapsAssessmentAvailable) {
         # Without policy data every check above fell through its "no matching policy" branch,

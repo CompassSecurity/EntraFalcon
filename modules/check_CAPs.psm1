@@ -3,6 +3,261 @@
    Enumerate CAPs
 
 #>
+function Get-CapBroadNetworkAssessment {
+    param([object[]]$Locations, [object[]]$Policies, $CurrentTenant, [string]$StartTimestamp)
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $trustedIds = [System.Collections.Generic.HashSet[string]]::new()
+    $policyIds = [System.Collections.Generic.HashSet[string]]::new()
+    $limitations = [System.Collections.Generic.HashSet[string]]::new()
+    $assessment = @{ Severity=1 }
+    $locationLookup = @{}
+    $rangeLookup = @{}
+    $trustedPolicyLinks = @{}
+    $sortedPolicies = @($Policies | Sort-Object displayName, id)
+    $trustedIpLocations = @($Locations | Where-Object {
+        $_.isTrusted -eq $true -and $_.'@odata.type' -eq '#microsoft.graph.ipNamedLocation'
+    })
+    $reportUrl = "ConditionalAccessPolicies_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html"
+
+    function ConvertTo-CapIpRange {
+        param([string]$Cidr)
+        $parts = $Cidr.Split('/')
+        $address = $null
+        $prefix = 0
+        if ($parts.Count -ne 2 -or -not [System.Net.IPAddress]::TryParse($parts[0], [ref]$address) -or
+            -not [int]::TryParse($parts[1], [ref]$prefix) -or $parts[0].Contains('%')) {
+            throw "Invalid CIDR '$Cidr'."
+        }
+        $bytes = $address.GetAddressBytes()
+        $bits = $bytes.Length * 8
+        if ($prefix -lt 0 -or $prefix -gt $bits -or ($bits -eq 32 -and $parts[0] -notmatch '^\d+\.\d+\.\d+\.\d+$')) {
+            throw "Invalid CIDR '$Cidr'."
+        }
+        $number = [bigint]0
+        foreach ($byte in $bytes) { $number = $number * 256 + $byte }
+        $size = [bigint]::Pow(2, $bits - $prefix)
+        $start = [bigint]::Divide($number, $size) * $size
+        [pscustomobject]@{ Bits=$bits; Start=$start; End=($start + $size - 1) }
+    }
+
+    function Merge-CapIpRange {
+        param([object[]]$Ranges)
+        $current = $null
+        foreach ($range in @($Ranges | Sort-Object Bits, Start, End)) {
+            if ($null -ne $current -and $current.Bits -eq $range.Bits -and $range.Start -le ($current.End + 1)) {
+                if ($range.End -gt $current.End) { $current.End = $range.End }
+            } else {
+                if ($null -ne $current) { $current }
+                $current = [pscustomobject]@{ Bits=$range.Bits; Start=$range.Start; End=$range.End }
+            }
+        }
+        if ($null -ne $current) { $current }
+    }
+
+    function Get-CapIpRangeIntersection {
+        param([object[]]$ExcludedRanges, [object[]]$IncludedRanges)
+        $mergedExcluded = @(Merge-CapIpRange -Ranges $ExcludedRanges)
+        $mergedIncluded = @(Merge-CapIpRange -Ranges $IncludedRanges)
+        $excludeIndex = 0
+        $includeIndex = 0
+        while ($excludeIndex -lt $mergedExcluded.Count -and $includeIndex -lt $mergedIncluded.Count) {
+            $excludeRange = $mergedExcluded[$excludeIndex]
+            $includeRange = $mergedIncluded[$includeIndex]
+            if ($excludeRange.Bits -lt $includeRange.Bits) { $excludeIndex++; continue }
+            if ($includeRange.Bits -lt $excludeRange.Bits) { $includeIndex++; continue }
+            if ($excludeRange.End -lt $includeRange.Start) { $excludeIndex++; continue }
+            if ($includeRange.End -lt $excludeRange.Start) { $includeIndex++; continue }
+            $start = $excludeRange.Start
+            $end = $excludeRange.End
+            if ($includeRange.Start -gt $start) { $start = $includeRange.Start }
+            if ($includeRange.End -lt $end) { $end = $includeRange.End }
+            [pscustomobject]@{ Bits=$excludeRange.Bits; Start=$start; End=$end }
+            if ($excludeRange.End -le $includeRange.End) { $excludeIndex++ }
+            if ($includeRange.End -le $excludeRange.End) { $includeIndex++ }
+        }
+    }
+
+    function Get-CapLocationRanges {
+        param([string[]]$Selectors)
+        foreach ($selector in $Selectors) {
+            if ([string]::IsNullOrWhiteSpace($selector)) { continue }
+            if ($selector -eq 'AllTrusted') {
+                foreach ($entry in $trustedIpLocations) {
+                    Get-CapLocationRanges -Selectors @([string]$entry.id)
+                }
+            } elseif ($locationLookup.ContainsKey($selector)) {
+                $location = $locationLookup[$selector]
+                $locationName = [string]$location.displayName
+                if ([string]::IsNullOrWhiteSpace($locationName)) { $locationName = 'Unnamed location' }
+                $locationLabel = "Named location '$locationName' (ID: $selector)"
+                if ($location.'@odata.type' -eq '#microsoft.graph.ipNamedLocation') {
+                    if (-not $rangeLookup.ContainsKey($selector)) {
+                        $parsed = [System.Collections.Generic.List[object]]::new()
+                        $invalidCidrCount = 0
+                        if ($null -eq $location.ipRanges -or @($location.ipRanges).Count -eq 0) { $issues.Add("$locationLabel has no IP ranges.") }
+                        foreach ($range in $location.ipRanges) {
+                            try {
+                                $parsed.Add((ConvertTo-CapIpRange -Cidr ([string]$range.cidrAddress)))
+                            } catch {
+                                $invalidCidrCount++
+                                Write-Log -Level Verbose -Message "[CAP-012] $locationLabel`: $($_.Exception.Message)"
+                            }
+                        }
+                        if ($invalidCidrCount -gt 0) {
+                            $entryNoun = 'entries'
+                            if ($invalidCidrCount -eq 1) { $entryNoun = 'entry' }
+                            $issues.Add("$locationLabel contains $invalidCidrCount invalid CIDR $entryNoun.")
+                        }
+                        $rangeLookup[$selector] = @($parsed.ToArray())
+                    }
+                    foreach ($range in $rangeLookup[$selector]) {
+                        [pscustomobject]@{ Bits=$range.Bits; Start=$range.Start; End=$range.End; LocationId=$selector }
+                    }
+                } elseif ($location.'@odata.type' -ne '#microsoft.graph.countryNamedLocation') {
+                    $issues.Add("$locationLabel has an unsupported location type.")
+                }
+            } elseif ($selector -notin @('All', 'AllCompliant')) {
+                $issues.Add("Named location reference '$selector' could not be resolved.")
+            }
+        }
+    }
+
+    function Get-CapPolicyLink {
+        param($Policy)
+        $name = ConvertTo-EntraFalconHtmlText -Value $Policy.displayName -DefaultValue 'Unnamed policy'
+        $id = ConvertTo-EntraFalconHtmlText -Value $Policy.id
+        "<a href=`"$reportUrl#$id`" target=`"_blank`">$name</a>"
+    }
+
+    function Add-CapBroadRangeRows {
+        param([object[]]$Ranges, [object[]]$Sources, [string]$Usage, $Policy, [string]$Limitation)
+        $sourceLocationIds = @($Sources | Select-Object -ExpandProperty LocationId -Unique | Sort-Object)
+        foreach ($range in @(Merge-CapIpRange -Ranges $Ranges)) {
+            $reviewPrefix = 24
+            $mediumPrefix = 16
+            if ($range.Bits -eq 128) { $reviewPrefix = 47; $mediumPrefix = 32 }
+            $minimumSize = [bigint]::Pow(2, $range.Bits - $reviewPrefix)
+            if (($range.End - $range.Start + 1) -lt $minimumSize) { continue }
+            if ($sourceLocationIds.Count -ne 1) {
+                $rangeSources = @($Sources | Where-Object {
+                    $_.Bits -eq $range.Bits -and $_.Start -le $range.End -and $_.End -ge $range.Start
+                })
+            }
+            $cursor = $range.Start
+            while ($cursor -le $range.End) {
+                # Cover each interval with aligned CIDRs; BigInteger keeps IPv6 arithmetic exact on both runtimes.
+                for ($prefix = 0; $prefix -le $range.Bits; $prefix++) {
+                    $size = [bigint]::Pow(2, $range.Bits - $prefix)
+                    if (($cursor % $size) -eq 0 -and ($cursor + $size - 1) -le $range.End) { break }
+                }
+                if ($prefix -le $reviewPrefix) {
+                    $bytes = New-Object byte[] ($range.Bits / 8)
+                    $remaining = $cursor
+                    for ($index = $bytes.Length - 1; $index -ge 0; $index--) {
+                        $bytes[$index] = [byte]($remaining % 256)
+                        $remaining = [bigint]::Divide($remaining, [bigint]256)
+                    }
+                    $cidr = ([System.Net.IPAddress]::new($bytes)).ToString() + '/' + $prefix
+                    if ($sourceLocationIds.Count -eq 1) {
+                        $contributors = $sourceLocationIds
+                    } else {
+                        $contributors = @($rangeSources | Where-Object {
+                            $_.Bits -eq $range.Bits -and $_.Start -le ($cursor + $size - 1) -and $_.End -ge $cursor
+                        } | Select-Object -ExpandProperty LocationId -Unique | Sort-Object)
+                    }
+                    $names = @($contributors | ForEach-Object {
+                        $name = ConvertTo-EntraFalconHtmlText -Value $locationLookup[$_].displayName -DefaultValue 'Unnamed location'
+                        "<a href=`"$reportUrl#appendix-network-location`" target=`"_blank`">$name</a>"
+                    }) -join '<br>'
+                    $links = '-'
+                    if ($Usage -eq 'Trusted') {
+                        foreach ($id in $contributors) { [void]$trustedIds.Add($id) }
+                        # Trusted rows are emitted for one named location at a time.
+                        $locationId = [string]$contributors[0]
+                        if (-not $trustedPolicyLinks.ContainsKey($locationId)) {
+                            $references = foreach ($referencingPolicy in $sortedPolicies) {
+                                foreach ($side in @('includeLocations', 'excludeLocations')) {
+                                    $selectors = @($referencingPolicy.conditions.locations.$side)
+                                    $association = 'Included'
+                                    if ($side -eq 'excludeLocations') { $association = 'Excluded' }
+                                    $methods = @()
+                                    if (@($contributors | Where-Object { $selectors -contains $_ }).Count -gt 0) { $methods += 'directly' }
+                                    if ($selectors -contains 'AllTrusted') { $methods += 'via AllTrusted' }
+                                    if ($methods.Count -gt 0) {
+                                        $state = switch ([string]$referencingPolicy.state) {
+                                            'enabled' { 'Enabled' }
+                                            'disabled' { 'Disabled' }
+                                            'enabledForReportingButNotEnforced' { 'Report-only' }
+                                            default { ConvertTo-EntraFalconHtmlText -Value $referencingPolicy.state }
+                                        }
+                                        "$(Get-CapPolicyLink -Policy $referencingPolicy) - $association $($methods -join ' and '); $state"
+                                    }
+                                }
+                            }
+                            $trustedPolicyLinks[$locationId] = '-'
+                            if (@($references).Count -gt 0) { $trustedPolicyLinks[$locationId] = $references -join '<br>' }
+                        }
+                        $links = $trustedPolicyLinks[$locationId]
+                    } else {
+                        [void]$policyIds.Add([string]$Policy.id)
+                        $links = Get-CapPolicyLink -Policy $Policy
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($Limitation)) { [void]$limitations.Add($Limitation) }
+                    if ($prefix -le $mediumPrefix) { $assessment.Severity = 2 }
+                    $count = '-'
+                    if ($range.Bits -eq 32) { $count = $size.ToString([System.Globalization.CultureInfo]::InvariantCulture) }
+                    $rows.Add([pscustomobject]@{
+                        'Named Locations'=$names; Usage=$Usage; 'IP Range'=$cidr; 'IPv4 Addresses'=$count
+                        Policy=$links
+                    })
+                }
+                $cursor += $size
+            }
+        }
+    }
+
+    foreach ($location in $Locations) {
+        if ($null -ne $location -and -not [string]::IsNullOrWhiteSpace([string]$location.id)) {
+            $locationLookup[[string]$location.id] = $location
+        } else { $issues.Add('The named-location collection contains an entry without an ID.') }
+    }
+    foreach ($location in $trustedIpLocations) {
+        $ranges = @(Get-CapLocationRanges -Selectors @([string]$location.id))
+        Add-CapBroadRangeRows -Ranges $ranges -Sources $ranges -Usage 'Trusted'
+    }
+    foreach ($policy in @($Policies | Where-Object { $_.state -eq 'enabled' -and $_.grantControls.builtInControls -contains 'block' })) {
+        $excluded = @(Get-CapLocationRanges -Selectors @($policy.conditions.locations.excludeLocations))
+        if ($excluded.Count -eq 0) { continue }
+        $includeSelectors = @($policy.conditions.locations.includeLocations | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $limitation = ''
+        $uncertain = $includeSelectors -contains 'AllCompliant'
+        foreach ($selector in $includeSelectors) {
+            if ($locationLookup.ContainsKey([string]$selector) -and $locationLookup[$selector].'@odata.type' -eq '#microsoft.graph.countryNamedLocation') {
+                $uncertain = $true
+            }
+        }
+        $effective = $excluded
+        if ($includeSelectors.Count -gt 0 -and $includeSelectors -notcontains 'All') {
+            if ($uncertain) {
+                # Keep selector validation even when effective overlap cannot be calculated.
+                $null = Get-CapLocationRanges -Selectors $includeSelectors
+                $limitation = 'Effective overlap with country-based or compliant-network policy inclusions was not calculated.'
+            } else {
+                $included = @(Get-CapLocationRanges -Selectors $includeSelectors)
+                $effective = @(Get-CapIpRangeIntersection -ExcludedRanges $excluded -IncludedRanges $included)
+            }
+        }
+        Add-CapBroadRangeRows -Ranges $effective -Sources $excluded -Usage 'Block-policy exception' -Policy $policy -Limitation $limitation
+    }
+    [pscustomobject]@{
+        Complete=($issues.Count -eq 0); Reasons=@($issues | Sort-Object -Unique); Rows=$rows.ToArray()
+        Limitations=@($limitations | Sort-Object)
+        Severity=$assessment.Severity; TrustedLocationCount=$trustedIds.Count; BlockPolicyCount=$policyIds.Count
+    }
+}
+
 function Invoke-CheckCaps {
     ############################## Parameter section ########################
     [CmdletBinding()]
@@ -1365,7 +1620,7 @@ function Invoke-CheckCaps {
             $ResolvedGUID = $($NamedLocationsHT[$Guid].Name)
 
             if ($Report -eq "HTML") {
-                $ResolvedGUIDLink = "<a href=#appendix:-network-location>$ResolvedGUID</a>"
+                $ResolvedGUIDLink = "<a href=#appendix-network-location>$ResolvedGUID</a>"
                 return $ResolvedGUIDLink
             } elseif ($Report -eq "TXT") {
                 return $ResolvedGUID
@@ -1544,6 +1799,7 @@ function Invoke-CheckCaps {
 
 
     ############################## Script section ########################
+    $global:GLOBALCapBroadNetworkAssessment = $null
     #Check token validity to ensure it will not expire in the next 30 minutes
     if (-not (Invoke-CheckTokenExpiration $GLOBALmsGraphAccessToken)) { RefreshAuthenticationMsGraph | Out-Null}
 
@@ -1599,7 +1855,28 @@ function Invoke-CheckCaps {
 
     #Check Named locations
     write-host "[*] Enumerate Named locations"
-    $LocationsRaw = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/identity/conditionalAccess/namedLocations" -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name)
+    $locationsAvailable = $true
+    $locationFailureReason = ''
+    try {
+        $LocationsRaw = Send-GraphRequest -AccessToken $GLOBALMsGraphAccessToken.access_token -Method GET -Uri "/identity/conditionalAccess/namedLocations" -BetaAPI -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop
+    } catch {
+        $LocationsRaw = @()
+        $locationsAvailable = $false
+        $locationFailureReason = Format-CapGraphError -ErrorRecord $_
+        Write-Host "[!] Named locations could not be retrieved. $locationFailureReason"
+    }
+    $LocationsRaw = @($LocationsRaw | Where-Object { $null -ne $_ })
+    if ($locationsAvailable) {
+        $global:GLOBALCapBroadNetworkAssessment = Get-CapBroadNetworkAssessment -Locations $LocationsRaw -Policies @($AllPolicies) -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp
+    } else {
+        $global:GLOBALCapBroadNetworkAssessment = [pscustomobject]@{
+            Complete=$false; Reasons=@("Named locations could not be retrieved. $locationFailureReason"); Rows=@()
+            Limitations=@(); Severity=1; TrustedLocationCount=0; BlockPolicyCount=0
+        }
+    }
+    foreach ($reason in $global:GLOBALCapBroadNetworkAssessment.Reasons) {
+        Write-Log -Level Verbose -Message "[CAP-012] $reason"
+    }
     $NamedLocations = foreach($location in $LocationsRaw) {
         $NamedLocationType = "Unknown"
         $TargetedLocations = ""
@@ -1607,7 +1884,7 @@ function Invoke-CheckCaps {
             "#microsoft.graph.countryNamedLocation" {
                 $NamedLocationType = "Countries"
                 $TargetedLocations = $location.countriesAndRegions | Sort-Object
-                if ($TargetedLocations -is [array] -or ($TargetedLocations.GetType().Name -eq 'Object[]')) {
+                if ($TargetedLocations -is [array]) {
                     $TargetedLocations = $TargetedLocations -join ", "
                 }
             }
@@ -1615,7 +1892,7 @@ function Invoke-CheckCaps {
             "#microsoft.graph.ipNamedLocation" {
                 $NamedLocationType = "IP ranges"
                 $TargetedLocations = $location.ipRanges.cidrAddress
-                if ($TargetedLocations -is [array] -or ($TargetedLocations.GetType().Name -eq 'Object[]')) {
+                if ($TargetedLocations -is [array]) {
                     $TargetedLocations = $TargetedLocations -join ", "
                 }
             }
@@ -3402,7 +3679,7 @@ if ($AllPoliciesCount -gt 0) {
             }
         )
         Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "ConditionalAccessPolicies" -Data $policyExport | Out-Null
-        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "NamedLocations" -Data @($LocationsRaw | Where-Object { $null -ne $_ }) | Out-Null
+        Export-EntraFalconDataJson -OutputFolder $outputFolder -DatasetName "NamedLocations" -Data $LocationsRaw | Out-Null
     }
 
 
@@ -3483,3 +3760,5 @@ $headerHtml = @"
     Return $AllCapsHT
     
 }
+
+Export-ModuleMember -Function Invoke-CheckCaps

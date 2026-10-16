@@ -14519,6 +14519,7 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALPermissionForCaps -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALCapsDataAvailable -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALCapsUnavailableReason -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALCapBroadNetworkAssessment -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimSettingsAvailable -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimSettingsUnavailableReason -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALPimForGroupsChecked -ErrorAction SilentlyContinue
