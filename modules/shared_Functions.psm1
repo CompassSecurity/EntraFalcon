@@ -2044,9 +2044,10 @@ $global:GLOBALJavaScript_Table = @'
             "Direct": "Number of directly assigned active role assignments that are not activated via PIM",
             "Activated": "Number of currently active role assignments activated via PIM",
             "AssignmentType": "Activated eligible assignments also appear as active",
-            "Identities": "Unique users and workload identities found through active or eligible membership, including nested groups. Incomplete collection may understate counts; zero does not establish absence when coverage warnings exist. Counts cannot be summed and do not imply active access.",
+            "Identities": "Unique users and workload identities found through active or eligible membership, including nested groups.",
             "Conditions": "Has additional conditions",
             "TargetType": "Conditional Access target category: Users, Workloads, or Agents",
+            "Intent": "Purpose inferred from the policy configuration and EntraFalcon assessment rules. Does not indicate successful enforcement.",
             "Groups": "Access Package resources of type Group",
             "Applications": "Access Package resources of type Application",
             "ApiApp": "Access Package OAuth application permissions",
@@ -2103,6 +2104,10 @@ $global:GLOBALJavaScript_Table = @'
             const manifestEl = document.getElementById("report-manifest");
             const manifest = manifestEl && manifestEl.textContent ? JSON.parse(manifestEl.textContent) : null;
             window.__reportManifest = manifest;        
+
+            if (manifest && manifest.currentReportKey === "CAP") {
+                if (!defaultHidden.includes("Intent")) defaultHidden.push("Intent");
+            }
 
             if (manifest && manifest.currentReportKey === "AccessPackages") {
                 ["ExpirationDetails", "Catalog", "AccessReview", "ExpiredAssignments", "ServicePrincipals", "Users", "Guests"].forEach(col => {

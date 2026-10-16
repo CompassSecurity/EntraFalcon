@@ -27,6 +27,26 @@ function Invoke-CheckCaps {
     # Keeping the expanded metrics in memory avoids repeatedly walking the same member lists.
     $GroupUsersMetricsCache = @{}
 
+    $IntentLabels = [ordered]@{
+        BlockDeviceCodeFlow = 'Block device code flow'
+        BlockLegacyAuthentication = 'Block legacy authentication'
+        ManageSignInRisk = 'Manage sign-in risk'
+        ManageUserRisk = 'Manage user risk'
+        ProtectSecurityInfoRegistration = 'Protect security-info registration'
+        ProtectDeviceRegistration = 'Protect device registration/join'
+        EnforceMfa = 'Enforce MFA'
+        EnforcePhishingResistantMfa = 'Enforce phishing-resistant MFA'
+        RestrictWorkloadAccessByLocation = 'Workload location restrictions'
+        ManageRiskyWorkloads = 'Workload risk management'
+    }
+
+    function ConvertTo-CapIntentDisplayText {
+        param([string[]]$Intent)
+
+        if (@($Intent).Count -eq 0) { return 'Unclassified' }
+        return (@($Intent | ForEach-Object { $IntentLabels[$_] }) -join '; ')
+    }
+
     #Function to check if a string is a GUID
     function Test-IsGuid {
         param (
@@ -126,6 +146,50 @@ function Invoke-CheckCaps {
         }
 
         return "Users"
+    }
+
+    function Get-CapWorkloadIntent {
+        param(
+            [Parameter(Mandatory=$true)]$Policy,
+            [Parameter(Mandatory=$true)][string]$TargetType
+        )
+
+        if ($TargetType -ne 'Workloads') { return }
+
+        $grantControls = $Policy.GrantControls
+        $builtInControls = @($grantControls.BuiltInControls)
+        if ($builtInControls.Count -ne 1 -or $builtInControls[0] -ne 'block') { return }
+        if ($null -ne $grantControls.AuthenticationStrength -or
+            ($null -ne $grantControls.TermsOfUse -and @($grantControls.TermsOfUse).Count -gt 0) -or
+            ($null -ne $grantControls.CustomAuthenticationFactors -and @($grantControls.CustomAuthenticationFactors).Count -gt 0)) {
+            return
+        }
+
+        $conditions = $Policy.Conditions
+        $riskLevels = @($conditions.ServicePrincipalRiskLevels)
+        if ($null -ne $conditions.ServicePrincipalRiskLevels -and $riskLevels.Count -gt 0) {
+            foreach ($riskLevel in $riskLevels) {
+                if ($riskLevel -notin @('low', 'medium', 'high')) { return }
+            }
+            return 'ManageRiskyWorkloads'
+        }
+
+        # Unknown risk conditions must not be interpreted as a location-only policy.
+        foreach ($condition in $conditions.PSObject.Properties) {
+            if ($condition.Name -match 'Risk' -and $null -ne $condition.Value -and @($condition.Value).Count -gt 0) {
+                return
+            }
+        }
+
+        $includedLocations = @($conditions.Locations.IncludeLocations)
+        $excludedLocations = @($conditions.Locations.ExcludeLocations)
+        if ($includedLocations.Count -ne 1 -or $includedLocations[0] -ne 'All' -or $excludedLocations.Count -eq 0) {
+            return
+        }
+        foreach ($location in $excludedLocations) {
+            if ($location -ne 'AllTrusted' -and -not (Test-IsGuid -Value $location)) { return }
+        }
+        return 'RestrictWorkloadAccessByLocation'
     }
 
     function Test-CapLegacyGuestsOrExternalUsersSelector {
@@ -1825,7 +1889,7 @@ function Invoke-CheckCaps {
 
     ########################################## SECTION: Processing ##########################################
 
-    # Sort the policies based on custom order
+    # Process in state/name order; final report ordering follows intent classification.
     $sortOrder = @(
         "enabled",
         "enabledForReportingButNotEnforced",
@@ -1865,6 +1929,7 @@ function Invoke-CheckCaps {
     #Main processing of the results
     foreach ($policy in $AllPolicies) {
         $ProgressCounter ++
+        $PolicyIntents = [System.Collections.Generic.List[string]]::new()
         $PolicyWarningParts = [System.Collections.Generic.List[string]]::new()
         $MfaCommonIssues = [System.Collections.Generic.List[string]]::new()
         $MfaSpecificIssues = [System.Collections.Generic.List[string]]::new()
@@ -2449,6 +2514,7 @@ function Invoke-CheckCaps {
 
         #Check policy for DeviceCodeFlow
         if ($policy.Conditions.AuthenticationFlows.TransferMethods -match "deviceCodeFlow") {
+            $PolicyIntents.Add('BlockDeviceCodeFlow')
             $PolicyDeviceCodeFlow = $true
             $DeviceCodeFlowWarnings = 0
             $ErrorMessages = @()
@@ -2494,6 +2560,7 @@ function Invoke-CheckCaps {
 
         #Check policy for blocking legacy authentication
         if ($policy.Conditions.ClientAppTypes -contains "exchangeActiveSync" -and $policy.Conditions.ClientAppTypes -contains "other" -and -not ($policy.Conditions.ClientAppTypes -contains "browser") -and -not ($policy.Conditions.ClientAppTypes -contains "mobileAppsAndDesktopClients")) {
+            $PolicyIntents.Add('BlockLegacyAuthentication')
             $PolicyLegacyAuth = $true
             $LegacyAuthWarnings = 0
             $ErrorMessages = @()
@@ -2540,6 +2607,7 @@ function Invoke-CheckCaps {
 
         #Check policy for managing SignInRisk
         if ($policy.Conditions.SignInRiskLevels.count -ge 1 -and $policy.Conditions.UserRiskLevels.count -eq 0) {
+            $PolicyIntents.Add('ManageSignInRisk')
             $PolicyRiskySignIn = $true
             $SignInRiskWarnings = 0
             $ErrorMessages = @()
@@ -2582,6 +2650,7 @@ function Invoke-CheckCaps {
 
         #Check policy for managing UserRisk
         if ($policy.Conditions.UserRiskLevels.count -ge 1 -and $policy.Conditions.SignInRiskLevels.count -eq 0) {
+            $PolicyIntents.Add('ManageUserRisk')
             $PolicyUserRisk = $true
             $UserRiskWarnings = 0
             $ErrorMessages = @()
@@ -2624,6 +2693,8 @@ function Invoke-CheckCaps {
 
         #Check for the common case where user risk and sign-in risk are managed in the same policy
         if ($policy.Conditions.UserRiskLevels.count -ge 1 -and $policy.Conditions.SignInRiskLevels.count -ge 1) {
+            $PolicyIntents.Add('ManageSignInRisk')
+            $PolicyIntents.Add('ManageUserRisk')
             $PolicyUserRisk = $true
             $PolicyRiskySignIn = $true
             $CombinedRiskWarnings = 0
@@ -2668,6 +2739,7 @@ function Invoke-CheckCaps {
 
         #Check policy for registering security infos
         if ($policy.Conditions.Applications.IncludeUserActions -contains "urn:user:registersecurityinfo") {
+            $PolicyIntents.Add('ProtectSecurityInfoRegistration')
             $PolicyRegSecInfo = $true
             $RegisterSecInfosWarnings = 0
             $ErrorMessages = @()
@@ -2705,6 +2777,7 @@ function Invoke-CheckCaps {
   
         #Check policy for joining or registering devices
         if ($policy.Conditions.Applications.IncludeUserActions -contains "urn:user:registerdevice") {
+            $PolicyIntents.Add('ProtectDeviceRegistration')
             $PolicyRegDevices = $true
             $RegisterDevicesInfosWarnings = 0
             $ErrorMessages = @()
@@ -2757,6 +2830,7 @@ function Invoke-CheckCaps {
 
         #Check policy for MFA
         if ($GrantAssuranceEvaluation.HasMfaBaselineCandidate -and $policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and $hasNoAuthFlow -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoUserActions) {
+            $PolicyIntents.Add('EnforceMfa')
             if ($GrantAssuranceEvaluation.MfaEquivalentEnforced) {
                 $PolicyMfaUser = $true
             }
@@ -2807,6 +2881,7 @@ function Invoke-CheckCaps {
         #Check policy with Authentication strengths for enforcing phishing-resistant MFA
         $authStrengthIdCandidate = "$($policy.GrantControls.AuthenticationStrength.Id)".Trim()
         if ($policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and -not [string]::IsNullOrWhiteSpace($authStrengthIdCandidate) -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoAuthFlow -and $hasNoUserActions) {
+            $PolicyIntents.Add('EnforcePhishingResistantMfa')
             if ($GrantAssuranceEvaluation.PhishingResistantEnforced) {
                 $PolicyAuthStrength = $true
             }
@@ -2873,13 +2948,17 @@ function Invoke-CheckCaps {
         }
         $WarningPolicy = (Get-DeduplicatedWarningItems -Items @($PolicyWarningParts)) -join " / "
         $TargetType = Get-CapTargetType -Policy $policy
-
+        $workloadIntent = Get-CapWorkloadIntent -Policy $policy -TargetType $TargetType
+        if (-not [string]::IsNullOrWhiteSpace($workloadIntent)) {
+            $PolicyIntents.Add($workloadIntent)
+        }
 
         $ConditionalAccessPolicies.Add([PSCustomObject]@{
             Id = $policy.Id
             DisplayName = $policy.DisplayName
             DisplayNameLink = "<a href=#$($policy.id)>$($policy.DisplayName)</a>"
             TargetType = $TargetType
+            Intent = @($PolicyIntents.ToArray())
             Description = $policy.Description
             CreatedDateTime = $policy.CreatedDateTime
             ModifiedDateTime = $policy.ModifiedDateTime
@@ -2961,6 +3040,29 @@ function Invoke-CheckCaps {
     #endregion
 
     write-host "[*] Processing results"
+    $reportStateOrder = @{ enabled = 0; 'report-only' = 1; disabled = 2 }
+    $reportTargetOrder = @{ Users = 0; Workloads = 1; Agents = 2 }
+    $reportSortProperties = @(
+        @{ Expression = {
+            if ($reportStateOrder.ContainsKey([string]$_.State)) { $reportStateOrder[[string]$_.State] } else { 3 }
+        } }
+        @{ Expression = {
+            if ($reportTargetOrder.ContainsKey([string]$_.TargetType)) { $reportTargetOrder[[string]$_.TargetType] } else { 3 }
+        } }
+        @{ Expression = { if (@($_.Intent).Count -gt 0) { 0 } else { 1 } } }
+        @{ Expression = { (@($_.Intent | ForEach-Object { $IntentLabels[$_] } | Sort-Object) -join '; ') } }
+        'DisplayName'
+        'Id'
+    )
+    $ConditionalAccessPolicies = @($ConditionalAccessPolicies | Sort-Object -Property $reportSortProperties)
+
+    # Keep policy details in the same order as the overview and data export.
+    $RawPoliciesById = @{}
+    foreach ($policy in $AllPolicies) {
+        $RawPoliciesById[[string]$policy.Id] = $policy
+    }
+    $AllPolicies = @($ConditionalAccessPolicies | ForEach-Object { $RawPoliciesById[[string]$_.Id] })
+
     Write-Log -Level Debug -Message "Processed $($ConditionalAccessPolicies.Count) conditional access policies"
     $capEnabledPolicies = @($ConditionalAccessPolicies | Where-Object { $_.State -eq 'enabled' }).Count
     $capReportOnlyPolicies = @($ConditionalAccessPolicies | Where-Object { $_.State -eq 'report-only' }).Count
@@ -3055,7 +3157,7 @@ $MissingPolicies
     $DetailTxtBuilder = [System.Text.StringBuilder]::new()
     $AppendixNetworkLocations = ""
     #Define output of the main table
-    $tableOutput = $ConditionalAccessPolicies | select-object DisplayName,DisplayNameLink,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,IncUsersViaGroups,ExcUsers,ExcUsersViaGroups,IncGroups,ExcGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
+    $tableOutput = $ConditionalAccessPolicies | select-object DisplayName,DisplayNameLink,TargetType,@{Label='Intent'; Expression={ConvertTo-CapIntentDisplayText -Intent $_.Intent}},UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,IncUsersViaGroups,ExcUsers,ExcUsersViaGroups,IncGroups,ExcGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
 
     #Build the detail section of the report
     foreach ($item in $AllPolicies) {
@@ -3076,6 +3178,7 @@ $MissingPolicies
             "Policy Name" = $($item.DisplayName)
             "ID" = $($item.Id)
             "Target Type" = $($policy.TargetType)
+            "Intent" = ConvertTo-CapIntentDisplayText -Intent $policy.Intent
             "State" = $($item.State)
         }
         
@@ -3238,7 +3341,7 @@ $MissingPolicies
     write-host ""
 
     if ($AllPoliciesCount -gt 0) {
-    $mainTable = $tableOutput | select-object -Property @{Label="DisplayName"; Expression={$_.DisplayNameLink}},TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Label="DisplayName"; Expression={$_.DisplayNameLink}},TargetType,Intent,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings
         $mainTableJson  = $mainTable | ConvertTo-Json -Depth 10 -Compress       
     } else {
         #Define an empty JSON object to make the HTML report loading
@@ -3337,7 +3440,7 @@ $headerHtml = @"
     #Write TXT and CSV files
     $headerTXT | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt"
     if ($AllPoliciesCount -gt 0 -and $Csv) { 
-        $tableOutput | select-object DisplayName,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+        $tableOutput | select-object DisplayName,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings,Intent | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
     }
     $tableOutput | format-table -Property DisplayName,TargetType,UserCoverage,State,IncResources,ExcResources,AuthContext,IncUsers,ExcUsers,IncGroups,IncUsersViaGroups,ExcGroups,ExcUsersViaGroups,IncRoles,IncUsersViaRoles,ExcRoles,ExcUsersViaRoles,IncExternals,ExcExternals,DeviceFilter,IncPlatforms,ExcPlatforms,SignInRisk,UserRisk,IncNw,ExcNw,AppTypes,AuthFlow,UserActions,GrantControls,SessionControls,SignInFrequency,SignInFrequencyInterval,AuthStrength,Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
     if ($Warnings.count -ge 1) {$Warnings | Out-File -Width 768 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append}
