@@ -1502,6 +1502,18 @@ function Invoke-CheckTenant {
     "AffectedObjects": []
   },
   {
+    "FindingId": "USR-014",
+    "Title": "Users Can Create Agent Blueprints",
+    "Category": "Users",
+    "Severity": 2,
+    "Description": "",
+    "Threat": "",
+    "Status": "Skipped",
+    "Remediation": "",
+    "Confidence": "Sure",
+    "AffectedObjects": []
+  },
+  {
     "FindingId": "GRP-001",
     "Title": "Security Group Creation Not Restricted",
     "Category": "Groups",
@@ -2747,6 +2759,24 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             RelatedReportUrl = ""
         }
     }
+    $USR014VariantProps = @{
+        Default = @{
+            Threat = "<p>The exact security impact of allowing regular users to create agent identity blueprints is currently unknown. Potential governance risks include unmanaged agent creation and additional identity lifecycle oversight requirements.</p>"
+            Remediation = '<p>Restrict agent identity blueprint creation to authorized administrators and users assigned the Agent ID Developer role. Configure the following setting in the Entra admin center:</p><ol><li>Entra ID</li><li>Users</li><li>User settings</li><li>Set <code>Users can create agent blueprints</code> to <code>No</code></li></ol><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles#to-disable-the-default-ability-to-create-new-agents-agent-identity-blueprints" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles#to-disable-the-default-ability-to-create-new-agents-agent-identity-blueprints</a></li></ul>'
+        }
+        Vulnerable = @{
+            Status = "Vulnerable"
+            Description = "<p>The tenant policy allows regular users to create agent identity blueprints.</p><p>Microsoft announced this capability in MC1506733, with rollout planned for November 2026.</p>"
+        }
+        Secure = @{
+            Status = "NotVulnerable"
+            Description = "<p>The tenant policy does not allow regular users to create agent identity blueprints.</p><p>Microsoft announced this capability in MC1506733, with rollout planned for November 2026.</p>"
+        }
+        Skipped = @{
+            Status = "Skipped"
+            Description = "<p>Check skipped because the authorization policy setting defaultUserRolePermissions.allowedToCreateAgentIdentityBlueprints could not be determined.</p>"
+        }
+    }
     #endregion
     #region GRP VariantProps
     $GRP001VariantProps = @{
@@ -3841,6 +3871,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         "USR-011" = $USR011VariantProps.Default
         "USR-012" = $USR012VariantProps.Default
         "USR-013" = $USR013VariantProps.Default
+        "USR-014" = $USR014VariantProps.Default
         "GRP-001" = $GRP001VariantProps.Default
         "GRP-002" = $GRP002VariantProps.Default
         "GRP-003" = $GRP003VariantProps.Default
@@ -10252,7 +10283,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
 
     # Evaluate findings from pre-collected authorization policy data.
-    ### CHECKS COL-001 COL-002 COL-003 PAS-001 PAS-002 PAS-003 PAS-004 PAS-005 USR-001 USR-002 USR-003 USR-004 USR-005 USR-006 USR-007 USR-008 USR-009 USR-010 USR-011 USR-012 USR-013 GRP-001 GRP-002 GRP-003 GRP-004 GRP-005
+    ### CHECKS COL-001 COL-002 COL-003 PAS-001 PAS-002 PAS-003 PAS-004 PAS-005 USR-001 USR-002 USR-003 USR-004 USR-005 USR-006 USR-007 USR-008 USR-009 USR-010 USR-011 USR-012 USR-013 USR-014 GRP-001 GRP-002 GRP-003 GRP-004 GRP-005
     #endregion
 
     #region COL Evaluation
@@ -11223,6 +11254,23 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     } else {
         Write-Log -Level Verbose -Message "[USR-013] Found $($enabledOnPremNeverSignedInOlderThan90Users.Count) enabled synchronized on-premises accounts older than 90 days without recorded sign-in to Entra ID (below threshold)."
         Set-FindingOverride -FindingId "USR-013" -Props $USR013VariantProps.Secure
+    }
+
+    # USR-014: Evaluate the tenant policy independently of existing agents or blueprints.
+    $allowedToCreateAgentIdentityBlueprints = $null
+    if ($AuthPolicy -and $AuthPolicy.defaultUserRolePermissions) {
+        $allowedToCreateAgentIdentityBlueprints = $AuthPolicy.defaultUserRolePermissions.allowedToCreateAgentIdentityBlueprints
+    }
+    if ($null -eq $allowedToCreateAgentIdentityBlueprints) {
+        Write-Log -Level Debug -Message "[USR-014] Authorization policy defaultUserRolePermissions.allowedToCreateAgentIdentityBlueprints not found."
+        Set-FindingOverride -FindingId "USR-014" -Props $USR014VariantProps.Skipped
+    } else {
+        Write-Log -Level Verbose -Message "[USR-014] Authorization policy allowedToCreateAgentIdentityBlueprints: $allowedToCreateAgentIdentityBlueprints"
+        if ($allowedToCreateAgentIdentityBlueprints) {
+            Set-FindingOverride -FindingId "USR-014" -Props $USR014VariantProps.Vulnerable
+        } else {
+            Set-FindingOverride -FindingId "USR-014" -Props $USR014VariantProps.Secure
+        }
     }
 
     #endregion
