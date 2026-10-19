@@ -582,8 +582,11 @@ function Invoke-CheckCaps {
             if ($includedLocations.Count -ne 1 -or (Test-ObjectEmpty $conditions.Locations.ExcludeLocations)) { return }
             $restrictedLocations = $excludedLocations
         } else {
-            if ($null -ne $conditions.Locations.ExcludeLocations -and $excludedLocations.Count -gt 0) { return }
             $restrictedLocations = $includedLocations
+            if ($null -ne $conditions.Locations.ExcludeLocations -and $excludedLocations.Count -gt 0) {
+                if ($TargetType -eq 'Agents') { return }
+                $restrictedLocations += $excludedLocations
+            }
         }
 
         if ($TargetType -eq 'Agents' -and $restrictedLocations.Count -ne 1) { return }
