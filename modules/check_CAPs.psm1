@@ -349,8 +349,11 @@ function Invoke-CheckCaps {
         ProtectDeviceRegistration = 'Protect device registration/join'
         EnforceMfa = 'Enforce MFA'
         EnforcePhishingResistantMfa = 'Enforce phishing-resistant MFA'
-        RestrictWorkloadAccessByLocation = 'Workload location restrictions'
+        RestrictAccessByLocation = 'Location restrictions'
         ManageRiskyWorkloads = 'Workload risk management'
+        ManageRiskyAgents = 'Agent risk management'
+        TargetAuthenticationContext = 'Authentication context'
+        ApplyAppEnforcedRestrictions = 'App-enforced restrictions'
     }
 
     function ConvertTo-CapIntentDisplayText {
@@ -461,48 +464,171 @@ function Invoke-CheckCaps {
         return "Users"
     }
 
-    function Get-CapWorkloadIntent {
+    function Test-CapBlockOnlyGrant {
+        param([Parameter(Mandatory=$false)]$GrantControls)
+
+        $builtInControls = @($GrantControls.BuiltInControls)
+        return ($builtInControls.Count -eq 1 -and $builtInControls[0] -eq 'block' -and
+            $null -eq $GrantControls.AuthenticationStrength -and
+            ($null -eq $GrantControls.TermsOfUse -or @($GrantControls.TermsOfUse).Count -eq 0) -and
+            ($null -eq $GrantControls.CustomAuthenticationFactors -or @($GrantControls.CustomAuthenticationFactors).Count -eq 0))
+    }
+
+    function Get-CapRiskIntent {
         param(
             [Parameter(Mandatory=$true)]$Policy,
             [Parameter(Mandatory=$true)][string]$TargetType
         )
 
-        if ($TargetType -ne 'Workloads') { return }
-
-        $grantControls = $Policy.GrantControls
-        $builtInControls = @($grantControls.BuiltInControls)
-        if ($builtInControls.Count -ne 1 -or $builtInControls[0] -ne 'block') { return }
-        if ($null -ne $grantControls.AuthenticationStrength -or
-            ($null -ne $grantControls.TermsOfUse -and @($grantControls.TermsOfUse).Count -gt 0) -or
-            ($null -ne $grantControls.CustomAuthenticationFactors -and @($grantControls.CustomAuthenticationFactors).Count -gt 0)) {
-            return
-        }
+        if ($TargetType -notin @('Workloads','Agents') -or
+            -not (Test-CapBlockOnlyGrant -GrantControls $Policy.GrantControls)) { return }
 
         $conditions = $Policy.Conditions
-        $riskLevels = @($conditions.ServicePrincipalRiskLevels)
-        if ($null -ne $conditions.ServicePrincipalRiskLevels -and $riskLevels.Count -gt 0) {
-            foreach ($riskLevel in $riskLevels) {
-                if ($riskLevel -notin @('low', 'medium', 'high')) { return }
+        if ($TargetType -eq 'Workloads') {
+            if ($null -eq $conditions.ServicePrincipalRiskLevels) { return }
+            $riskLevels = @($conditions.ServicePrincipalRiskLevels)
+            $intent = 'ManageRiskyWorkloads'
+        } else {
+            if ($conditions.AgentIdRiskLevels -isnot [string]) { return }
+            $clientApplications = $conditions.ClientApplications
+            foreach ($propertyName in @('IncludeServicePrincipals','ExcludeServicePrincipals','ServicePrincipalFilter')) {
+                if (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName $propertyName) { return }
             }
-            return 'ManageRiskyWorkloads'
+
+            $agents = $conditions.Agents
+            $hasAgentTarget = (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName 'IncludeAgentUsers') -or
+                (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName 'ExcludeAgentUsers') -or
+                (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName 'IncludeAgentIdServicePrincipals') -or
+                (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName 'ExcludeAgentIdServicePrincipals')
+            foreach ($filter in @($agents.AgentFilter, $clientApplications.AgentIdServicePrincipalFilter)) {
+                if (Is-Empty $filter) { continue }
+                if ($filter.Mode -notin @('include','exclude') -or [string]::IsNullOrWhiteSpace([string]$filter.Rule)) { return }
+                $hasAgentTarget = $true
+            }
+            if (-not $hasAgentTarget) { return }
+
+            # Agent risk is a flags string; workload risk remains a collection.
+            $riskLevels = @($conditions.AgentIdRiskLevels.Split(',') | ForEach-Object { $_.Trim() })
+            $intent = 'ManageRiskyAgents'
         }
 
-        # Unknown risk conditions must not be interpreted as a location-only policy.
+        if ($riskLevels.Count -eq 0) { return }
+        foreach ($riskLevel in $riskLevels) {
+            if ($riskLevel -notin @('low', 'medium', 'high')) { return }
+        }
+        return $intent
+    }
+
+    function Get-CapLocationIntent {
+        param(
+            [Parameter(Mandatory=$true)]$Policy,
+            [Parameter(Mandatory=$true)][string]$TargetType
+        )
+
+        if ($TargetType -notin @('Users','Workloads','Agents') -or
+            -not (Test-CapBlockOnlyGrant -GrantControls $Policy.GrantControls)) { return }
+
+        $conditions = $Policy.Conditions
+        $scopeConditions = @('applications','users','clientApplications','agents','agentContext','locations','platforms','clientAppTypes')
         foreach ($condition in $conditions.PSObject.Properties) {
-            if ($condition.Name -match 'Risk' -and $null -ne $condition.Value -and @($condition.Value).Count -gt 0) {
-                return
+            if ($condition.Name -notin $scopeConditions -and $condition.Name -notlike '@odata.*' -and
+                -not (Is-Empty $condition.Value)) { return }
+        }
+        if (-not (Is-Empty $conditions.Applications.IncludeAuthenticationContextClassReferences) -or
+            -not (Is-Empty $conditions.Applications.IncludeUserActions)) { return }
+
+        $clientAppTypes = @($conditions.ClientAppTypes)
+        if (-not (Is-Empty $conditions.ClientAppTypes) -and
+            ($clientAppTypes.Count -ne 1 -or $clientAppTypes[0] -ne 'all')) { return }
+        $includedPlatforms = @($conditions.Platforms.IncludePlatforms)
+        if ((-not (Is-Empty $conditions.Platforms.IncludePlatforms) -and
+            ($includedPlatforms.Count -ne 1 -or $includedPlatforms[0] -ne 'all')) -or
+            -not (Is-Empty $conditions.Platforms.ExcludePlatforms)) { return }
+
+        $clientApplications = $conditions.ClientApplications
+        $workloadSelectors = @('IncludeServicePrincipals','ExcludeServicePrincipals','ServicePrincipalFilter')
+        $hasWorkloadTarget = $false
+        foreach ($selector in $clientApplications.PSObject.Properties) {
+            if ($selector.Name -like '@odata.*' -or (Is-Empty $selector.Value)) { continue }
+            if ($selector.Name -notin $workloadSelectors) { return }
+            if (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName $selector.Name) {
+                $hasWorkloadTarget = $true
             }
+        }
+        $agents = $conditions.Agents
+        foreach ($agentUser in $agents.IncludeAgentUsers) {
+            if ($agentUser -ne 'All' -and -not (Test-IsGuid -Value $agentUser)) { return }
+        }
+        $agentFilter = $agents.AgentFilter
+        if (-not (Is-Empty $agentFilter) -and
+            ($agentFilter.Mode -notin @('include','exclude') -or [string]::IsNullOrWhiteSpace([string]$agentFilter.Rule))) { return }
+        $hasAgentUserTarget = (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName 'IncludeAgentUsers') -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName 'AgentFilter')
+        foreach ($selector in $agents.PSObject.Properties) {
+            if ($selector.Name -notin @('IncludeAgentUsers','ExcludeAgentUsers','AgentFilter') -and
+                $selector.Name -notlike '@odata.*' -and -not (Is-Empty $selector.Value)) { return }
+        }
+
+        $allowedSpecialLocations = @('AllTrusted')
+        if ($TargetType -eq 'Agents') {
+            if (-not $hasAgentUserTarget -or $hasWorkloadTarget) { return }
+            $allowedSpecialLocations = @('AllCompliant')
+        } else {
+            if (-not (Is-Empty $agents)) { return }
+            if ($TargetType -eq 'Users') { $allowedSpecialLocations += 'AllCompliant' }
         }
 
         $includedLocations = @($conditions.Locations.IncludeLocations)
         $excludedLocations = @($conditions.Locations.ExcludeLocations)
-        if ($includedLocations.Count -ne 1 -or $includedLocations[0] -ne 'All' -or $excludedLocations.Count -eq 0) {
-            return
+        if (Is-Empty $conditions.Locations.IncludeLocations) { return }
+        if ($includedLocations -contains 'All') {
+            if ($includedLocations.Count -ne 1 -or (Is-Empty $conditions.Locations.ExcludeLocations)) { return }
+            $restrictedLocations = $excludedLocations
+        } else {
+            if ($null -ne $conditions.Locations.ExcludeLocations -and $excludedLocations.Count -gt 0) { return }
+            $restrictedLocations = $includedLocations
         }
-        foreach ($location in $excludedLocations) {
-            if ($location -ne 'AllTrusted' -and -not (Test-IsGuid -Value $location)) { return }
+
+        if ($TargetType -eq 'Agents' -and $restrictedLocations.Count -ne 1) { return }
+        foreach ($location in $restrictedLocations) {
+            if ($location -in $allowedSpecialLocations) { continue }
+            if ($TargetType -eq 'Agents' -or -not (Test-IsGuid -Value $location)) { return }
         }
-        return 'RestrictWorkloadAccessByLocation'
+        return 'RestrictAccessByLocation'
+    }
+
+    function Get-CapAdditionalIntent {
+        param(
+            [Parameter(Mandatory=$true)]$Policy,
+            [Parameter(Mandatory=$true)][string]$TargetType
+        )
+
+        if ($TargetType -notin @('Users', 'Workloads')) { return }
+
+        $applications = $Policy.Conditions.Applications
+        $contextReferences = $applications.IncludeAuthenticationContextClassReferences
+        if ($null -ne $contextReferences -and @($contextReferences).Count -gt 0) {
+            foreach ($reference in $contextReferences) {
+                if ($reference -cnotmatch '^c[1-9][0-9]?$') { return }
+            }
+            # Context, applications, and user actions are distinct resource targeting modes.
+            if (-not (Is-Empty $applications.IncludeApplications) -or
+                -not (Is-Empty $applications.ExcludeApplications) -or
+                -not (Is-Empty $applications.ApplicationFilter) -or
+                -not (Is-Empty $applications.IncludeUserActions)) { return }
+
+            return 'TargetAuthenticationContext'
+        }
+
+        if ($TargetType -ne 'Users' -or
+            -not (Is-Empty $applications.IncludeUserActions) -or
+            $Policy.GrantControls.BuiltInControls -contains 'block') { return }
+        if (-not (Test-CapSelectorHasConfiguredValue -InputObject $applications -PropertyName 'IncludeApplications')) { return }
+
+        $appRestrictionsEnabled = $Policy.SessionControls.ApplicationEnforcedRestrictions.IsEnabled
+        if ($appRestrictionsEnabled -is [bool] -and $appRestrictionsEnabled) {
+            return 'ApplyAppEnforcedRestrictions'
+        }
     }
 
     function Test-CapLegacyGuestsOrExternalUsersSelector {
@@ -3283,9 +3409,19 @@ function Invoke-CheckCaps {
         }
         $WarningPolicy = (Get-DeduplicatedWarningItems -Items @($PolicyWarningParts)) -join " / "
         $TargetType = Get-CapTargetType -Policy $policy
-        $workloadIntent = Get-CapWorkloadIntent -Policy $policy -TargetType $TargetType
-        if (-not [string]::IsNullOrWhiteSpace($workloadIntent)) {
-            $PolicyIntents.Add($workloadIntent)
+        $riskIntent = Get-CapRiskIntent -Policy $policy -TargetType $TargetType
+        if (-not [string]::IsNullOrWhiteSpace($riskIntent)) {
+            $PolicyIntents.Add($riskIntent)
+        }
+        $locationIntent = Get-CapLocationIntent -Policy $policy -TargetType $TargetType
+        if (-not [string]::IsNullOrWhiteSpace($locationIntent)) {
+            $PolicyIntents.Add($locationIntent)
+        }
+        if ($PolicyIntents.Count -eq 0) {
+            $additionalIntent = Get-CapAdditionalIntent -Policy $policy -TargetType $TargetType
+            if (-not [string]::IsNullOrWhiteSpace($additionalIntent)) {
+                $PolicyIntents.Add($additionalIntent)
+            }
         }
 
         $ConditionalAccessPolicies.Add([PSCustomObject]@{
