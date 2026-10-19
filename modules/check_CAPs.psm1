@@ -443,6 +443,7 @@ function Invoke-CheckCaps {
             (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName "AgentFilter") -or
             (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "IncludeAgentIdServicePrincipals") -or
             (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "ExcludeAgentIdServicePrincipals") -or
+            (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName "AgentIdServicePrincipalFilter") -or
             (Test-CapSelectorHasConfiguredValue -InputObject $conditions -PropertyName "AgentIdRiskLevels")
         ) {
             return "Agents"
