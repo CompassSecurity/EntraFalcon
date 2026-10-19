@@ -369,16 +369,12 @@ function Invoke-CheckCaps {
             [string]$Value
         )
 
-        try {
-            $null = [guid]$Value
-            return $true
-        } catch {
-            return $false
-        }
+        $parsedGuid = [guid]::Empty
+        return [guid]::TryParse($Value, [ref]$parsedGuid)
     }
         
     # Function to check if an object is empty, considering nested properties
-    function Is-Empty {
+    function Test-ObjectEmpty {
         param ([Object]$Obj)
 
         if ($null -eq $Obj -or $Obj -eq "") {
@@ -387,7 +383,7 @@ function Invoke-CheckCaps {
 
         if ($Obj -is [System.Collections.IEnumerable] -and $Obj -isnot [string]) {
             foreach ($item in $Obj) {
-                if (-not (Is-Empty $item)) {
+                if (-not (Test-ObjectEmpty $item)) {
                     return $false
                 }
             }
@@ -396,7 +392,7 @@ function Invoke-CheckCaps {
 
         if ($Obj -is [PSCustomObject]) {
             foreach ($property in $Obj.PSObject.Properties) {
-                if (-not (Is-Empty $property.Value)) {
+                if (-not (Test-ObjectEmpty $property.Value)) {
                     return $false
                 }
             }
@@ -501,7 +497,7 @@ function Invoke-CheckCaps {
                 (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName 'IncludeAgentIdServicePrincipals') -or
                 (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName 'ExcludeAgentIdServicePrincipals')
             foreach ($filter in @($agents.AgentFilter, $clientApplications.AgentIdServicePrincipalFilter)) {
-                if (Is-Empty $filter) { continue }
+                if (Test-ObjectEmpty $filter) { continue }
                 if ($filter.Mode -notin @('include','exclude') -or [string]::IsNullOrWhiteSpace([string]$filter.Rule)) { return }
                 $hasAgentTarget = $true
             }
@@ -532,24 +528,24 @@ function Invoke-CheckCaps {
         $scopeConditions = @('applications','users','clientApplications','agents','agentContext','locations','platforms','clientAppTypes')
         foreach ($condition in $conditions.PSObject.Properties) {
             if ($condition.Name -notin $scopeConditions -and $condition.Name -notlike '@odata.*' -and
-                -not (Is-Empty $condition.Value)) { return }
+                -not (Test-ObjectEmpty $condition.Value)) { return }
         }
-        if (-not (Is-Empty $conditions.Applications.IncludeAuthenticationContextClassReferences) -or
-            -not (Is-Empty $conditions.Applications.IncludeUserActions)) { return }
+        if (-not (Test-ObjectEmpty $conditions.Applications.IncludeAuthenticationContextClassReferences) -or
+            -not (Test-ObjectEmpty $conditions.Applications.IncludeUserActions)) { return }
 
         $clientAppTypes = @($conditions.ClientAppTypes)
-        if (-not (Is-Empty $conditions.ClientAppTypes) -and
+        if (-not (Test-ObjectEmpty $conditions.ClientAppTypes) -and
             ($clientAppTypes.Count -ne 1 -or $clientAppTypes[0] -ne 'all')) { return }
         $includedPlatforms = @($conditions.Platforms.IncludePlatforms)
-        if ((-not (Is-Empty $conditions.Platforms.IncludePlatforms) -and
+        if ((-not (Test-ObjectEmpty $conditions.Platforms.IncludePlatforms) -and
             ($includedPlatforms.Count -ne 1 -or $includedPlatforms[0] -ne 'all')) -or
-            -not (Is-Empty $conditions.Platforms.ExcludePlatforms)) { return }
+            -not (Test-ObjectEmpty $conditions.Platforms.ExcludePlatforms)) { return }
 
         $clientApplications = $conditions.ClientApplications
         $workloadSelectors = @('IncludeServicePrincipals','ExcludeServicePrincipals','ServicePrincipalFilter')
         $hasWorkloadTarget = $false
         foreach ($selector in $clientApplications.PSObject.Properties) {
-            if ($selector.Name -like '@odata.*' -or (Is-Empty $selector.Value)) { continue }
+            if ($selector.Name -like '@odata.*' -or (Test-ObjectEmpty $selector.Value)) { continue }
             if ($selector.Name -notin $workloadSelectors) { return }
             if (Test-CapSelectorHasConfiguredValue -InputObject $clientApplications -PropertyName $selector.Name) {
                 $hasWorkloadTarget = $true
@@ -560,13 +556,13 @@ function Invoke-CheckCaps {
             if ($agentUser -ne 'All' -and -not (Test-IsGuid -Value $agentUser)) { return }
         }
         $agentFilter = $agents.AgentFilter
-        if (-not (Is-Empty $agentFilter) -and
+        if (-not (Test-ObjectEmpty $agentFilter) -and
             ($agentFilter.Mode -notin @('include','exclude') -or [string]::IsNullOrWhiteSpace([string]$agentFilter.Rule))) { return }
         $hasAgentUserTarget = (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName 'IncludeAgentUsers') -or
             (Test-CapSelectorHasConfiguredValue -InputObject $agents -PropertyName 'AgentFilter')
         foreach ($selector in $agents.PSObject.Properties) {
             if ($selector.Name -notin @('IncludeAgentUsers','ExcludeAgentUsers','AgentFilter') -and
-                $selector.Name -notlike '@odata.*' -and -not (Is-Empty $selector.Value)) { return }
+                $selector.Name -notlike '@odata.*' -and -not (Test-ObjectEmpty $selector.Value)) { return }
         }
 
         $allowedSpecialLocations = @('AllTrusted')
@@ -574,15 +570,15 @@ function Invoke-CheckCaps {
             if (-not $hasAgentUserTarget -or $hasWorkloadTarget) { return }
             $allowedSpecialLocations = @('AllCompliant')
         } else {
-            if (-not (Is-Empty $agents)) { return }
+            if (-not (Test-ObjectEmpty $agents)) { return }
             if ($TargetType -eq 'Users') { $allowedSpecialLocations += 'AllCompliant' }
         }
 
         $includedLocations = @($conditions.Locations.IncludeLocations)
         $excludedLocations = @($conditions.Locations.ExcludeLocations)
-        if (Is-Empty $conditions.Locations.IncludeLocations) { return }
+        if (Test-ObjectEmpty $conditions.Locations.IncludeLocations) { return }
         if ($includedLocations -contains 'All') {
-            if ($includedLocations.Count -ne 1 -or (Is-Empty $conditions.Locations.ExcludeLocations)) { return }
+            if ($includedLocations.Count -ne 1 -or (Test-ObjectEmpty $conditions.Locations.ExcludeLocations)) { return }
             $restrictedLocations = $excludedLocations
         } else {
             if ($null -ne $conditions.Locations.ExcludeLocations -and $excludedLocations.Count -gt 0) { return }
@@ -612,16 +608,16 @@ function Invoke-CheckCaps {
                 if ($reference -cnotmatch '^c[1-9][0-9]?$') { return }
             }
             # Context, applications, and user actions are distinct resource targeting modes.
-            if (-not (Is-Empty $applications.IncludeApplications) -or
-                -not (Is-Empty $applications.ExcludeApplications) -or
-                -not (Is-Empty $applications.ApplicationFilter) -or
-                -not (Is-Empty $applications.IncludeUserActions)) { return }
+            if (-not (Test-ObjectEmpty $applications.IncludeApplications) -or
+                -not (Test-ObjectEmpty $applications.ExcludeApplications) -or
+                -not (Test-ObjectEmpty $applications.ApplicationFilter) -or
+                -not (Test-ObjectEmpty $applications.IncludeUserActions)) { return }
 
             return 'TargetAuthenticationContext'
         }
 
         if ($TargetType -ne 'Users' -or
-            -not (Is-Empty $applications.IncludeUserActions) -or
+            -not (Test-ObjectEmpty $applications.IncludeUserActions) -or
             $Policy.GrantControls.BuiltInControls -contains 'block') { return }
         if (-not (Test-CapSelectorHasConfiguredValue -InputObject $applications -PropertyName 'IncludeApplications')) { return }
 
@@ -718,15 +714,12 @@ function Invoke-CheckCaps {
             $userIdString = [string]$userId
             if ([string]::IsNullOrWhiteSpace($userIdString)) { continue }
 
-            switch ($userIdString) {
-                "All" {
-                    $hasAll = $true
-                    continue
-                }
-                "None" {
-                    $hasNone = $true
-                    continue
-                }
+            if ($userIdString -eq "All") {
+                $hasAll = $true
+                continue
+            } elseif ($userIdString -eq "None") {
+                $hasNone = $true
+                continue
             }
 
             if ($CapRelevantUserIds -and -not $CapRelevantUserIds.Contains($userIdString)) {
@@ -901,14 +894,13 @@ function Invoke-CheckCaps {
     }
 
     # Resolve supported external-user categories into user metrics using cached tenant users.
-    function Get-ExternalUserMetricsApprox {
+    function Get-ExternalUserMetrics {
         param (
             [Parameter(Mandatory=$false)][string]$GuestOrExternalUserTypes,
             [Parameter(Mandatory=$true)][hashtable]$ExternalUserLookup
         )
 
         $userIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        $approximate = $false
         $normalizedTypes = @(
             "$GuestOrExternalUserTypes" -split "," |
             ForEach-Object { "$_".Trim().ToLowerInvariant() } |
@@ -923,9 +915,8 @@ function Invoke-CheckCaps {
         }
 
         return [pscustomobject]@{
-            UserIds     = $userIds
-            Count       = $userIds.Count
-            Approximate = $approximate
+            UserIds = $userIds
+            Count   = $userIds.Count
         }
     }
 
@@ -1041,7 +1032,7 @@ function Invoke-CheckCaps {
         $effectiveCount = $effectiveUserIds.Count + $fallbackUsersCount
         $rawCount = [int]$DirectMetrics.Count + [int]$GroupMetrics.Count + [int]$RoleMetrics.Count + [int]$ExternalMetrics.Count
         $overlapCount = [Math]::Max(($rawCount - $effectiveCount), 0)
-        $isApproximate = ($fallbackUsersCount -gt 0 -or [bool]$ExternalMetrics.Approximate)
+        $isApproximate = ($fallbackUsersCount -gt 0)
 
         return [pscustomobject]@{
             EffectiveCount = $effectiveCount
@@ -1465,11 +1456,7 @@ function Invoke-CheckCaps {
 
         $combinationEntries = @()
         if ($null -ne $AuthenticationStrength.allowedCombinations) {
-            if ($AuthenticationStrength.allowedCombinations -is [System.Collections.IEnumerable] -and -not ($AuthenticationStrength.allowedCombinations -is [string])) {
-                $combinationEntries = @($AuthenticationStrength.allowedCombinations)
-            } else {
-                $combinationEntries = @($AuthenticationStrength.allowedCombinations)
-            }
+            $combinationEntries = @($AuthenticationStrength.allowedCombinations)
         }
 
         $allowedFactors = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -1910,7 +1897,7 @@ function Invoke-CheckCaps {
             $newIndent = "$Indent  "
 
             # Skip empty properties
-            if (Is-Empty $value) { continue }
+            if (Test-ObjectEmpty $value) { continue }
 
             if ($value -is [System.Collections.IEnumerable] -and $value -isnot [string]) {
                 $isNestedObject = $false
@@ -1924,7 +1911,7 @@ function Invoke-CheckCaps {
                 if ($isNestedObject) {
                     Write-Output "${Indent}${name}:"
                     foreach ($item in $value) {
-                        if (-not (Is-Empty $item)) {
+                        if (-not (Test-ObjectEmpty $item)) {
                             Write-Output "${newIndent}-"
                             ConvertTo-Yaml -InputObject $item -Indent "$newIndent  " -Report $Report
                         }
@@ -2173,7 +2160,7 @@ function Invoke-CheckCaps {
     }
     Write-Log -Level Debug -Message "Prepared CAP-relevant user lookup (excluding agents): $($CapRelevantUsersLookup.Count)"
 
-    $ApproxExternalUserLookup = @{}
+    $ExternalUserLookup = @{}
     $guestUserIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($userEntry in $CapRelevantUsersLookup.GetEnumerator()) {
         $userObject = $userEntry.Value
@@ -2190,10 +2177,8 @@ function Invoke-CheckCaps {
             [void]$guestUserIds.Add($userId)
         }
     }
-    $ApproxExternalUserLookup["b2bcollaborationguest"] = [pscustomobject]@{
-        UserIds     = $guestUserIds
-        Count       = $guestUserIds.Count
-        Approximate = $false
+    $ExternalUserLookup["b2bcollaborationguest"] = [pscustomobject]@{
+        UserIds = $guestUserIds
     }
     Write-Log -Level Debug -Message "Prepared external user lookup: b2bCollaborationGuest=$($guestUserIds.Count)"
 
@@ -2479,8 +2464,8 @@ function Invoke-CheckCaps {
             $ExcludedExternalUsersCount = ($ExcludedExternalUsers -split ',').Count
         }
 
-        $IncludedExternalUserMetrics = Get-ExternalUserMetricsApprox -GuestOrExternalUserTypes $IncludedExternalUsers -ExternalUserLookup $ApproxExternalUserLookup
-        $ExcludedExternalUserMetrics = Get-ExternalUserMetricsApprox -GuestOrExternalUserTypes $ExcludedExternalUsers -ExternalUserLookup $ApproxExternalUserLookup
+        $IncludedExternalUserMetrics = Get-ExternalUserMetrics -GuestOrExternalUserTypes $IncludedExternalUsers -ExternalUserLookup $ExternalUserLookup
+        $ExcludedExternalUserMetrics = Get-ExternalUserMetrics -GuestOrExternalUserTypes $ExcludedExternalUsers -ExternalUserLookup $ExternalUserLookup
 
         $IncludedActualUserIds = Get-EffectiveTargetingUserIds -DirectMetrics $IncludedDirectUserMetrics -GroupMetrics $IncludedGroupUserMetrics -RoleMetrics $IncludedRoleUserMetrics -ExternalMetrics $IncludedExternalUserMetrics -AllUserIds $CapRelevantUserIds -HasAll $IncludedDirectUserMetrics.HasAll
         $ExcludedActualUserIds = Get-EffectiveTargetingUserIds -DirectMetrics $ExcludedDirectUserMetrics -GroupMetrics $ExcludedGroupUserMetrics -RoleMetrics $ExcludedRoleUserMetrics -ExternalMetrics $ExcludedExternalUserMetrics -AllUserIds $CapRelevantUserIds -HasAll $ExcludedDirectUserMetrics.HasAll
@@ -3665,7 +3650,7 @@ $MissingPolicies
         }
 
         #Getting warning message to include in details
-        $matchingWarnings = $ConditionalAccessPolicies | Where-Object { $_.Id -eq $item.Id } | Select-Object -ExpandProperty warnings
+        $matchingWarnings = $policy.Warnings
         if ($matchingWarnings -ne "") {
             $ReportingCapInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $matchingWarnings
         }
