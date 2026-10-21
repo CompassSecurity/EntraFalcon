@@ -2761,7 +2761,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
     }
     $USR014VariantProps = @{
         Default = @{
-            Threat = "<p>The exact security impact of allowing regular users to create agent identity blueprints is currently unknown. Potential governance risks include unmanaged agent creation and additional identity lifecycle oversight requirements.</p>"
+            Threat = "<p>Allowing regular users to create agent identity blueprints may introduce unmanaged agent identities outside established approval and lifecycle management processes.</p><p>Note: The practical security impact has not yet been validated, as rollout is planned for November 2026.</p>"
             Remediation = '<p>Restrict agent identity blueprint creation to authorized administrators and users assigned the Agent ID Developer role. Configure the following setting in the Entra admin center:</p><ol><li>Entra ID</li><li>Users</li><li>User settings</li><li>Set <code>Users can create agent blueprints</code> to <code>No</code></li></ol><p>Reference:</p><ul><li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles#to-disable-the-default-ability-to-create-new-agents-agent-identity-blueprints" target="_blank" rel="noopener noreferrer">https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles#to-disable-the-default-ability-to-create-new-agents-agent-identity-blueprints</a></li></ul>'
         }
         Vulnerable = @{
@@ -9466,7 +9466,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                             "<a href=`"Catalogs_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$catalogId`" target=`"_blank`">$catalogLabel</a>"
                         }
                         $roleLabel = ConvertTo-EntraFalconHtmlText ([string]$_.Role) -DefaultValue '-'
-                        "$roleLabel on $catalogDisplay"
+                        $catalogEntry = $CatalogAssessment.CatalogsById[$catalogId]
+                        $resourceCount = if ($CatalogAssessment.ResourcesAvailable) { [string]$catalogEntry.CatalogResources } else { 'unknown' }
+                        $accessPackageCount = if ($CatalogAssessment.AccessPackageDataAvailable) { [string]$catalogEntry.AccessPackages } else { 'unknown' }
+                        $resourceLabel = if ($resourceCount -eq '1') { 'resource' } else { 'resources' }
+                        $accessPackageLabel = if ($accessPackageCount -eq '1') { 'access package' } else { 'access packages' }
+                        "$roleLabel on $catalogDisplay ($resourceCount $resourceLabel, $accessPackageCount $accessPackageLabel)"
                     } |
                     Select-Object -Unique)
 
