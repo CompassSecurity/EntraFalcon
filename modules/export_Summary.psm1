@@ -1138,7 +1138,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function getDatasetColors(datasetKey, labels) {
         const labelList = Array.isArray(labels) ? labels : [];
-        return labelList.map(function (_, idx) {
+        return labelList.map(function (label, idx) {
+            if ((datasetKey === 'users_lastsignin' || datasetKey === 'enterpriseapps_lastsignin') && label === 'Never') {
+                return '#9E9E9E';
+            }
             return chartColorPalette[idx % chartColorPalette.length];
         });
     }
