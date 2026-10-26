@@ -2105,10 +2105,6 @@ $global:GLOBALJavaScript_Table = @'
             const manifest = manifestEl && manifestEl.textContent ? JSON.parse(manifestEl.textContent) : null;
             window.__reportManifest = manifest;        
 
-            if (manifest && manifest.currentReportKey === "CAP") {
-                if (!defaultHidden.includes("Intent")) defaultHidden.push("Intent");
-            }
-
             if (manifest && manifest.currentReportKey === "AccessPackages") {
                 ["ExpirationDetails", "Catalog", "AccessReview", "ExpiredAssignments", "ServicePrincipals", "Users", "Guests"].forEach(col => {
                     if (!defaultHidden.includes(col)) defaultHidden.push(col);
