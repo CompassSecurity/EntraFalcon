@@ -235,7 +235,7 @@ function Get-CapBroadNetworkAssessment {
                                     'enabledForReportingButNotEnforced' { 'Report-only' }
                                     default { ConvertTo-EntraFalconHtmlText -Value $referencingPolicy.state }
                                 }
-                                "$(Get-CapPolicyLink -Policy $referencingPolicy) - $association $($methods -join ' and '); $state"
+                                "$(Get-CapPolicyLink -Policy $referencingPolicy) ($state) - $association $($methods -join ' and ')"
                             }
                         }
                     }
@@ -345,11 +345,14 @@ function Invoke-CheckCaps {
         BlockLegacyAuthentication = 'Block legacy authentication'
         ManageSignInRisk = 'Manage sign-in risk'
         ManageUserRisk = 'Manage user risk'
+        ManageInsiderRisk = 'Insider risk management'
         ProtectSecurityInfoRegistration = 'Protect security-info registration'
         ProtectDeviceRegistration = 'Protect device registration/join'
         EnforceMfa = 'Enforce MFA'
         EnforcePhishingResistantMfa = 'Enforce phishing-resistant MFA'
+        ControlDeviceAccess = 'Device access controls'
         RestrictAccessByLocation = 'Location restrictions'
+        RestrictAccessByPlatform = 'Platform restrictions'
         ManageRiskyWorkloads = 'Workload risk management'
         ManageRiskyAgents = 'Agent risk management'
         TargetAuthenticationContext = 'Authentication context'
@@ -516,6 +519,17 @@ function Invoke-CheckCaps {
         return $intent
     }
 
+    function Get-CapInsiderRiskIntent {
+        param([Parameter(Mandatory=$true)]$Policy)
+
+        $riskLevels = $Policy.Conditions.InsiderRiskLevels
+        if ($riskLevels -isnot [string] -or [string]::IsNullOrWhiteSpace($riskLevels)) { return }
+        foreach ($riskLevel in $riskLevels.Split(',')) {
+            if ($riskLevel.Trim() -notin @('minor','moderate','elevated')) { return }
+        }
+        return 'ManageInsiderRisk'
+    }
+
     function Get-CapLocationIntent {
         param(
             [Parameter(Mandatory=$true)]$Policy,
@@ -595,6 +609,100 @@ function Invoke-CheckCaps {
             if ($TargetType -eq 'Agents' -or -not (Test-IsGuid -Value $location)) { return }
         }
         return 'RestrictAccessByLocation'
+    }
+
+    function Get-CapPlatformIntent {
+        param([Parameter(Mandatory=$true)]$Policy)
+
+        if (-not (Test-CapBlockOnlyGrant -GrantControls $Policy.GrantControls)) { return }
+
+        $conditions = $Policy.Conditions
+        $scopeConditions = @('applications','users','clientApplications','agents','agentContext','platforms','locations','clientAppTypes')
+        foreach ($condition in $conditions.PSObject.Properties) {
+            if ($condition.Name -notin $scopeConditions -and $condition.Name -notlike '@odata.*' -and
+                -not (Test-ObjectEmpty $condition.Value)) { return }
+        }
+        foreach ($propertyName in @('IncludeAuthenticationContextClassReferences','IncludeUserActions')) {
+            $value = $conditions.Applications.$propertyName
+            if ($null -ne $value -and @($value).Count -gt 0) { return }
+        }
+
+        $clientAppTypes = @()
+        if ($null -ne $conditions.ClientAppTypes) { $clientAppTypes = @($conditions.ClientAppTypes) }
+        if ($clientAppTypes.Count -gt 0 -and ($clientAppTypes.Count -ne 1 -or $clientAppTypes[0] -ne 'all')) { return }
+
+        $locations = $conditions.Locations
+        foreach ($property in $locations.PSObject.Properties) {
+            if ($property.Name -notin @('includeLocations','excludeLocations') -and $property.Name -notlike '@odata.*' -and
+                -not (Test-ObjectEmpty $property.Value)) { return }
+        }
+        $includedLocations = @()
+        if ($null -ne $locations.IncludeLocations) { $includedLocations = @($locations.IncludeLocations) }
+        if (($includedLocations.Count -gt 0 -and ($includedLocations.Count -ne 1 -or $includedLocations[0] -ne 'all')) -or
+            ($null -ne $locations.ExcludeLocations -and @($locations.ExcludeLocations).Count -gt 0)) { return }
+
+        $platforms = $conditions.Platforms
+        foreach ($property in $platforms.PSObject.Properties) {
+            if ($property.Name -notin @('includePlatforms','excludePlatforms') -and $property.Name -notlike '@odata.*' -and
+                -not (Test-ObjectEmpty $property.Value)) { return }
+        }
+        if ($platforms.IncludePlatforms -isnot [System.Collections.IEnumerable] -or $platforms.IncludePlatforms -is [string] -or
+            ($null -ne $platforms.ExcludePlatforms -and
+                ($platforms.ExcludePlatforms -isnot [System.Collections.IEnumerable] -or $platforms.ExcludePlatforms -is [string]))) { return }
+
+        $includedPlatforms = @($platforms.IncludePlatforms)
+        $excludedPlatforms = @()
+        if ($null -ne $platforms.ExcludePlatforms) { $excludedPlatforms = @($platforms.ExcludePlatforms) }
+        $namedPlatforms = @('android','iOS','windows','windowsPhone','macOS','linux')
+        foreach ($platform in $includedPlatforms) {
+            if ($platform -isnot [string] -or ($platform -ne 'all' -and $platform -notin $namedPlatforms)) { return }
+        }
+        foreach ($platform in $excludedPlatforms) {
+            if ($platform -isnot [string] -or $platform -notin $namedPlatforms) { return }
+        }
+        if ($includedPlatforms -contains 'all') {
+            # Excluding every named platform still leaves unknown platforms in scope.
+            if ($includedPlatforms.Count -ne 1 -or $excludedPlatforms.Count -eq 0) { return }
+        } elseif (@($includedPlatforms | Where-Object { $_ -notin $excludedPlatforms }).Count -eq 0) { return }
+
+        return 'RestrictAccessByPlatform'
+    }
+
+    function Get-CapDeviceIntent {
+        param(
+            [Parameter(Mandatory=$true)]$Policy,
+            [string[]]$ExistingIntent
+        )
+
+        foreach ($intent in $ExistingIntent) {
+            if ($intent -notin @('EnforceMfa','EnforcePhishingResistantMfa')) { return }
+        }
+
+        $grantControls = $Policy.GrantControls
+        if ($grantControls.Operator -isnot [string] -or $grantControls.Operator -notin @('AND','OR') -or
+            $grantControls.BuiltInControls -isnot [System.Collections.IEnumerable] -or
+            $grantControls.BuiltInControls -is [string]) { return }
+
+        $builtInControls = @($grantControls.BuiltInControls)
+        $knownGrantControls = @('block','mfa','compliantDevice','domainJoinedDevice','approvedApplication','compliantApplication','passwordChange','riskRemediation')
+        foreach ($control in $builtInControls) {
+            if ($control -isnot [string] -or $control -notin $knownGrantControls) { return }
+        }
+        if ($builtInControls -contains 'block' -or
+            ($builtInControls -notcontains 'compliantDevice' -and $builtInControls -notcontains 'domainJoinedDevice')) { return }
+
+        $conditions = $Policy.Conditions
+        foreach ($propertyName in @('SignInRiskLevels','UserRiskLevels','ServicePrincipalRiskLevels','AgentIdRiskLevels','InsiderRiskLevels')) {
+            $value = $conditions.$propertyName
+            if ($null -ne $value -and @($value).Count -gt 0) { return }
+        }
+        foreach ($propertyName in @('IncludeAuthenticationContextClassReferences','IncludeUserActions')) {
+            $value = $conditions.Applications.$propertyName
+            if ($null -ne $value -and @($value).Count -gt 0) { return }
+        }
+        if (-not (Test-ObjectEmpty $conditions.AuthenticationFlows)) { return }
+
+        return 'ControlDeviceAccess'
     }
 
     function Get-CapAdditionalIntent {
@@ -3276,10 +3384,11 @@ function Invoke-CheckCaps {
 
         $hasNoAuthFlow = $null -eq $policy.Conditions.AuthenticationFlows.TransferMethods -or $policy.Conditions.AuthenticationFlows.TransferMethods.Count -eq 0
         $hasNoUserActions = $null -eq $policy.Conditions.Applications.IncludeUserActions -or $policy.Conditions.Applications.IncludeUserActions.Count -eq 0
+        $hasNoInsiderRisk = $null -eq $policy.Conditions.InsiderRiskLevels -or @($policy.Conditions.InsiderRiskLevels).Count -eq 0
         $GrantAssuranceEvaluation = Get-CapGrantAssuranceEvaluation -BuiltInControls $policy.GrantControls.BuiltInControls -Operator $policy.GrantControls.Operator -HasAuthStrength (-not [string]::IsNullOrWhiteSpace($AuthStrengthId)) -AuthStrengthResolved $AuthStrengthResolved -AuthStrengthMfaCombinationsOnly $AuthStrengthMfaCombinationsOnly -AuthStrengthPhishingResistantOnly $AuthStrengthPhishingResistantOnly
 
         #Check policy for MFA
-        if ($GrantAssuranceEvaluation.HasMfaBaselineCandidate -and $policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and $hasNoAuthFlow -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoUserActions) {
+        if ($GrantAssuranceEvaluation.HasMfaBaselineCandidate -and $policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and $hasNoAuthFlow -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoUserActions -and $hasNoInsiderRisk) {
             $PolicyIntents.Add('EnforceMfa')
             if ($GrantAssuranceEvaluation.MfaEquivalentEnforced) {
                 $PolicyMfaUser = $true
@@ -3330,7 +3439,7 @@ function Invoke-CheckCaps {
 
         #Check policy with Authentication strengths for enforcing phishing-resistant MFA
         $authStrengthIdCandidate = "$($policy.GrantControls.AuthenticationStrength.Id)".Trim()
-        if ($policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and -not [string]::IsNullOrWhiteSpace($authStrengthIdCandidate) -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoAuthFlow -and $hasNoUserActions) {
+        if ($policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and -not [string]::IsNullOrWhiteSpace($authStrengthIdCandidate) -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoAuthFlow -and $hasNoUserActions -and $hasNoInsiderRisk) {
             $PolicyIntents.Add('EnforcePhishingResistantMfa')
             if ($GrantAssuranceEvaluation.PhishingResistantEnforced) {
                 $PolicyAuthStrength = $true
@@ -3402,15 +3511,30 @@ function Invoke-CheckCaps {
         if (-not [string]::IsNullOrWhiteSpace($riskIntent)) {
             $PolicyIntents.Add($riskIntent)
         }
+        $insiderRiskIntent = Get-CapInsiderRiskIntent -Policy $policy
+        if (-not [string]::IsNullOrWhiteSpace($insiderRiskIntent)) {
+            $PolicyIntents.Add($insiderRiskIntent)
+        }
         $locationIntent = Get-CapLocationIntent -Policy $policy -TargetType $TargetType
         if (-not [string]::IsNullOrWhiteSpace($locationIntent)) {
             $PolicyIntents.Add($locationIntent)
+        }
+        if ($PolicyIntents.Count -eq 0) {
+            $platformIntent = Get-CapPlatformIntent -Policy $policy
+            if (-not [string]::IsNullOrWhiteSpace($platformIntent)) {
+                $PolicyIntents.Add($platformIntent)
+            }
         }
         if ($PolicyIntents.Count -eq 0) {
             $additionalIntent = Get-CapAdditionalIntent -Policy $policy -TargetType $TargetType
             if (-not [string]::IsNullOrWhiteSpace($additionalIntent)) {
                 $PolicyIntents.Add($additionalIntent)
             }
+        }
+
+        $deviceIntent = Get-CapDeviceIntent -Policy $policy -ExistingIntent $PolicyIntents.ToArray()
+        if (-not [string]::IsNullOrWhiteSpace($deviceIntent)) {
+            $PolicyIntents.Add($deviceIntent)
         }
 
         $ConditionalAccessPolicies.Add([PSCustomObject]@{
