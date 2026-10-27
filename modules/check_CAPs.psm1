@@ -3485,6 +3485,10 @@ function Invoke-CheckCaps {
                 $CommonErrorMessages += "is not targeting all resources"
                 $AuthStrengthWarnings++
             }
+            if ($NormalizedIncludeUsers -notcontains "All") {
+                $CommonErrorMessages += "Privileged-account coverage is unverified for selected users, groups, or roles."
+                $AuthStrengthWarnings++
+            }
             if ($ExcludedUsersEffective -ge 3) {
                 $CommonErrorMessages += $ExcludedUsersWarningMessage
                 $AuthStrengthWarnings++

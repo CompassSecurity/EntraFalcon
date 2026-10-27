@@ -788,13 +788,14 @@ function Invoke-CheckTenant {
         param(
             $Policy,
             [switch]$SkipAllUsersCheck,
-            [switch]$AllowGuestExclusions
+            [switch]$AllowGuestExclusions,
+            [string]$AllUsersFailureMessage = "Included users not set to <code>all</code>"
         )
         $issues = [System.Collections.Generic.List[string]]::new()
 
         if (-not $SkipAllUsersCheck) {
             $incUsersText = "$($Policy.IncUsers)".Trim().ToLowerInvariant()
-            if ($incUsersText -ne "all") { $issues.Add("Included users not set to <code>all</code>") }
+            if ($incUsersText -ne "all") { $issues.Add($AllUsersFailureMessage) }
         }
 
         $excludedUsersEffective = Get-IntSafe $Policy.ExcludedUsersEffective
@@ -5487,7 +5488,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     } else {
         foreach ($policy in $cap005HardPass) {
-            $softResult = Test-CapSoftCompliance -Policy $policy -SkipAllUsersCheck
+            $softResult = Test-CapSoftCompliance -Policy $policy -AllUsersFailureMessage "Privileged-account coverage could not be verified because this policy targets selected users, groups, or roles."
             if ($softResult.Pass) {
                 $cap005SoftPass.Add($policy)
             } else {
