@@ -4974,6 +4974,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $hasNoAuthFlow = [string]::IsNullOrWhiteSpace("$($policy.AuthFlow)".Trim())
             $hasNoUserActions = [string]::IsNullOrWhiteSpace("$($policy.UserActions)".Trim())
             $isAuthStrengthPolicy = (
+                (@($policy.Intent) -contains 'EnforcePhishingResistantMfa') -and
                 ((Get-IntSafe $policy.AuthContext) -eq 0) -and
                 ((Get-IntSafe $policy.SignInRisk) -eq 0) -and
                 ((Get-IntSafe $policy.UserRisk) -eq 0) -and
@@ -5127,6 +5128,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             $hasNoAuthFlow = [string]::IsNullOrWhiteSpace("$($policy.AuthFlow)".Trim())
             $hasNoUserActions = [string]::IsNullOrWhiteSpace("$($policy.UserActions)".Trim())
             $isMfaBaselinePolicy = $mfaBaselineCandidate -and
+                (@($policy.Intent) -contains 'EnforceMfa') -and
                 ((Get-IntSafe $policy.SignInRisk) -eq 0) -and
                 ((Get-IntSafe $policy.UserRisk) -eq 0) -and
                 ((Get-IntSafe $policy.AuthContext) -eq 0) -and

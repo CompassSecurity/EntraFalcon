@@ -3497,8 +3497,8 @@ function Invoke-CheckCaps {
                 $CommonErrorMessages += $MissingRolesWarning
                 $AuthStrengthWarnings++              
             }
-            if ($ConditionTypeCount -gt 1) {
-                $CommonErrorMessages += "has multiple ($ConditionTypeCount) condition types"
+            if ($ConditionTypeCount -gt 0) {
+                $CommonErrorMessages += "has ($ConditionTypeCount) condition types"
                 $AuthStrengthWarnings++
             }
             if (-not $AuthStrengthResolved) {
@@ -3564,6 +3564,11 @@ function Invoke-CheckCaps {
         $deviceIntent = Get-CapDeviceIntent -Policy $policy -ExistingIntent $PolicyIntents.ToArray()
         if (-not [string]::IsNullOrWhiteSpace($deviceIntent)) {
             $PolicyIntents.Add($deviceIntent)
+        }
+
+        # Baselines count every restriction, even when another intent treats a condition as intrinsic.
+        if ($PolicyIntents.Contains('EnforceMfa') -or $PolicyIntents.Contains('EnforcePhishingResistantMfa')) {
+            $additionalConditionTypes = $ConditionTypeCount
         }
 
         $ConditionalAccessPolicies.Add([PSCustomObject]@{
