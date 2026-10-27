@@ -5517,7 +5517,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 AffectedObjects = $cap005Eval.AffectedObjects
                 RelatedReportUrl = $cap005RelatedUrl
             }
-            if ($cap005HardPass.Count -gt 0) {
+            if ($cap005HardPass.Count -gt 0 -or @($cap005Candidates | Where-Object { $_.GrantAssuranceConfidence -eq 'Requires Verification' }).Count -gt 0) {
                 $cap005Props.Confidence = "Requires Verification"
             }
             Set-FindingOverride -FindingId "CAP-005" -Props $CAP005VariantProps.Vulnerable
@@ -5724,7 +5724,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 AffectedObjects = $cap009Eval.AffectedObjects
                 RelatedReportUrl = $relatedUrl
             }
-            if ($cap009HardPass.Count -gt 0) {
+            if ($cap009HardPass.Count -gt 0 -or @($cap009Candidates | Where-Object { $_.GrantAssuranceConfidence -eq 'Requires Verification' }).Count -gt 0) {
                 $props.Confidence = "Requires Verification"
             }
             Set-FindingOverride -FindingId "CAP-009" -Props $CAP009VariantProps.Vulnerable

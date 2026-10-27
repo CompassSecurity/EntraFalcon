@@ -1636,7 +1636,9 @@ function Invoke-CheckCaps {
             [Parameter(Mandatory=$false)][bool]$HasAuthStrength = $false,
             [Parameter(Mandatory=$false)][bool]$AuthStrengthResolved = $false,
             [Parameter(Mandatory=$false)][bool]$AuthStrengthMfaCombinationsOnly = $false,
-            [Parameter(Mandatory=$false)][bool]$AuthStrengthPhishingResistantOnly = $false
+            [Parameter(Mandatory=$false)][bool]$AuthStrengthPhishingResistantOnly = $false,
+            [Parameter(Mandatory=$false)][string[]]$TermsOfUse,
+            [Parameter(Mandatory=$false)][string[]]$CustomAuthenticationFactors
         )
 
         $normalizedOperator = "$Operator".Trim().ToUpperInvariant()
@@ -1668,6 +1670,22 @@ function Invoke-CheckCaps {
                 MfaEquivalent          = ($AuthStrengthResolved -and $AuthStrengthMfaCombinationsOnly)
                 PhishingResistant      = ($AuthStrengthResolved -and $AuthStrengthPhishingResistantOnly)
             })
+        }
+
+        foreach ($additionalControl in @(
+            @{ Label='Terms of Use'; Ids=$TermsOfUse; Resolved=$true }
+            @{ Label='custom control'; Ids=$CustomAuthenticationFactors; Resolved=$false }
+        )) {
+            $controlIds = @($additionalControl.Ids | ForEach-Object { "$_".Trim() } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+            foreach ($controlId in $controlIds) {
+                $grantAlternatives.Add([pscustomobject]@{
+                    Label             = "$($additionalControl.Label) ($controlId)"
+                    Resolved          = $additionalControl.Resolved
+                    MfaEquivalent     = $false
+                    PhishingResistant = $false
+                })
+            }
         }
 
         $hasMfaBaselineCandidate = (($normalizedBuiltInControls -contains "mfa") -or $HasAuthStrength)
@@ -1720,24 +1738,35 @@ function Invoke-CheckCaps {
             }
         )
         $hasMultipleGrantAlternatives = ($grantAlternatives.Count -gt 1)
+        $unresolvedCustomControls = @($unresolvedAlternatives | Where-Object { $_ -ne 'authenticationStrength' })
+        $customControlWarning = ""
+        if ($unresolvedCustomControls.Count -gt 0) {
+            $customControlWarning = "references custom control(s) whose provider authentication assurance could not be established: " + ($unresolvedCustomControls -join ", ")
+        }
 
         $mfaWarningParts = @()
         if ($normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives -and $hasMfaBaselineCandidate -and $weakMfaAlternatives.Count -gt 0) {
             $mfaWarningParts += "uses OR with non-MFA grant alternative(s): " + (($weakMfaAlternatives | Sort-Object -Unique) -join ", ")
         }
-        if ($unresolvedAlternatives.Count -gt 0) {
+        if ($HasAuthStrength -and -not $AuthStrengthResolved) {
             $mfaWarningParts += "references authentication strength that could not be resolved"
         }
-        if ($HasAuthStrength -and $grantAlternatives.Count -eq 1 -and $AuthStrengthResolved -and -not $AuthStrengthMfaCombinationsOnly) {
+        if ($HasAuthStrength -and $AuthStrengthResolved -and -not $AuthStrengthMfaCombinationsOnly -and -not $mfaEquivalentEnforced) {
             $mfaWarningParts += "authentication strength is not MFA-equivalent"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($customControlWarning)) {
+            $mfaWarningParts += $customControlWarning
         }
 
         $phishingWarningParts = @()
         if ($normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives -and $HasAuthStrength -and $weakPhishingAlternatives.Count -gt 0) {
             $phishingWarningParts += "uses OR with non-phishing-resistant alternative(s): " + (($weakPhishingAlternatives | Sort-Object -Unique) -join ", ")
         }
-        if ($unresolvedAlternatives.Count -gt 0) {
+        if ($HasAuthStrength -and -not $AuthStrengthResolved) {
             $phishingWarningParts += "references authentication strength that could not be resolved"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($customControlWarning)) {
+            $phishingWarningParts += $customControlWarning
         }
 
         return [pscustomobject]@{
@@ -3385,7 +3414,7 @@ function Invoke-CheckCaps {
         $hasNoAuthFlow = $null -eq $policy.Conditions.AuthenticationFlows.TransferMethods -or $policy.Conditions.AuthenticationFlows.TransferMethods.Count -eq 0
         $hasNoUserActions = $null -eq $policy.Conditions.Applications.IncludeUserActions -or $policy.Conditions.Applications.IncludeUserActions.Count -eq 0
         $hasNoInsiderRisk = $null -eq $policy.Conditions.InsiderRiskLevels -or @($policy.Conditions.InsiderRiskLevels).Count -eq 0
-        $GrantAssuranceEvaluation = Get-CapGrantAssuranceEvaluation -BuiltInControls $policy.GrantControls.BuiltInControls -Operator $policy.GrantControls.Operator -HasAuthStrength (-not [string]::IsNullOrWhiteSpace($AuthStrengthId)) -AuthStrengthResolved $AuthStrengthResolved -AuthStrengthMfaCombinationsOnly $AuthStrengthMfaCombinationsOnly -AuthStrengthPhishingResistantOnly $AuthStrengthPhishingResistantOnly
+        $GrantAssuranceEvaluation = Get-CapGrantAssuranceEvaluation -BuiltInControls $policy.GrantControls.BuiltInControls -Operator $policy.GrantControls.Operator -HasAuthStrength (-not [string]::IsNullOrWhiteSpace($AuthStrengthId)) -AuthStrengthResolved $AuthStrengthResolved -AuthStrengthMfaCombinationsOnly $AuthStrengthMfaCombinationsOnly -AuthStrengthPhishingResistantOnly $AuthStrengthPhishingResistantOnly -TermsOfUse $policy.GrantControls.TermsOfUse -CustomAuthenticationFactors $policy.GrantControls.CustomAuthenticationFactors
 
         #Check policy for MFA
         if ($GrantAssuranceEvaluation.HasMfaBaselineCandidate -and $policy.Conditions.Applications.IncludeAuthenticationContextClassReferences.count -eq 0 -and $hasNoAuthFlow -and $policy.Conditions.SignInRiskLevels.count -eq 0 -and $policy.Conditions.UserRiskLevels.count -eq 0 -and $hasNoUserActions -and $hasNoInsiderRisk) {
@@ -3425,7 +3454,7 @@ function Invoke-CheckCaps {
                 $CommonErrorMessages += "has ($ConditionTypeCount) condition types"
                 $UserMfaWarnings++
             }
-            if (-not $GrantAssuranceEvaluation.MfaEquivalentEnforced -and -not [string]::IsNullOrWhiteSpace($GrantAssuranceEvaluation.MfaWarning)) {
+            if (-not [string]::IsNullOrWhiteSpace($GrantAssuranceEvaluation.MfaWarning)) {
                 $SpecificErrorMessages += $GrantAssuranceEvaluation.MfaWarning
                 $UserMfaWarnings++
             }
