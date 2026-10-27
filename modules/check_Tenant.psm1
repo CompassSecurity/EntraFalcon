@@ -5008,6 +5008,12 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                     $hardIssues.Add("authentication strength lacks enough inline detail for validation")
                 } elseif (-not $authStrengthPhishingResistantOnly) {
                     $hardIssues.Add("authentication strength is not phishing-resistant only")
+                } elseif (-not $policy.PhishingResistantEnforced) {
+                    $phishingResistantWarning = [string]$policy.PhishingResistantEvaluationWarning
+                    if ([string]::IsNullOrWhiteSpace($phishingResistantWarning)) {
+                        $phishingResistantWarning = "phishing-resistant authentication is not mandatory across all grant alternatives"
+                    }
+                    $hardIssues.Add($phishingResistantWarning)
                 }
 
                 $hasIncludedTargets = $false
