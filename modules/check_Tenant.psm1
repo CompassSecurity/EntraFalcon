@@ -789,6 +789,7 @@ function Invoke-CheckTenant {
             $Policy,
             [switch]$SkipAllUsersCheck,
             [switch]$AllowGuestExclusions,
+            [switch]$RequireSignInFrequencyEveryTime,
             [string]$AllUsersFailureMessage = "Included users not set to <code>all</code>"
         )
         $issues = [System.Collections.Generic.List[string]]::new()
@@ -808,6 +809,11 @@ function Invoke-CheckTenant {
         if ((Get-IntSafe $Policy.ScopedRolesCount) -ne 0) { $issues.Add("Scoped roles detected") }
         $additionalConditions = if ($null -ne $Policy.additionalConditionTypes) { $Policy.additionalConditionTypes } else { $Policy.AdditionalConditionTypes }
         if ((Get-IntSafe $additionalConditions) -ne 0) { $issues.Add("Additional conditions present") }
+
+        # Risk policies should reauthenticate every time; a Block grant has nothing to reauthenticate.
+        if ($RequireSignInFrequencyEveryTime -and -not (Test-ContainsToken -Value $Policy.GrantControls -Token "block") -and "$($Policy.SignInFrequencyInterval)".Trim().ToLowerInvariant() -ne "everytime") {
+            $issues.Add("Sign-in frequency not set to Every time")
+        }
 
         return [pscustomobject]@{
             Pass = ($issues.Count -eq 0)
@@ -1003,7 +1009,8 @@ function Invoke-CheckTenant {
             [System.Collections.IEnumerable]$HardPass,
             [System.Collections.IEnumerable]$SoftPass,
             [switch]$ResolveAuthStrength,
-            [hashtable]$AuthStrengthLookupById
+            [hashtable]$AuthStrengthLookupById,
+            [switch]$ShowSignInFrequency
         )
 
         # Materialize the input enumerables once because the data is traversed multiple times below.
@@ -1093,6 +1100,10 @@ function Invoke-CheckTenant {
             }
             if ($showAuthStrength) {
                 $rowProps["Auth Strength"] = $authStrengthDisplay
+            }
+            if ($ShowSignInFrequency) {
+                $signInFrequency = "$($policy.SignInFrequencyInterval)".Trim()
+                $rowProps["Sign-in Frequency"] = if ([string]::IsNullOrWhiteSpace($signInFrequency)) { "none" } else { $signInFrequency }
             }
             $rowProps["Included Users (effective)"] = $incUsersDisplay
             $rowProps["Excluded Users (effective)"] = Get-IntSafe $policy.ExcludedUsersEffective
@@ -5063,9 +5074,6 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 if (-not $hasGrantOrAuthStrength) {
                     $hardIssues.Add("missing block/mfa grant control or MFA-enforcing authentication strength")
                 }
-                if (-not $hasBlockGrant -and "$($policy.SignInFrequencyInterval)".Trim().ToLowerInvariant() -ne "everytime") {
-                    $hardIssues.Add("sign-in frequency interval not set to EveryTime")
-                }
                 if ($hardIssues.Count -eq 0) {
                     $cap007HardPass.Add($policy)
                 } else {
@@ -5098,9 +5106,6 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
                 $hasGrantOrAuthStrength = $hasBlockGrant -or $hasMfaGrant -or $hasPasswordChangeGrant -or $hasRiskRemediationGrant -or $hasAuthStrength
                 if (-not $hasGrantOrAuthStrength) {
                     $hardIssues.Add("missing block/mfa/passwordChange/riskRemediation grant control or MFA-enforcing authentication strength")
-                }
-                if (-not $hasBlockGrant -and "$($policy.SignInFrequencyInterval)".Trim().ToLowerInvariant() -ne "everytime") {
-                    $hardIssues.Add("sign-in frequency interval not set to EveryTime")
                 }
                 if ($hardIssues.Count -eq 0) {
                     $cap008HardPass.Add($policy)
@@ -5585,7 +5590,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     } else {
         foreach ($policy in $cap007HardPass) {
-            $softResult = Test-CapSoftCompliance -Policy $policy
+            $softResult = Test-CapSoftCompliance -Policy $policy -RequireSignInFrequencyEveryTime
             if ($softResult.Pass) {
                 $cap007SoftPass.Add($policy)
             } else {
@@ -5599,7 +5604,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
         }
 
-        $cap007Eval = New-CapUnifiedEvaluation -Candidates $cap007Candidates -HardPass $cap007HardPass -SoftPass $cap007SoftPass
+        $cap007Eval = New-CapUnifiedEvaluation -Candidates $cap007Candidates -HardPass $cap007HardPass -SoftPass $cap007SoftPass -ShowSignInFrequency
         $cap007Summary = "<p>Policy evaluation summary: <strong>$($cap007Candidates.Count) candidates</strong> ($($cap007Eval.HardFailCount) hard-fail, $($cap007Eval.SoftFailCount) soft-fail, $($cap007Eval.PassCount) pass).</p>"
         $cap007HardIssueSummary = Get-CapIssueSummaryHtml -IssueCounts $cap007HardIssueCounts -Title "Hard-check failures"
         $cap007SoftIssueSummary = Get-CapIssueSummaryHtml -IssueCounts $cap007SoftIssueCounts -Title "Soft-check failures"
@@ -5640,7 +5645,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         }
     } else {
         foreach ($policy in $cap008HardPass) {
-            $softResult = Test-CapSoftCompliance -Policy $policy
+            $softResult = Test-CapSoftCompliance -Policy $policy -RequireSignInFrequencyEveryTime
             if ($softResult.Pass) {
                 $cap008SoftPass.Add($policy)
             } else {
@@ -5654,7 +5659,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
             }
         }
 
-        $cap008Eval = New-CapUnifiedEvaluation -Candidates $cap008Candidates -HardPass $cap008HardPass -SoftPass $cap008SoftPass
+        $cap008Eval = New-CapUnifiedEvaluation -Candidates $cap008Candidates -HardPass $cap008HardPass -SoftPass $cap008SoftPass -ShowSignInFrequency
         $cap008Summary = "<p>Policy evaluation summary: <strong>$($cap008Candidates.Count) candidates</strong> ($($cap008Eval.HardFailCount) hard-fail, $($cap008Eval.SoftFailCount) soft-fail, $($cap008Eval.PassCount) pass).</p>"
         $cap008HardIssueSummary = Get-CapIssueSummaryHtml -IssueCounts $cap008HardIssueCounts -Title "Hard-check failures"
         $cap008SoftIssueSummary = Get-CapIssueSummaryHtml -IssueCounts $cap008SoftIssueCounts -Title "Soft-check failures"
