@@ -9045,6 +9045,9 @@ function Get-EntraFalconObjectRelationshipChunked {
     .PARAMETER CollectionLabel
         Optional display label for chunk messages. Multiple chunks use normal output; a single
         chunk uses verbose logging. Omit the label to preserve silent collection.
+
+    .PARAMETER BetaAPI
+        Uses beta by default for existing callers. Pass -BetaAPI:$false to use v1.0.
     #>
     [CmdletBinding()]
     param(
@@ -9056,7 +9059,8 @@ function Get-EntraFalconObjectRelationshipChunked {
         [Parameter(Mandatory = $false)][hashtable]$RequestHeaders,
         [Parameter(Mandatory = $false)][hashtable]$RequestQueryParameterTemplate,
         [Parameter(Mandatory = $false)][string]$UserAgent,
-        [Parameter(Mandatory = $false)][string]$CollectionLabel
+        [Parameter(Mandatory = $false)][string]$CollectionLabel,
+        [Parameter(Mandatory = $false)][switch]$BetaAPI = $true
     )
 
     $values = @{}
@@ -9100,7 +9104,7 @@ function Get-EntraFalconObjectRelationshipChunked {
             $expectedIds.Add([string]$item.id)
         }
 
-        $raw = Invoke-EntraFalconGraphBatch -Requests $requests -Provider $Provider -BetaAPI -UserAgent $UserAgent -QueryParameters $QueryParameters
+        $raw = Invoke-EntraFalconGraphBatch -Requests $requests -Provider $Provider -BetaAPI:$BetaAPI -UserAgent $UserAgent -QueryParameters $QueryParameters
         $chunkCoverage = Get-EntraFalconBatchCoverage -Responses @($raw) -ExpectedIds $expectedIds
 
         foreach ($id in $chunkCoverage.Records.Keys) {

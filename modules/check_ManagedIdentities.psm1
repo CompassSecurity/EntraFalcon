@@ -38,6 +38,7 @@ function Invoke-CheckManagedIdentities {
     $AppAssignmentsCoverage = @{}
     $GroupMemberCoverage = @{}
     $OwnedObjectsCoverage = @{}
+    $FederatedCredsCoverage = @{}
     $AllServicePrincipal = [System.Collections.ArrayList]::new()
     $AllObjectDetailsHTML = [System.Collections.ArrayList]::new()
     $SPImpactScore = @{
@@ -130,6 +131,11 @@ function Invoke-CheckManagedIdentities {
         $OwnedObjectsCoverage = $OwnedObjectsResult.Coverage
         Write-Log -Level Debug -Message "Got $($OwnedObjectsRaw.count) ownerships"
 
+        Write-Host "[*] Get all federated identity credentials"
+        $FederatedCredsResult = Get-EntraFalconObjectRelationshipChunked -Objects $ManagedIdentities -UrlTemplate "/servicePrincipals/{0}/federatedIdentityCredentials" -Provider $GraphTokenProvider -BatchSize $RelationshipBatchSize -QueryParameters @{} -UserAgent $($GlobalAuditSummary.UserAgent.Name) -BetaAPI:$false
+        $FederatedCredsRaw = $FederatedCredsResult.Values
+        $FederatedCredsCoverage = $FederatedCredsResult.Coverage
+
         $RelationshipCoverageTotal = $AppAssignmentsCoverage.Count + $GroupMemberCoverage.Count + $OwnedObjectsCoverage.Count
         if ($RelationshipCoverageTotal -gt 0) {
             $ManagedIdentitiesScriptWarningList += "Coverage gap: one or more managed identity relationships (API permissions, group memberships, owned objects) could not be fully enumerated. Affected identities are marked in the Warnings column; an absence of permissions must not be read as no access."
@@ -171,6 +177,21 @@ function Invoke-CheckManagedIdentities {
         if ($OwnedObjectsCoverage.ContainsKey($miIdKey)) {
             $warnings += "Owned objects incomplete: owned object data could not be fully retrieved"
         }
+        $FederatedCredsDetails = @(
+            if ($FederatedCredsRaw.ContainsKey($miIdKey)) {
+                foreach ($credential in $FederatedCredsRaw[$miIdKey]) {
+                    [pscustomobject]@{
+                        Id          = $credential.id
+                        Name        = $credential.name
+                        Issuer      = $credential.issuer
+                        Subject     = $credential.subject
+                        Audiences   = @($credential.audiences)
+                        Description = $credential.description
+                    }
+                }
+            }
+        )
+        $FederatedCredsCount = if ($FederatedCredsCoverage.ContainsKey($miIdKey)) { '?' } else { $FederatedCredsDetails.Count }
 
         $WarningsHighPermission = $null
         $WarningsDangerousPermission = $null
@@ -777,6 +798,8 @@ function Invoke-CheckManagedIdentities {
             MiPath = $MiPath
             CreationDate = $item.createdDateTime
             CreationInDays = $CreationInDays
+            FederatedCreds = $FederatedCredsCount
+            FederatedCredsDetails = $FederatedCredsDetails
             AzureRolesDirect = $AzureRolesDirect
             AzureRolesEffective = $AzureRolesEffective
             AzureRoles = $AzureRolesEffective
@@ -811,7 +834,7 @@ function Invoke-CheckManagedIdentities {
     $SortedManagedIdentitiesByRisk = $AllServicePrincipal | Sort-Object Risk -Descending
 
     #Define output of the main table
-    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     
     #Define the managed identities to be displayed in detail
     $details = $SortedManagedIdentitiesByRisk
@@ -1079,6 +1102,33 @@ function Invoke-CheckManagedIdentities {
             [void]$DetailTxtBuilder.AppendLine(($ReportingCredentials | Out-String -Width 512))
         } 
 
+        $ReportingFederatedCredsTxt = @(
+            foreach ($credential in $item.FederatedCredsDetails) {
+                [pscustomobject]@{
+                    Name        = $credential.Name
+                    Issuer      = $credential.Issuer
+                    Subject     = $credential.Subject
+                    Audiences   = $credential.Audiences -join ', '
+                    Description = if ([string]::IsNullOrWhiteSpace($credential.Description)) { '-' } else { $credential.Description }
+                }
+            }
+        )
+        $ReportingFederatedCreds = @(
+            foreach ($credential in $ReportingFederatedCredsTxt) {
+                $HtmlCredential = [ordered]@{}
+                foreach ($property in $credential.PSObject.Properties) {
+                    $HtmlCredential[$property.Name] = ConvertTo-EntraFalconHtmlText -Value $property.Value -DefaultValue '-'
+                }
+                [pscustomobject]$HtmlCredential
+            }
+        )
+        if ($ReportingFederatedCredsTxt.Count -gt 0) {
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Federated Identity Credentials`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingFederatedCredsTxt | Format-List -Property Name,Issuer,Subject,Audiences,Description | Out-String -Width 512))
+        }
+
         ############### API permission
         if ($($item.AppApiPermission | Measure-Object).count -ge 1) {
             $ReportingAPIPermission = foreach ($object in $($item.AppApiPermission)) {
@@ -1119,6 +1169,7 @@ function Invoke-CheckManagedIdentities {
             "Member in Groups (transitive)" = $ReportingGroupMember
             "Owner of Groups" = $ReportingGroupOwner
             "Credentials" = $ReportingCredentials
+            "Federated Identity Credentials" = $ReportingFederatedCreds
             "Identity Governance RBAC Assignments" = $ReportingCatalogRbac
         }
     
@@ -1131,7 +1182,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Writing report files..."
     write-host
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1228,9 +1279,9 @@ $headerHtml = @"
 
         #Write TXT and CSV files
         $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
         }
         $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
