@@ -57,6 +57,7 @@ function Invoke-CheckManagedIdentities {
 
     $SPLikelihoodScore = @{
         "Base"          	        = 1
+        "FederatedCredential"        = 1
     }
 
     function Resolve-ManagedIdentityOwnedAgentObject {
@@ -715,6 +716,11 @@ function Invoke-CheckManagedIdentities {
                     "Uncategorized" {$ImpactScore += $SPImpactScore["ApiMisc"]; Break}
                 }
             }
+        }
+
+        # Federation adds an authentication path through a trusted workload.
+        if ($FederatedCredsDetails.Count -gt 0) {
+            $LikelihoodScore += $SPLikelihoodScore["FederatedCredential"]
         }
 
         # Calculate days since creation
