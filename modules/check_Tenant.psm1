@@ -8822,7 +8822,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[MAI-001] Found $($managedIdentitiesWithApi.Count) managed identities with API privileges."
         Set-FindingOverride -FindingId "MAI-001" -Props $MAI001VariantProps.Vulnerable
         Set-FindingOverride -FindingId "MAI-001" -Props @{
-            RelatedReportUrl = "ManagedIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?or_ApiDangerous=%3E0&or_ApiHigh=%3E0&or_ApiMedium=%3E0&columns=DisplayName%2CIsExplicit%2CGroupMembership%2CGroupOwnership%2CAppOwnership%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiLow%2CApiMisc%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
+            RelatedReportUrl = "ManagedIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?or_ApiDangerous=%3E0&or_ApiHigh=%3E0&or_ApiMedium=%3E0&columns=DisplayName%2CIdentityType%2CGroupMembership%2CGroupOwnership%2CAppOwnership%2CSpOwn%2CEntraRoles%2CAzureRoles%2CApiDangerous%2CApiHigh%2CApiMedium%2CApiLow%2CApiMisc%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortImpact"
             AffectedSortDir = "DESC"
         }
@@ -8903,7 +8903,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[MAI-002] Found $($managedIdentitiesWithPrivRoles.Count) managed identities with privileged Entra ID roles."
         Set-FindingOverride -FindingId "MAI-002" -Props $MAI002VariantProps.Vulnerable
         Set-FindingOverride -FindingId "MAI-002" -Props @{
-            RelatedReportUrl = "ManagedIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?EntraMaxTier=Tier-0%7C%7CTier-1&columns=DisplayName%2CIsExplicit%2CGroupMembership%2CGroupOwnership%2CAppOwnership%2CSpOwn%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
+            RelatedReportUrl = "ManagedIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?EntraMaxTier=Tier-0%7C%7CTier-1&columns=DisplayName%2CIdentityType%2CGroupMembership%2CGroupOwnership%2CAppOwnership%2CSpOwn%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortImpact"
             AffectedSortDir = "DESC"
         }
@@ -9025,7 +9025,7 @@ Update-MgPolicyAuthorizationPolicy -AllowedToUseSspr:$false</code></pre><p>Refer
         Write-Log -Level Verbose -Message "[MAI-003] Found $($managedIdentitiesWithAzurePrivRoles.Count) managed identities with high-impact Azure access."
         Set-FindingOverride -FindingId "MAI-003" -Props $MAI003VariantProps.Vulnerable
         Set-FindingOverride -FindingId "MAI-003" -Props @{
-            RelatedReportUrl = "ManagedIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?AzureMaxImpact=%3E%3D$AzureHighExposureThreshold&columns=DisplayName%2CIsExplicit%2CGroupMembership%2CGroupOwnership%2CAppOwnership%2CSpOwn%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
+            RelatedReportUrl = "ManagedIdentities_$StartTimestamp`_$($CurrentTenant.FileSafeDisplayNameEncoded).html?AzureMaxImpact=%3E%3D$AzureHighExposureThreshold&columns=DisplayName%2CIdentityType%2CGroupMembership%2CGroupOwnership%2CAppOwnership%2CSpOwn%2CEntraRoles%2CEntraMaxTier%2CAzureRoles%2CAzureMaxLevel%2CAzureMaxImpact%2CImpact%2CLikelihood%2CRisk%2CWarnings&sort=Risk&sortDir=desc"
             AffectedSortKey = "_SortAzureImpact"
             AffectedSortDir = "DESC"
         }

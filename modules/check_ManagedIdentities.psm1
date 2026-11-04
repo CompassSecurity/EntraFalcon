@@ -3,6 +3,242 @@
    Enumerate Managed Identities (including: API Permission, Source Tenant, Groups, Roles).
 #>
 
+function ConvertTo-ManagedIdentityResourceRecord {
+    param([string]$ResourceId, [string]$Name, [string]$SubscriptionName)
+
+    $resourceMatch = [regex]::Match($ResourceId, '^/subscriptions/(?<subscription>[0-9a-f-]{36})(?:/resourceGroups/(?<group>[^/?#]+))?/providers/(?<provider>[^/?#]+)/(?<path>[^?#]+?)/?$', 'IgnoreCase')
+    if (-not $resourceMatch.Success) {
+        $resourceMatch = [regex]::Match($ResourceId, '^/providers/(?<provider>[^/?#]+)/(?<path>[^?#]+?)/?$', 'IgnoreCase')
+    }
+    $subscriptionId = [guid]::Empty
+    if (-not $resourceMatch.Success) { return $null }
+    $subscriptionText = $null
+    if ($resourceMatch.Groups['subscription'].Success) {
+        if (-not [guid]::TryParse($resourceMatch.Groups['subscription'].Value, [ref]$subscriptionId)) { return $null }
+        $subscriptionText = $subscriptionId.ToString()
+    }
+    $parts = $resourceMatch.Groups['path'].Value -split '/'
+    if ($parts.Count -lt 2 -or $parts.Count % 2 -ne 0 -or @($parts | Where-Object { [string]::IsNullOrWhiteSpace($_) -or $_ -in @('.','..') }).Count -gt 0) { return $null }
+    $provider = $resourceMatch.Groups['provider'].Value
+    $types = [System.Collections.Generic.List[string]]::new()
+    for ($index = 0; $index -lt $parts.Count; $index += 2) {
+        if ($parts[$index] -eq 'providers') {
+            if ($index + 3 -ge $parts.Count) { return $null }
+            $provider = $parts[$index + 1]
+            $types.Clear()
+        } else {
+            $types.Add($parts[$index])
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($Name)) { $Name = $parts[-1] }
+    if ([string]::IsNullOrWhiteSpace($SubscriptionName) -and $subscriptionText -and $global:GLOBALAzureSubscriptionScopeMap) {
+        $SubscriptionName = [string]$global:GLOBALAzureSubscriptionScopeMap[$subscriptionText]
+    }
+    if ([string]::IsNullOrWhiteSpace($SubscriptionName)) { $SubscriptionName = if ($subscriptionText) { $subscriptionText } else { '-' } }
+    [pscustomobject]@{
+        Id = $ResourceId.TrimEnd('/')
+        Name = $Name
+        Type = $provider + '/' + ($types -join '/')
+        ResourceGroup = if ($resourceMatch.Groups['group'].Success) { $resourceMatch.Groups['group'].Value } else { '-' }
+        SubscriptionId = $subscriptionText
+        SubscriptionName = $SubscriptionName
+    }
+}
+
+function Get-ManagedIdentityResourceBinding {
+    param($Identity)
+
+    $records = @{}
+    $explicitValues = @()
+    $invalidMetadata = $false
+    foreach ($alternativeName in @($Identity.alternativeNames)) {
+        if ($alternativeName -like 'isExplicit=*') {
+            if ($alternativeName -match '^isExplicit=(true|false)$') { $explicitValues += $Matches[1].ToLowerInvariant() } else { $invalidMetadata = $true }
+        } elseif ($alternativeName -like '/subscriptions/*' -or $alternativeName -like '/providers/*') {
+            $record = ConvertTo-ManagedIdentityResourceRecord -ResourceId $alternativeName
+            if ($null -eq $record) { $invalidMetadata = $true } else { $records[$record.Id] = $record }
+        }
+    }
+    $explicitValues = @($explicitValues | Select-Object -Unique)
+    $userRecords = @($records.Values | Where-Object { $_.Type -eq 'Microsoft.ManagedIdentity/userAssignedIdentities' })
+    $isUserAssigned = ($explicitValues -contains 'true' -or $userRecords.Count -gt 0)
+    $kind = 'Unknown'
+    $resource = $null
+    if (-not $invalidMetadata -and $explicitValues.Count -le 1 -and $records.Count -eq 1) {
+        $candidate = @($records.Values)[0]
+        $pathIsUserAssigned = ($userRecords.Count -eq 1)
+        $validUserResource = ($candidate.ResourceGroup -ne '-' -and -not [string]::IsNullOrWhiteSpace($candidate.SubscriptionId))
+        if (($pathIsUserAssigned -and $validUserResource -and $explicitValues -notcontains 'false') -or (-not $pathIsUserAssigned -and $explicitValues -notcontains 'true')) {
+            $kind = if ($pathIsUserAssigned) { 'UserAssigned' } else { 'SystemAssigned' }
+            $resource = $candidate
+        }
+    }
+    $identityType = $kind
+    if (-not $invalidMetadata -and $records.Count -eq 0 -and $explicitValues.Count -eq 1) {
+        $identityType = if ($explicitValues[0] -eq 'true') { 'UserAssigned' } else { 'SystemAssigned' }
+    }
+    [pscustomobject]@{ IdentityType=$identityType; Kind=$kind; IsUserAssigned=$isUserAssigned; Resource=$resource }
+}
+
+function Invoke-ManagedIdentityAssociationRequest {
+    param([string]$Uri, [int]$Skip, [hashtable]$State)
+
+    $renewed = $false
+    while ($true) {
+        $token = $global:GLOBALArmAccessToken
+        $expiration = $token.Expiration_time -as [datetime]
+        if ($null -eq $token -or [string]::IsNullOrWhiteSpace([string]$token.access_token) -or $null -eq $expiration) {
+            $State.Unavailable = $true
+            throw [System.Security.Authentication.AuthenticationException]::new('ARM authentication is unavailable.')
+        }
+        if ($expiration.ToUniversalTime() -le [datetime]::UtcNow) {
+            if ($renewed) {
+                $State.Unavailable = $true
+                throw [System.Security.Authentication.AuthenticationException]::new('ARM authentication could not be renewed.')
+            }
+            $renewed = $true
+            try { $authenticated = EnsureAuthAzurePsNative } catch { $authenticated = $false }
+            if (-not $authenticated) {
+                $State.Unavailable = $true
+                throw [System.Security.Authentication.AuthenticationException]::new('ARM authentication could not be renewed.')
+            }
+            continue
+        }
+
+        # Automatic pagination changes POST to GET; collect each page explicitly instead.
+        if ($null -ne $State.LastRequestFinished) {
+            $delay = 1100 - ([datetime]::UtcNow - $State.LastRequestFinished).TotalMilliseconds
+            if ($delay -gt 0) { Start-Sleep -Milliseconds ([int][math]::Ceiling($delay)) }
+        }
+        try {
+            Send-ApiRequest -Method POST -Uri $Uri -AccessToken $token.access_token -QueryParameters @{
+                'api-version' = '2021-09-30-preview'
+                '$top' = 100
+                '$skip' = $Skip
+                '$orderby' = 'name asc'
+            } -DisablePagination -MaxRetries 2 -Silent -UserAgent $GlobalAuditSummary.UserAgent.Name -ErrorAction Stop
+            return
+        } catch {
+            $authenticationError = ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::AuthenticationError -or $_.Exception.Message -match '\b401\b')
+            if (-not $authenticationError) { throw }
+            if ($renewed) {
+                $State.Unavailable = $true
+                throw
+            }
+            $renewed = $true
+            try { $authenticated = EnsureAuthAzurePsNative } catch { $authenticated = $false }
+            if (-not $authenticated) {
+                $State.Unavailable = $true
+                throw [System.Security.Authentication.AuthenticationException]::new('ARM authentication could not be renewed.')
+            }
+        } finally {
+            $State.LastRequestFinished = [datetime]::UtcNow
+        }
+    }
+}
+
+function Get-ManagedIdentityAssociatedResources {
+    param([string]$ResourceId, [hashtable]$State)
+
+    $resources = @{}
+    $status = 'Complete'
+    $skip = 0
+    $requestPath = ($ResourceId -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
+    try {
+        while ($true) {
+            $page = @(Invoke-ManagedIdentityAssociationRequest -Uri ('https://management.azure.com' + $requestPath + '/listAssociatedResources') -Skip $skip -State $State)
+            if ($page.Count -eq 1 -and $null -ne $page[0] -and $null -ne $page[0].PSObject.Properties['value']) { $page = @($page[0].value) }
+            $newResources = 0
+            foreach ($entry in $page) {
+                $record = ConvertTo-ManagedIdentityResourceRecord -ResourceId $entry.id -Name $entry.name -SubscriptionName $entry.subscriptionDisplayName
+                if ($null -eq $record) { $status = 'Partial'; continue }
+                if ($resources.ContainsKey($record.Id)) { $status = 'Partial'; continue }
+                $resources[$record.Id] = $record
+                $newResources++
+            }
+            if ($page.Count -gt 0 -and $newResources -eq 0) { $status = 'Partial'; break }
+            if ($page.Count -lt 100) { break }
+            $skip += $page.Count
+        }
+    } catch {
+        Write-Log -Level Verbose -Message "Managed identity resource association collection failed for '$ResourceId': $($_.Exception.Message)"
+        $status = if ($resources.Count -gt 0) { 'Partial' } elseif ($State.Unavailable) { 'Unavailable' } else { 'Failed' }
+    }
+    $count = if ($status -eq 'Complete') { $resources.Count } else { '?' }
+    [pscustomobject]@{ MiResourceId=$ResourceId; AssociatedResources=$count; AssociatedResourcesStatus=$status; AssociatedResourcesDetails=@($resources.Values | Sort-Object Name,Id) }
+}
+
+function Get-ManagedIdentityResourceAssociationIndex {
+    param([AllowEmptyCollection()][array]$Identities)
+
+    $bindings = @{}
+    $userAssignedCount = 0
+    $eligibleCount = 0
+    $associationLookupLimit = 1000
+    $collectionAvailable = ($global:GLOBALAzureSubscriptionDiscoveryComplete -and -not [string]::IsNullOrWhiteSpace([string]$global:GLOBALArmAccessToken.access_token))
+    foreach ($identity in $Identities) {
+        $binding = Get-ManagedIdentityResourceBinding -Identity $identity
+        $bindings[[string]$identity.id] = $binding
+        if ($binding.IsUserAssigned) { $userAssignedCount++ }
+        if ($binding.Kind -eq 'UserAssigned' -and $collectionAvailable -and $global:GLOBALAzureVisibleSubscriptionIds -and $global:GLOBALAzureVisibleSubscriptionIds.ContainsKey($binding.Resource.SubscriptionId)) {
+            $eligibleCount++
+        }
+    }
+    if ($eligibleCount -ge $associationLookupLimit) {
+        Write-Host "[i] EntraFalcon collection safeguard: skipping $eligibleCount eligible user-assigned identities (limit: fewer than $associationLookupLimit; $userAssignedCount identified in total)."
+    } elseif ($eligibleCount -gt 0) {
+        Write-Host "[*] Collect associated resources for $eligibleCount of $userAssignedCount identified user-assigned managed identities (at most one request per 1.1 seconds)."
+    } elseif ($userAssignedCount -gt 0) {
+        Write-Host "[i] Skipping associated resource collection: no eligible user-assigned managed identities ($userAssignedCount identified in total)."
+    }
+    $state = @{ Unavailable=$false; LastRequestFinished=$null }
+    $queriedCount = 0
+    $statusCounts = @{ Complete=0; Partial=0; Failed=0; SkippedLimit=0; SkippedSubscription=0; Unavailable=0; Unknown=0; FromMetadata=0 }
+    $results = @{}
+    foreach ($identity in $Identities) {
+        $id = [string]$identity.id
+        $binding = $bindings[$id]
+        $resourceId = if ($null -ne $binding.Resource) { $binding.Resource.Id } else { $null }
+        $result = [pscustomobject]@{ MiResourceId=$resourceId; AssociatedResources='?'; AssociatedResourcesStatus='Unknown'; AssociatedResourcesDetails=@() }
+        if ($binding.Kind -eq 'SystemAssigned') {
+            $result.AssociatedResources = 1
+            $result.AssociatedResourcesStatus = 'FromMetadata'
+            $result.AssociatedResourcesDetails = @($binding.Resource)
+        } elseif ($binding.Kind -eq 'UserAssigned') {
+            if (-not $global:GLOBALAzureSubscriptionDiscoveryComplete -or $state.Unavailable -or [string]::IsNullOrWhiteSpace([string]$global:GLOBALArmAccessToken.access_token)) {
+                $result.AssociatedResources = '?'
+                $result.AssociatedResourcesStatus = 'Unavailable'
+            } elseif (-not $global:GLOBALAzureVisibleSubscriptionIds -or -not $global:GLOBALAzureVisibleSubscriptionIds.ContainsKey($binding.Resource.SubscriptionId)) {
+                $result.AssociatedResources = '?'
+                $result.AssociatedResourcesStatus = 'SkippedSubscription'
+            } elseif ($eligibleCount -ge $associationLookupLimit) {
+                $result.AssociatedResources = '-'
+                $result.AssociatedResourcesStatus = 'SkippedLimit'
+            } else {
+                $result = Get-ManagedIdentityAssociatedResources -ResourceId $resourceId -State $state
+                $queriedCount++
+                if ($queriedCount % 50 -eq 0) {
+                    Write-Host "[*] Associated resources: processed $queriedCount of $eligibleCount identities..."
+                }
+            }
+        }
+        $result | Add-Member -NotePropertyName IdentityType -NotePropertyValue $binding.IdentityType
+        $results[$id] = $result
+        $statusCounts[$result.AssociatedResourcesStatus]++
+        Write-Log -Level Debug -Message "Associated resources for '$($identity.displayName)' ($id): status=$($result.AssociatedResourcesStatus); retrieved=$($result.AssociatedResourcesDetails.Count)."
+    }
+    if ($queriedCount -gt 0) {
+        if ($state.Unavailable) {
+            Write-Host "[i] Associated resource collection stopped after $queriedCount of $eligibleCount identities: ARM authentication is unavailable."
+        } else {
+            Write-Host "[+] Associated resource collection completed for $queriedCount of $eligibleCount identities."
+        }
+    }
+    Write-Log -Level Verbose -Message ("Associated resource summary: complete=$($statusCounts.Complete), partial=$($statusCounts.Partial), failed=$($statusCounts.Failed), " +
+        "skipped=$($statusCounts.SkippedLimit + $statusCounts.SkippedSubscription), unavailable=$($statusCounts.Unavailable), unknown=$($statusCounts.Unknown), from metadata=$($statusCounts.FromMetadata).")
+    return $results
+}
+
 function Invoke-CheckManagedIdentities {
 
     ############################## Parameter section ########################
@@ -57,7 +293,9 @@ function Invoke-CheckManagedIdentities {
 
     $SPLikelihoodScore = @{
         "Base"          	        = 1
-        "FederatedCredential"        = 1
+        "AdditionalResource"         = 1
+        "FederatedCredential"        = 2
+        "Maximum"                    = 5
     }
 
     function Resolve-ManagedIdentityOwnedAgentObject {
@@ -101,6 +339,7 @@ function Invoke-CheckManagedIdentities {
     
     $ManagedIdentitiesCount = $($ManagedIdentities.count)
     write-host "[+] Got $ManagedIdentitiesCount Managed Identities"
+    $ResourceAssociationIndex = Get-ManagedIdentityResourceAssociationIndex -Identities $ManagedIdentities
 
     # Check if Azure IAM role were checked
     if (-not ($GLOBALAzurePsChecks)) {
@@ -169,6 +408,7 @@ function Invoke-CheckManagedIdentities {
         $warnings = @()
 
         $miIdKey = [string]$item.Id
+        $ResourceAssociation = $ResourceAssociationIndex[$miIdKey]
         if ($AppAssignmentsCoverage.ContainsKey($miIdKey)) {
             $warnings += "API permissions incomplete: application permission data could not be fully retrieved"
         }
@@ -209,15 +449,10 @@ function Invoke-CheckManagedIdentities {
         }
 
         # Check AlternativeNames in a safe way
-        $IsExplicit = $false
         $MiPath = "Unknown"
         $explicitEntry = $null
         if ($item.AlternativeNames -and $item.AlternativeNames.Count -gt 0) {
             $explicitEntry = $item.AlternativeNames | Where-Object { $_ -like 'isExplicit=*' } | Select-Object -First 1
-            if ($explicitEntry -and $explicitEntry -match '^isExplicit=(?<val>true|false)$') {
-                $IsExplicit = [bool]::Parse($Matches['val'])
-            }
-
             $pathEntry = $item.AlternativeNames | Where-Object { $_ -and $_ -notlike 'isExplicit=*' } | Select-Object -First 1
             if (-not [string]::IsNullOrWhiteSpace($pathEntry)) {
                 $MiPath = $pathEntry.Trim()
@@ -718,10 +953,12 @@ function Invoke-CheckManagedIdentities {
             }
         }
 
-        # Federation adds an authentication path through a trusted workload.
-        if ($FederatedCredsDetails.Count -gt 0) {
-            $LikelihoodScore += $SPLikelihoodScore["FederatedCredential"]
-        }
+        # Retrieved authentication paths provide a minimum exposure estimate when collection is incomplete.
+        $associatedResourceCount = @($ResourceAssociation.AssociatedResourcesDetails | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Id) } | ForEach-Object { $_.Id } | Sort-Object -Unique).Count
+        $federatedCredentialCount = @($FederatedCredsDetails | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Id) } | ForEach-Object { $_.Id } | Sort-Object -Unique).Count
+        $LikelihoodScore += [math]::Max(0, $associatedResourceCount - 1) * $SPLikelihoodScore["AdditionalResource"]
+        $LikelihoodScore += $federatedCredentialCount * $SPLikelihoodScore["FederatedCredential"]
+        $LikelihoodScore = [math]::Min($SPLikelihoodScore["Maximum"], $LikelihoodScore)
 
         # Calculate days since creation
         $CreationInDays = if ($item.createdDateTime) {
@@ -800,8 +1037,12 @@ function Invoke-CheckManagedIdentities {
             EntraRoleDetails = $AppEntraRoles
             GroupOwner = $OwnedGroups
             AppPermission = $AppAssignments
-            IsExplicit = $IsExplicit
+            IdentityType = $ResourceAssociation.IdentityType
             MiPath = $MiPath
+            MiResourceId = $ResourceAssociation.MiResourceId
+            AssociatedResources = $ResourceAssociation.AssociatedResources
+            AssociatedResourcesStatus = $ResourceAssociation.AssociatedResourcesStatus
+            AssociatedResourcesDetails = $ResourceAssociation.AssociatedResourcesDetails
             CreationDate = $item.createdDateTime
             CreationInDays = $CreationInDays
             FederatedCreds = $FederatedCredsCount
@@ -840,7 +1081,7 @@ function Invoke-CheckManagedIdentities {
     $SortedManagedIdentitiesByRisk = $AllServicePrincipal | Sort-Object Risk -Descending
 
     #Define output of the main table
-    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     
     #Define the managed identities to be displayed in detail
     $details = $SortedManagedIdentitiesByRisk
@@ -871,13 +1112,21 @@ function Invoke-CheckManagedIdentities {
             "App Client-ID" = $($item.AppId)
             "App Object-ID" = $($item.Id)
             "CreationDate" = $($item.CreationDate)
-            "Custom Identity" = $($item.IsExplicit)
+            "IdentityType" = $($item.IdentityType)
             "Object Path" = $($item.MiPath)
             "RiskScore" = $($item.Risk)
         }
+        $ReportingAssociatedResources = @($item.AssociatedResourcesDetails | ForEach-Object {
+            [pscustomobject]@{
+                'Resource name' = ConvertTo-EntraFalconHtmlText $_.Name
+                'Resource type' = ConvertTo-EntraFalconHtmlText $_.Type
+                'Subscription' = ConvertTo-EntraFalconHtmlText $_.SubscriptionName
+                'Resource group' = ConvertTo-EntraFalconHtmlText $_.ResourceGroup
+            }
+        })
 
         #Build dynamic TXT report property list
-        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","Custom Identity","Object Path","RiskScore")
+        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","IdentityType","Object Path","RiskScore")
 
         if ($item.Warnings -ne '') {
             $ReportingMIInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $item.Warnings
@@ -885,7 +1134,6 @@ function Invoke-CheckManagedIdentities {
         }
 
         [void]$DetailTxtBuilder.AppendLine(($ReportingMIInfo | Select-Object $TxtReportProps | Out-String))
-        
         ############### Entra Roles
         if ($($item.EntraRoleDetails | Measure-Object).count -ge 1) {
             $ReportingRoles = foreach ($object in $($item.EntraRoleDetails)) {
@@ -925,46 +1173,29 @@ function Invoke-CheckManagedIdentities {
             }
 
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine("Azure IAM assignments`n")
+            [void]$DetailTxtBuilder.AppendLine("Azure IAM assignment`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine(($ReportingAzureRoles | Out-String))
         }
 
 
-        ############### Group Owner
-        if ($($item.GroupOwner | Measure-Object).count -ge 1) {
-            $ReportingGroupOwner = foreach ($object in $($item.GroupOwner)) {
+        ############### API permission
+        if ($($item.AppApiPermission | Measure-Object).count -ge 1) {
+            $ReportingAPIPermission = foreach ($object in $($item.AppApiPermission)) {
                 [pscustomobject]@{ 
-                    "DisplayName" = $($object.DisplayName)
-                    "DisplayNameLink" = "<a href=Groups_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($object.id)>$($object.DisplayName)</a>"
-                    "SecurityEnabled" = $($object.SecurityEnabled)
-                    "RoleAssignable" = $($object.RoleAssignable)
-                    "EntraRoles" = $($object.AssignedRoleCount)
-                    "AzureRoles" = $($object.AzureRoles)
-                    "CAPs" = $($object.CAPs)
-                    "ImpactOrg" = $($object.ImpactOrg)
-                    "Warnings" = $($object.Warnings)
+                    "API" = $($object.ApiName)
+                    "Category" = $($object.ApiPermissionCategorization)
+                    "Permission" = $($object.ApiPermission)
+                    "Short Description" = $($object.ApiPermissionDisplayname)
                 }
             }
 
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine("Owner of Groups`n")
+            [void]$DetailTxtBuilder.AppendLine("API Permission (Application)`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine(($ReportingGroupOwner | Format-Table DisplayName,SecurityEnabled,RoleAssignable,EntraRoles,AzureRoles,CAPs,ImpactOrg,Warnings | Out-String))
-            
-            $ReportingGroupOwner = foreach ($obj in $ReportingGroupOwner) {
-                [pscustomobject]@{
-                    DisplayName             = $obj.DisplayNameLink
-                    SecurityEnabled         = $obj.SecurityEnabled
-                    RoleAssignable          = $obj.RoleAssignable
-                    EntraRoles              = $obj.EntraRoles
-                    AzureRoles              = $obj.AzureRoles
-                    CAPs                    = $obj.CAPs
-                    ImpactOrg               = $obj.ImpactOrg
-                    Warnings                = $obj.Warnings
-                }
-            }
-        } 
+            [void]$DetailTxtBuilder.AppendLine(($ReportingAPIPermission | Out-String))
+        }
+
 
         ############### App owner
         if ($($item.OwnedApplicationsDetails | Measure-Object).count -ge 1) {
@@ -1091,22 +1322,47 @@ function Invoke-CheckManagedIdentities {
             }
         } 
 
-        ############### Managed Identity Credentials
-        if ($($item.AppCredentialsDetails | Measure-Object).count -ge 1) {
-            $ReportingCredentials = foreach ($object in $($item.AppCredentialsDetails)) {
+        ############### Group Owner
+        if ($($item.GroupOwner | Measure-Object).count -ge 1) {
+            $ReportingGroupOwner = foreach ($object in $($item.GroupOwner)) {
                 [pscustomobject]@{ 
-                    "Type" = $($object.Type)
                     "DisplayName" = $($object.DisplayName)
-                    "StartDateTime" = $(if ($null -ne $object.StartDateTime) { $object.StartDateTime.ToString() } else { "-" })
-                    "EndDateTime" = $(if ($null -ne $object.EndDateTime) { $object.EndDateTime.ToString() } else { "-" })
+                    "DisplayNameLink" = "<a href=Groups_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayNameEncoded).html#$($object.id)>$($object.DisplayName)</a>"
+                    "SecurityEnabled" = $($object.SecurityEnabled)
+                    "RoleAssignable" = $($object.RoleAssignable)
+                    "EntraRoles" = $($object.AssignedRoleCount)
+                    "AzureRoles" = $($object.AzureRoles)
+                    "CAPs" = $($object.CAPs)
+                    "ImpactOrg" = $($object.ImpactOrg)
+                    "Warnings" = $($object.Warnings)
                 }
             }
 
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine("Managed Identity Credentials`n")
+            [void]$DetailTxtBuilder.AppendLine("Owner of Groups`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine(($ReportingCredentials | Out-String -Width 512))
+            [void]$DetailTxtBuilder.AppendLine(($ReportingGroupOwner | Format-Table DisplayName,SecurityEnabled,RoleAssignable,EntraRoles,AzureRoles,CAPs,ImpactOrg,Warnings | Out-String))
+
+            $ReportingGroupOwner = foreach ($obj in $ReportingGroupOwner) {
+                [pscustomobject]@{
+                    DisplayName             = $obj.DisplayNameLink
+                    SecurityEnabled         = $obj.SecurityEnabled
+                    RoleAssignable          = $obj.RoleAssignable
+                    EntraRoles              = $obj.EntraRoles
+                    AzureRoles              = $obj.AzureRoles
+                    CAPs                    = $obj.CAPs
+                    ImpactOrg               = $obj.ImpactOrg
+                    Warnings                = $obj.Warnings
+                }
+            }
         } 
+
+        if ($item.AssociatedResourcesDetails.Count -gt 0) {
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Associated Azure Resources`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($item.AssociatedResourcesDetails | Select-Object @{Name='Resource name';Expression={$_.Name}},@{Name='Resource type';Expression={$_.Type}},@{Name='Subscription';Expression={$_.SubscriptionName}},@{Name='Resource group';Expression={$_.ResourceGroup}} | Format-Table -AutoSize -Wrap | Out-String -Width 512))
+        }
 
         $ReportingFederatedCredsTxt = @(
             foreach ($credential in $item.FederatedCredsDetails) {
@@ -1135,30 +1391,29 @@ function Invoke-CheckManagedIdentities {
             [void]$DetailTxtBuilder.AppendLine(($ReportingFederatedCredsTxt | Format-List -Property Name,Issuer,Subject,Audiences,Description | Out-String -Width 512))
         }
 
-        ############### API permission
-        if ($($item.AppApiPermission | Measure-Object).count -ge 1) {
-            $ReportingAPIPermission = foreach ($object in $($item.AppApiPermission)) {
-                [pscustomobject]@{ 
-                    "API" = $($object.ApiName)
-                    "Category" = $($object.ApiPermissionCategorization)
-                    "Permission" = $($object.ApiPermission)
-                    "Short Description" = $($object.ApiPermissionDisplayname)
-                }
-            }
-
-            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine("API Permission (Application)`n")
-            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine(($ReportingAPIPermission | Out-String))
-        }
-
-
         if (($item.CatalogRbacDetails | Measure-Object).Count -ge 1) {
             $ReportingCatalogRbacTxt = @($item.CatalogRbacDetails | Select-Object Catalog,Role,AssignedVia,CatalogEnabled)
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine("Identity Governance RBAC Assignments`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine(($ReportingCatalogRbacTxt | Format-Table Catalog,Role,AssignedVia,CatalogEnabled | Out-String))
+        }
+
+        ############### Managed Identity Credentials
+        if ($($item.AppCredentialsDetails | Measure-Object).count -ge 1) {
+            $ReportingCredentials = foreach ($object in $($item.AppCredentialsDetails)) {
+                [pscustomobject]@{
+                    "Type" = $($object.Type)
+                    "DisplayName" = $($object.DisplayName)
+                    "StartDateTime" = $(if ($null -ne $object.StartDateTime) { $object.StartDateTime.ToString() } else { "-" })
+                    "EndDateTime" = $(if ($null -ne $object.EndDateTime) { $object.EndDateTime.ToString() } else { "-" })
+                }
+            }
+
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine("Credentials`n")
+            [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
+            [void]$DetailTxtBuilder.AppendLine(($ReportingCredentials | Out-String -Width 512))
         }
 
         $ObjectDetails = [pscustomobject]@{
@@ -1174,9 +1429,10 @@ function Invoke-CheckManagedIdentities {
             "Owned Agent Identities" = $ReportingAgentIdentityOwner
             "Member in Groups (transitive)" = $ReportingGroupMember
             "Owner of Groups" = $ReportingGroupOwner
-            "Credentials" = $ReportingCredentials
+            "Associated Azure Resources" = $ReportingAssociatedResources
             "Federated Identity Credentials" = $ReportingFederatedCreds
             "Identity Governance RBAC Assignments" = $ReportingCatalogRbac
+            "Credentials" = $ReportingCredentials
         }
     
         [void]$AllObjectDetailsHTML.Add($ObjectDetails)
@@ -1188,7 +1444,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Writing report files..."
     write-host
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1285,9 +1541,9 @@ $headerHtml = @"
 
         #Write TXT and CSV files
         $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $tableOutput | format-table DisplayName,IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $tableOutput | format-table DisplayName,IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $tableOutput | select-object DisplayName,IsExplicit,CreationInDays,FederatedCreds,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+            $tableOutput | select-object DisplayName,IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
         }
         $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
@@ -1306,7 +1562,7 @@ $headerHtml = @"
     }
 
     #Add information to the enumeration summary
-    $IsExplicit = 0
+    $IdentityTypeCounts = @{ UserAssigned=0; SystemAssigned=0; Unknown=0 }
     $AppApiDangerous = 0
     $AppApiHigh = 0
     $AppApiMedium = 0
@@ -1314,9 +1570,7 @@ $headerHtml = @"
     $AppApiMisc = 0
 
     foreach ($app in $AllServicePrincipal) {
-        if ($app.IsExplicit) {
-            $IsExplicit++
-        }
+        $IdentityTypeCounts[$app.IdentityType]++
 
         if ($app.ApiDangerous) {$AppApiDangerous++}
         if ($app.ApiHigh) {$AppApiHigh++}
@@ -1327,7 +1581,7 @@ $headerHtml = @"
 
     # Store in global var
     $GlobalAuditSummary.ManagedIdentities.Count = $ManagedIdentitiesCount
-    $GlobalAuditSummary.ManagedIdentities.IsExplicit = $IsExplicit  
+    $GlobalAuditSummary.ManagedIdentities.IdentityTypes = $IdentityTypeCounts
     $GlobalAuditSummary.ManagedIdentities.ApiCategorization.Dangerous = $AppApiDangerous
     $GlobalAuditSummary.ManagedIdentities.ApiCategorization.High = $AppApiHigh
     $GlobalAuditSummary.ManagedIdentities.ApiCategorization.Medium = $AppApiMedium
@@ -1359,3 +1613,5 @@ $headerHtml = @"
     Return $AllServicePrincipalHT
 
 }
+
+Export-ModuleMember -Function Invoke-CheckManagedIdentities

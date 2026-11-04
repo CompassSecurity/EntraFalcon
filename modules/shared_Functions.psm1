@@ -571,7 +571,7 @@ $global:GLOBALJavaScript_Table = @'
                         AzureMaxLevel: "or_Critical||High",
                         Warnings: "or_through group"
                     },
-                    columns: ["DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership", "AppOwnership", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "IdentityType", "GroupMembership", "GroupOwnership", "AppOwnership", "BlueprintOwn", "SpOwn", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -584,7 +584,7 @@ $global:GLOBALJavaScript_Table = @'
                         ApiHigh: "or_>0",
                         ApiMedium: "or_>0"
                     },
-                    columns: ["DisplayName", "IsExplicit", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "IdentityType", "ApiDangerous", "ApiHigh", "ApiMedium", "ApiLow", "ApiMisc", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -596,7 +596,7 @@ $global:GLOBALJavaScript_Table = @'
                         EntraRoles: "or_>0",
                         AzureRoles: "or_>0"
                     },
-                    columns: ["DisplayName", "IsExplicit", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "IdentityType", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "Risk", direction: "desc" }
                 },
                 {
@@ -607,7 +607,7 @@ $global:GLOBALJavaScript_Table = @'
                     filters: {
                         AzureMaxLevel: "Critical||High"
                     },
-                    columns: ["DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership", "AzureRoles", "AzureMaxLevel", "Impact", "Likelihood", "Risk", "Warnings"],
+                    columns: ["DisplayName", "IdentityType", "GroupMembership", "GroupOwnership", "AzureRoles", "AzureMaxLevel", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "AzureMaxImpact", direction: "desc" }
                 }
             ],
@@ -1826,7 +1826,7 @@ $global:GLOBALJavaScript_Table = @'
                 laptop: {
                     maxWidth: 1600,
                     columns: [
-                        "DisplayName", "IsExplicit", "GroupMembership", "GroupOwnership",
+                        "DisplayName", "IdentityType", "AssociatedResources", "GroupMembership", "GroupOwnership",
                         "AppOwnership", "BlueprintOwn", "SpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxLevel",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiMisc",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -1835,7 +1835,7 @@ $global:GLOBALJavaScript_Table = @'
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "DisplayName", "GroupMembership", "GroupOwnership",
+                        "DisplayName", "AssociatedResources", "GroupMembership", "GroupOwnership",
                         "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxLevel",
                         "ApiDangerous", "ApiHigh", "ApiMedium",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -1992,6 +1992,7 @@ $global:GLOBALJavaScript_Table = @'
             "Risk": "Calculation: Impact x Likelihood",
             "OnPrem": "Objects synced from on-prem AD",
             "AzureRoles": "Directly or indirectly assigned Azure IAM roles",
+            "AssociatedResources": "Azure resources using this identity.",
             "ScopeType": "Azure scope level of the assignment: tenant root, management group, subscription, resource group, or individual resource.",
             "Environment": "Environment inferred from scope names such as prod, dev, test. Verify manually.",
             "EntraRoles": "Directly or indirectly assigned Entra ID roles",
@@ -8551,11 +8552,25 @@ function AuthCheckAzPSNative {
 }
 
 
+function Set-AzureSubscriptionVisibility {
+    param([AllowEmptyCollection()][string[]]$SubscriptionIds = @(), [switch]$DiscoveryComplete)
+
+    $global:GLOBALAzureVisibleSubscriptionIds = @{}
+    foreach ($subscriptionId in $SubscriptionIds) {
+        if (-not [string]::IsNullOrWhiteSpace($subscriptionId)) {
+            $global:GLOBALAzureVisibleSubscriptionIds[$subscriptionId.ToLowerInvariant()] = $true
+        }
+    }
+    $global:GLOBALAzureSubscriptionDiscoveryComplete = [bool]$DiscoveryComplete
+}
+
 function checkSubscriptionNative {
     $result = $true
 
+    Set-AzureSubscriptionVisibility
     $url = 'https://management.azure.com/subscriptions?api-version=2022-12-01'
     $Subscription = @(Send-ApiRequest -Method GET -Uri $url -AccessToken $GLOBALArmAccessToken.access_token -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop)
+    Set-AzureSubscriptionVisibility -SubscriptionIds @($Subscription | ForEach-Object { $_.subscriptionId }) -DiscoveryComplete
     $SubscriptionCount = $Subscription.Count
 
     if ($SubscriptionCount -gt 0) {
@@ -11170,6 +11185,7 @@ function Get-AllAzureIAMAssignmentsNative {
     $assignmentsEligible = @()
     $seenAssignments = New-Object System.Collections.Generic.HashSet[System.String]
     #Retrieve role assignments for each subscription and filter by scope
+    Set-AzureSubscriptionVisibility
     $url = 'https://management.azure.com/subscriptions?api-version=2022-12-01'
     $subscriptions = @(Send-ApiRequest -Method GET -Uri $url -AccessToken $GLOBALArmAccessToken.access_token -UserAgent $($GlobalAuditSummary.UserAgent.Name) -ErrorAction Stop) | ForEach-Object {
         [PSCustomObject]@{
@@ -11179,6 +11195,8 @@ function Get-AllAzureIAMAssignmentsNative {
             ManagedByTenants = $_.managedByTenants
         }
     }
+
+    Set-AzureSubscriptionVisibility -SubscriptionIds @($subscriptions | ForEach-Object { $_.Id }) -DiscoveryComplete
 
     # Build lookup tables to resolve scope IDs to readable names.
     $subscriptionScopeMap = @{}
@@ -13647,6 +13665,7 @@ function start-InitTasks {
         [Parameter(Mandatory=$true)][string]$EntraFalconVersion
     )
 
+    Set-AzureSubscriptionVisibility
     $Global:GlobalAuditSummary = @{
         Time                   = @{ Start = Get-Date -Format "yyyyMMdd HH:mm:ss"; End = ""}
         Tenant                 = @{ Name = ""; Id = ""; OnPremisesSyncEnabled = $null; OnPremisesLastSyncDateTime = $null }
@@ -13659,7 +13678,7 @@ function start-InitTasks {
         Groups                 = @{ Count = 0; M365 = 0; PublicM365 = 0; PimOnboarded = 0; OnPrem = 0}
         AppRegistrations       = @{ Count = 0; AppLock = 0; Credentials = @{ 'AppsSecrets' = 0; 'AppsCerts' = 0; 'AppsFederatedCreds' = 0; 'AppsNoCreds' = 0}; Audience = @{ 'SingleTenant' = 0; 'MultiTenant' = 0; 'MultiTenantPersonal' = 0} }
         EnterpriseApps         = @{ Count = 0; Foreign = 0; IncludeMsApps = $false; Credentials = 0; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0}; SignInActivity = @{ '0-1 month' = 0; '1-2 months' = 0; '2-3 months' = 0; '3-4 months' = 0; '4-5 months' = 0; '5-6 months' = 0; '6+ months' = 0; 'Never' = 0 }}
-        ManagedIdentities      = @{ Count = 0; IsExplicit = 0; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0}; AzureScopeType = @{ 'Root' = 0; 'ManagementGroup' = 0; 'Subscription' = 0; 'ResourceGroup' = 0; 'Resource' = 0; 'Unknown' = 0}; AzureImpactLevel = @{ 'Critical' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Unknown' = 0} }
+        ManagedIdentities      = @{ Count = 0; IdentityTypes = @{ UserAssigned=0; SystemAssigned=0; Unknown=0 }; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0}; AzureScopeType = @{ 'Root' = 0; 'ManagementGroup' = 0; 'Subscription' = 0; 'ResourceGroup' = 0; 'Resource' = 0; 'Unknown' = 0}; AzureImpactLevel = @{ 'Critical' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Unknown' = 0} }
         AgentIdentities        = @{ Count = 0; Foreign = 0; Inactive = 0; TotalAgentUsers = 0; ApiCategorization = @{ 'Dangerous' = 0; 'High' = 0; 'Medium' = 0; 'Low' = 0; 'Misc' = 0 } }
         AgentIdentityBlueprintsPrincipals = @{ Count = 0; Foreign = 0 }
         AgentIdentityBlueprints = @{ Count = 0; Credentials = @{ 'Secrets' = 0; 'Certificates' = 0; 'Federated Credentials' = 0; 'None' = 0 } }
@@ -14530,6 +14549,8 @@ function start-CleanUp {
     remove-variable -Scope Global GLOBALSpSignInActivityUnavailableReason -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzurePsChecks -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzureSubscriptionScopeMap -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALAzureVisibleSubscriptionIds -ErrorAction SilentlyContinue
+    remove-variable -Scope Global GLOBALAzureSubscriptionDiscoveryComplete -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzureManagementGroupScopeMap -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzureManagementGroupHierarchyStatus -ErrorAction SilentlyContinue
     remove-variable -Scope Global GLOBALAzureResourceInventoryStatus -ErrorAction SilentlyContinue

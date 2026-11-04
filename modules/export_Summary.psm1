@@ -1001,8 +1001,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // ============ Managed Identities ============
         managedidentities_general: {
-            systemassigned: $($($GlobalAuditSummary.ManagedIdentities.Count) - $($GlobalAuditSummary.ManagedIdentities.IsExplicit)),
-            userassigned: $($GlobalAuditSummary.ManagedIdentities.IsExplicit),
+            systemassigned: $($GlobalAuditSummary.ManagedIdentities.IdentityTypes.SystemAssigned),
+            userassigned: $($GlobalAuditSummary.ManagedIdentities.IdentityTypes.UserAssigned),
+            unknown: $($GlobalAuditSummary.ManagedIdentities.IdentityTypes.Unknown),
             total: $($GlobalAuditSummary.ManagedIdentities.Count)
         },
             managedidentities_apicategorization: {
@@ -1342,9 +1343,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // ============ Managed Identities ============
         if (datasetKey === 'managedidentities_general') {
             return {
-                labels: ['System Assigned', 'User Assigned'],
+                labels: ['System Assigned', 'User Assigned', 'Unknown'],
                 datasets: [{
-                    data: [dataSources.managedidentities_general.systemassigned, dataSources.managedidentities_general.userassigned],
+                    data: [dataSources.managedidentities_general.systemassigned, dataSources.managedidentities_general.userassigned, dataSources.managedidentities_general.unknown],
                     backgroundColor: chartColorPalette
                 }]
             };
@@ -2189,7 +2190,11 @@ Enumeration Results:
             }
             managedIdentities                 = [ordered]@{
                 count      = $GlobalAuditSummary.ManagedIdentities.Count
-                isExplicit = $GlobalAuditSummary.ManagedIdentities.IsExplicit
+                identityTypes = [ordered]@{
+                    userAssigned = $GlobalAuditSummary.ManagedIdentities.IdentityTypes.UserAssigned
+                    systemAssigned = $GlobalAuditSummary.ManagedIdentities.IdentityTypes.SystemAssigned
+                    unknown = $GlobalAuditSummary.ManagedIdentities.IdentityTypes.Unknown
+                }
             }
             agentIdentities                   = [ordered]@{
                 count           = $GlobalAuditSummary.AgentIdentities.Count
