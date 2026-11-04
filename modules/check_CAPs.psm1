@@ -357,6 +357,8 @@ function Invoke-CheckCaps {
         ManageRiskyAgents = 'Agent risk management'
         TargetAuthenticationContext = 'Authentication context'
         ApplyAppEnforcedRestrictions = 'App-enforced restrictions'
+        RequireAppProtection = 'App protection controls'
+        ManageSessions = 'Session management'
     }
 
     function ConvertTo-CapIntentDisplayText {
@@ -736,6 +738,45 @@ function Invoke-CheckCaps {
         $appRestrictionsEnabled = $Policy.SessionControls.ApplicationEnforcedRestrictions.IsEnabled
         if ($appRestrictionsEnabled -is [bool] -and $appRestrictionsEnabled) {
             return 'ApplyAppEnforcedRestrictions'
+        }
+    }
+
+    function Get-CapAppProtectionIntent {
+        param(
+            [Parameter(Mandatory=$true)]$Policy,
+            [Parameter(Mandatory=$true)][string]$TargetType
+        )
+
+        if ($TargetType -ne 'Users') { return }
+
+        $grantControls = $Policy.GrantControls
+        if ($grantControls.Operator -isnot [string] -or $grantControls.Operator -notin @('AND','OR') -or
+            $grantControls.BuiltInControls -isnot [System.Collections.IEnumerable] -or
+            $grantControls.BuiltInControls -is [string]) { return }
+
+        $builtInControls = @($grantControls.BuiltInControls)
+        $knownGrantControls = @('block','mfa','compliantDevice','domainJoinedDevice','approvedApplication','compliantApplication','passwordChange','riskRemediation')
+        foreach ($control in $builtInControls) {
+            if ($control -isnot [string] -or $control -notin $knownGrantControls) { return }
+        }
+        if ($builtInControls -contains 'block' -or $builtInControls -notcontains 'compliantApplication') { return }
+
+        return 'RequireAppProtection'
+    }
+
+    function Get-CapSessionIntent {
+        param(
+            [Parameter(Mandatory=$true)]$Policy,
+            [Parameter(Mandatory=$true)][string]$TargetType
+        )
+
+        if ($TargetType -ne 'Users' -or $Policy.GrantControls.BuiltInControls -contains 'block') { return }
+
+        foreach ($controlName in @('SignInFrequency','PersistentBrowser')) {
+            $enabled = $Policy.SessionControls.$controlName.IsEnabled
+            if ($enabled -is [bool] -and $enabled) {
+                return 'ManageSessions'
+            }
         }
     }
 
@@ -1652,11 +1693,21 @@ function Invoke-CheckCaps {
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
         )
 
+        $builtInControlDisplayNames = @{
+            mfa                  = "MFA"
+            compliantdevice      = "compliant device"
+            domainjoineddevice   = "hybrid-joined device"
+            approvedapplication  = "approved client app"
+            compliantapplication = "app protection policy"
+            passwordchange       = "password change"
+        }
+
         $grantAlternatives = [System.Collections.Generic.List[object]]::new()
         foreach ($control in $normalizedBuiltInControls) {
             if ($control -eq "block") { continue }
             $grantAlternatives.Add([pscustomobject]@{
                 Label                  = $control
+                DisplayName            = if ($builtInControlDisplayNames.ContainsKey($control)) { $builtInControlDisplayNames[$control] } else { $control }
                 Resolved               = $true
                 MfaEquivalent          = ($control -eq "mfa")
                 PhishingResistant      = $false
@@ -1666,6 +1717,7 @@ function Invoke-CheckCaps {
         if ($HasAuthStrength) {
             $grantAlternatives.Add([pscustomobject]@{
                 Label                  = "authenticationStrength"
+                DisplayName            = "authentication strength"
                 Resolved               = $AuthStrengthResolved
                 MfaEquivalent          = ($AuthStrengthResolved -and $AuthStrengthMfaCombinationsOnly)
                 PhishingResistant      = ($AuthStrengthResolved -and $AuthStrengthPhishingResistantOnly)
@@ -1681,6 +1733,8 @@ function Invoke-CheckCaps {
             foreach ($controlId in $controlIds) {
                 $grantAlternatives.Add([pscustomobject]@{
                     Label             = "$($additionalControl.Label) ($controlId)"
+                    DisplayName       = "$($additionalControl.Label) $controlId"
+                    ControlId         = $controlId
                     Resolved          = $additionalControl.Resolved
                     MfaEquivalent     = $false
                     PhishingResistant = $false
@@ -1744,14 +1798,21 @@ function Invoke-CheckCaps {
             $customControlWarning = "references custom control(s) whose provider authentication assurance could not be established: " + ($unresolvedCustomControls -join ", ")
         }
 
+        # Both the finding strings and the structured facts below read these predicates, so they cannot drift apart.
+        $hasWeakMfaOrPath = ($normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives -and $hasMfaBaselineCandidate -and $weakMfaAlternatives.Count -gt 0)
+        $hasWeakPhishingOrPath = ($normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives -and $HasAuthStrength -and $weakPhishingAlternatives.Count -gt 0)
+        $strengthUnresolved = ($HasAuthStrength -and -not $AuthStrengthResolved)
+        $strengthUnresolvedOrPath = ($strengthUnresolved -and $normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives)
+        $strengthNotMfaEquivalent = ($HasAuthStrength -and $AuthStrengthResolved -and -not $AuthStrengthMfaCombinationsOnly -and -not $mfaEquivalentEnforced)
+
         $mfaWarningParts = @()
-        if ($normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives -and $hasMfaBaselineCandidate -and $weakMfaAlternatives.Count -gt 0) {
+        if ($hasWeakMfaOrPath) {
             $mfaWarningParts += "uses OR with non-MFA grant alternative(s): " + (($weakMfaAlternatives | Sort-Object -Unique) -join ", ")
         }
-        if ($HasAuthStrength -and -not $AuthStrengthResolved) {
+        if ($strengthUnresolved) {
             $mfaWarningParts += "references authentication strength that could not be resolved"
         }
-        if ($HasAuthStrength -and $AuthStrengthResolved -and -not $AuthStrengthMfaCombinationsOnly -and -not $mfaEquivalentEnforced) {
+        if ($strengthNotMfaEquivalent) {
             $mfaWarningParts += "authentication strength is not MFA-equivalent"
         }
         if (-not [string]::IsNullOrWhiteSpace($customControlWarning)) {
@@ -1759,15 +1820,27 @@ function Invoke-CheckCaps {
         }
 
         $phishingWarningParts = @()
-        if ($normalizedOperator -eq "OR" -and $hasMultipleGrantAlternatives -and $HasAuthStrength -and $weakPhishingAlternatives.Count -gt 0) {
+        if ($hasWeakPhishingOrPath) {
             $phishingWarningParts += "uses OR with non-phishing-resistant alternative(s): " + (($weakPhishingAlternatives | Sort-Object -Unique) -join ", ")
         }
-        if ($HasAuthStrength -and -not $AuthStrengthResolved) {
+        if ($strengthUnresolved) {
             $phishingWarningParts += "references authentication strength that could not be resolved"
         }
         if (-not [string]::IsNullOrWhiteSpace($customControlWarning)) {
             $phishingWarningParts += $customControlWarning
         }
+
+        # Unresolved alternatives have their own issues, so they are not listed as OR alternatives.
+        $listedOrAlternatives = @($grantAlternatives | Where-Object { [bool]$_.Resolved } | Sort-Object Label -Unique)
+        $mfaOrAlternatives = @()
+        if ($hasWeakMfaOrPath) {
+            $mfaOrAlternatives = @($listedOrAlternatives | Where-Object { -not [bool]$_.MfaEquivalent } | ForEach-Object { $_.DisplayName })
+        }
+        $phishingOrAlternatives = @()
+        if ($hasWeakPhishingOrPath) {
+            $phishingOrAlternatives = @($listedOrAlternatives | Where-Object { -not [bool]$_.PhishingResistant } | ForEach-Object { $_.DisplayName })
+        }
+        $unresolvedCustomControlIds = @($grantAlternatives | Where-Object { -not [bool]$_.Resolved -and $_.Label -ne 'authenticationStrength' } | ForEach-Object { $_.ControlId })
 
         return [pscustomobject]@{
             Operator                    = $normalizedOperator
@@ -1778,113 +1851,220 @@ function Invoke-CheckCaps {
             Confidence                  = if ($unresolvedAlternatives.Count -gt 0) { "Requires Verification" } else { "High" }
             MfaWarning                  = ($mfaWarningParts -join "; ")
             PhishingResistantWarning    = ($phishingWarningParts -join "; ")
+            MfaOrAlternatives           = $mfaOrAlternatives
+            PhishingOrAlternatives      = $phishingOrAlternatives
+            StrengthUnresolved          = $strengthUnresolved
+            StrengthUnresolvedOrPath    = $strengthUnresolvedOrPath
+            StrengthNotMfaEquivalent    = $strengthNotMfaEquivalent
+            UnresolvedCustomControls    = $unresolvedCustomControlIds
         }
     }
 
-    # Add trimmed warning strings to a target collection without duplicating entries.
-    function Add-UniqueStringItems {
+    # Record a keyed warning issue and the check that raised it. Several checks can own one issue.
+    function Add-CapWarningIssue {
         param(
-            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.IList]$Target,
-            [Parameter(Mandatory=$false)][string[]]$Items
+            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Issues,
+            [Parameter(Mandatory=$true)][string]$Category,
+            [Parameter(Mandatory=$true)][string]$Key,
+            [Parameter(Mandatory=$true)][string]$Text,
+            [Parameter(Mandatory=$true)][string]$Check
         )
 
-        foreach ($item in @($Items)) {
-            $normalizedItem = "$item".Trim()
-            if ([string]::IsNullOrWhiteSpace($normalizedItem)) { continue }
-            if (-not $Target.Contains($normalizedItem)) {
-                $Target.Add($normalizedItem)
+        if (-not $Issues.Contains($Key)) {
+            $Issues[$Key] = [pscustomobject]@{
+                Category = $Category
+                Text     = $Text
+                Checks   = [System.Collections.Generic.List[string]]::new()
             }
         }
+        if (-not $Issues[$Key].Checks.Contains($Check)) {
+            $Issues[$Key].Checks.Add($Check)
+        }
     }
 
-    # Return a de-duplicated array of normalized warning strings for final rendering.
-    function Get-DeduplicatedWarningItems {
+    # Raise the state and scope issues shared by the warning checks; switches mark where a check differs.
+    function Add-CapTargetingIssues {
         param(
-            [Parameter(Mandatory=$false)][string[]]$Items
+            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Issues,
+            [Parameter(Mandatory=$true)][string]$Check,
+            [Parameter(Mandatory=$true)]$Facts,
+            [switch]$SkipResources,
+            [switch]$SkipAllUsers,
+            [switch]$UseNonGuestCount,
+            [switch]$SkipExternalTypes
         )
 
-        $uniqueItems = [System.Collections.Generic.List[string]]::new()
-        foreach ($item in @($Items)) {
-            $normalizedItem = "$item".Trim()
-            if ([string]::IsNullOrWhiteSpace($normalizedItem)) { continue }
-            if (-not $uniqueItems.Contains($normalizedItem)) {
-                $uniqueItems.Add($normalizedItem)
+        if ($Facts.NotEnabled) {
+            Add-CapWarningIssue -Issues $Issues -Category 'State' -Key 'State' -Text $Facts.State -Check $Check
+        }
+        if (-not $SkipResources -and $Facts.NotAllResources) {
+            Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'AllResources' -Text 'not all resources' -Check $Check
+        }
+        if (-not $SkipAllUsers -and $Facts.NotAllUsers) {
+            Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'AllUsers' -Text 'not all users' -Check $Check
+        }
+        if ($Facts.HasMissingRoles) {
+            Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'MissingRoles' -Text $Facts.MissingRolesWarning -Check $Check
+        }
+        if ($UseNonGuestCount) {
+            if ($Facts.ExcludedNonGuestUsers -ge 3) {
+                Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'ExcludedNonGuestUsers' -Text "$($Facts.ExcludedNonGuestUsers) effectively excluded non-guest users" -Check $Check
+            }
+        } elseif ($Facts.ExcludedUsers -ge 3) {
+            Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'ExcludedUsers' -Text "$($Facts.ExcludedUsers) effectively excluded users" -Check $Check
+        }
+        if ($Facts.ExcludedRoles -gt 0) {
+            $roleWord = if ($Facts.ExcludedRoles -eq 1) { "role" } else { "roles" }
+            Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'ExcludedRoles' -Text "$($Facts.ExcludedRoles) excluded $roleWord" -Check $Check
+        }
+        if (-not $SkipExternalTypes -and $Facts.ExcludedExternalTypes -gt 0) {
+            $typeWord = if ($Facts.ExcludedExternalTypes -eq 1) { "type" } else { "types" }
+            Add-CapWarningIssue -Issues $Issues -Category 'Scope' -Key 'ExcludedExternalTypes' -Text "$($Facts.ExcludedExternalTypes) excluded external user $typeWord" -Check $Check
+        }
+    }
+
+    # Raise an issue per condition once a check has more conditions than it allows. Intrinsic conditions define the check itself.
+    function Add-CapConditionIssues {
+        param(
+            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Issues,
+            [Parameter(Mandatory=$true)][string]$Check,
+            [Parameter(Mandatory=$false)][string[]]$ConditionNames,
+            [Parameter(Mandatory=$false)][string[]]$IntrinsicNames,
+            [Parameter(Mandatory=$false)][int]$Allowed = 0
+        )
+
+        $relevantNames = @($ConditionNames | Where-Object { $IntrinsicNames -notcontains $_ })
+        if ($relevantNames.Count -le $Allowed) { return }
+        foreach ($name in $relevantNames) {
+            Add-CapWarningIssue -Issues $Issues -Category 'Conditions' -Key "Condition:$name" -Text $name -Check $Check
+        }
+    }
+
+    # Raise the grant issues of the MFA or phishing-resistant check from the structured grant evaluation.
+    function Add-CapGrantIssues {
+        param(
+            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Issues,
+            [Parameter(Mandatory=$true)][string]$Check,
+            [Parameter(Mandatory=$true)]$Evaluation
+        )
+
+        $mfaAlternatives = @($Evaluation.MfaOrAlternatives)
+        $orWithoutMfaText = "OR alternatives without MFA (" + ($mfaAlternatives -join ", ") + ")"
+        if ($Check -eq 'MFA') {
+            if ($mfaAlternatives.Count -gt 0) {
+                Add-CapWarningIssue -Issues $Issues -Category 'Grant' -Key 'OrWithoutMfa' -Text $orWithoutMfaText -Check $Check
+            }
+        } else {
+            # An alternative without MFA is also without phishing resistance, so both checks own that item.
+            $phishingAlternatives = @($Evaluation.PhishingOrAlternatives)
+            if (@($phishingAlternatives | Where-Object { $mfaAlternatives -contains $_ }).Count -gt 0) {
+                Add-CapWarningIssue -Issues $Issues -Category 'Grant' -Key 'OrWithoutMfa' -Text $orWithoutMfaText -Check $Check
+            }
+            $phishingOnlyAlternatives = @($phishingAlternatives | Where-Object { $mfaAlternatives -notcontains $_ -and $_ -ne 'authentication strength' })
+            if ($phishingOnlyAlternatives.Count -gt 0) {
+                Add-CapWarningIssue -Issues $Issues -Category 'Grant' -Key 'OrWithoutPhishingResistance' -Text ("OR alternatives without phishing resistance (" + ($phishingOnlyAlternatives -join ", ") + ")") -Check $Check
             }
         }
-
-        return @($uniqueItems)
+        if ($Evaluation.StrengthUnresolved) {
+            # A strength that is one of several OR alternatives can be used instead of the other controls.
+            $strengthUnresolvedText = if ($Evaluation.StrengthUnresolvedOrPath) {
+                "OR alternative with unverified assurance (authentication strength)"
+            } else {
+                "authentication strength could not be resolved"
+            }
+            Add-CapWarningIssue -Issues $Issues -Category 'Grant' -Key 'StrengthUnresolved' -Text $strengthUnresolvedText -Check $Check
+        }
+        if ($Check -eq 'MFA' -and $Evaluation.StrengthNotMfaEquivalent) {
+            Add-CapWarningIssue -Issues $Issues -Category 'Grant' -Key 'StrengthNotMfaEquivalent' -Text 'strength is not MFA-equivalent' -Check $Check
+        }
+        $customControlIds = @($Evaluation.UnresolvedCustomControls)
+        if ($customControlIds.Count -gt 0) {
+            $customControlList = $customControlIds -join ", "
+            $customControlText = if ($Evaluation.Operator -eq "OR") {
+                "OR alternative with unverified assurance (custom control $customControlList)"
+            } else {
+                "custom control assurance unverified ($customControlList)"
+            }
+            Add-CapWarningIssue -Issues $Issues -Category 'Grant' -Key 'CustomControl' -Text $customControlText -Check $Check
+        }
     }
 
-    # Merge MFA-equivalent and phishing-resistant issues into one table-facing assurance summary.
-    function Get-CapCombinedAssuranceWarning {
+    # Render one warning: the checks that raised issues, then the issues by category.
+    function Format-CapPolicyWarning {
         param(
-            [Parameter(Mandatory=$false)][string[]]$MfaCommonIssues,
-            [Parameter(Mandatory=$false)][string[]]$MfaIssues,
-            [Parameter(Mandatory=$false)][string[]]$PhishingCommonIssues,
-            [Parameter(Mandatory=$false)][string[]]$PhishingIssues,
-            [Parameter(Mandatory=$false)][bool]$HasMfaContext = $false,
-            [Parameter(Mandatory=$false)][bool]$HasPhishingContext = $false
+            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Issues,
+            [Parameter(Mandatory=$false)][string[]]$Checks
         )
 
-        $normalizedMfaCommonIssues = Get-DeduplicatedWarningItems -Items $MfaCommonIssues
-        $normalizedMfaIssues = Get-DeduplicatedWarningItems -Items $MfaIssues
-        $normalizedPhishingCommonIssues = Get-DeduplicatedWarningItems -Items $PhishingCommonIssues
-        $normalizedPhishingIssues = Get-DeduplicatedWarningItems -Items $PhishingIssues
+        if ($Issues.Count -eq 0) { return "" }
 
-        if (-not $HasMfaContext -and -not $HasPhishingContext) {
-            return ""
-        }
-
-        $mfaSummaryParts = [System.Collections.Generic.List[string]]::new()
-        if ($normalizedMfaCommonIssues.Count -gt 0) {
-            $mfaSummaryParts.Add(($normalizedMfaCommonIssues | Sort-Object) -join ", ")
-        }
-        if ($normalizedMfaIssues.Count -gt 0) {
-            $mfaSummaryParts.Add(($normalizedMfaIssues | Sort-Object) -join ", ")
-        }
-
-        $phishingSummaryParts = [System.Collections.Generic.List[string]]::new()
-        if ($normalizedPhishingCommonIssues.Count -gt 0) {
-            $phishingSummaryParts.Add(($normalizedPhishingCommonIssues | Sort-Object) -join ", ")
-        }
-        if ($normalizedPhishingIssues.Count -gt 0) {
-            $phishingSummaryParts.Add(($normalizedPhishingIssues | Sort-Object) -join ", ")
-        }
-
-        $hasMfaIssues = ($mfaSummaryParts.Count -gt 0)
-        $hasPhishingIssues = ($phishingSummaryParts.Count -gt 0)
-
-        if (-not $hasMfaIssues -and -not $hasPhishingIssues) {
-            return ""
-        }
-
-        if ($HasMfaContext -and $HasPhishingContext) {
-            $summaryParts = [System.Collections.Generic.List[string]]::new()
-            if ($hasMfaIssues) {
-                if ($normalizedMfaIssues.Count -gt 0) {
-                    $summaryParts.Add("MFA issues: " + ($mfaSummaryParts -join ", "))
-                } else {
-                    $summaryParts.Add("MFA scope issues: " + ($mfaSummaryParts -join ", "))
+        # Scoped-role issues explain themselves, so they get their own segment and never cause tags on other checks' issues.
+        $scopedRolesCheck = 'Scoped roles'
+        $labelledChecks = [System.Collections.Generic.List[string]]::new()
+        foreach ($check in @($Checks)) {
+            if ($check -eq $scopedRolesCheck) { continue }
+            foreach ($issue in $Issues.Values) {
+                if ($issue.Checks.Contains($check)) {
+                    $labelledChecks.Add($check)
+                    break
                 }
             }
-            if ($hasPhishingIssues) {
-                $summaryParts.Add("Phishing-resistant issues: " + ($phishingSummaryParts -join ", "))
+        }
+
+        $scopedRoleItems = [System.Collections.Generic.List[string]]::new()
+        foreach ($issue in $Issues.Values) {
+            if ($issue.Checks.Contains($scopedRolesCheck)) {
+                $scopedRoleItems.Add($issue.Text)
             }
-            return ($summaryParts -join "; ")
         }
 
-        if ($HasPhishingContext) {
-            if ($normalizedPhishingIssues.Count -gt 0) {
-                return "Phishing-resistant MFA policy issues: " + ($phishingSummaryParts -join "; ")
+        $segments = [System.Collections.Generic.List[string]]::new()
+        foreach ($category in @('State', 'Grant', 'Session', 'Scope', 'Conditions', 'Design')) {
+            $items = [System.Collections.Generic.List[string]]::new()
+            foreach ($issue in $Issues.Values) {
+                if ($issue.Category -ne $category -or $issue.Checks.Contains($scopedRolesCheck)) { continue }
+                $owners = @($labelledChecks | Where-Object { $issue.Checks.Contains($_) })
+                if ($labelledChecks.Count -gt 1 -and $owners.Count -lt $labelledChecks.Count) {
+                    $items.Add("$($issue.Text) ($($owners -join ', ') only)")
+                } else {
+                    $items.Add($issue.Text)
+                }
             }
-            return "Requiring phishing-resistant MFA but " + ($phishingSummaryParts -join "; ")
+            if ($items.Count -gt 0) {
+                $segments.Add("${category}: " + ($items -join ", "))
+            }
         }
 
-        if ($normalizedMfaIssues.Count -gt 0) {
-            return "MFA policy issues: " + ($mfaSummaryParts -join "; ")
+        $warningParts = [System.Collections.Generic.List[string]]::new()
+        if ($segments.Count -gt 0) {
+            $warningParts.Add("[" + ($labelledChecks -join ", ") + "] " + ($segments -join " | "))
         }
+        if ($scopedRoleItems.Count -gt 0) {
+            $warningParts.Add("[" + $scopedRolesCheck + "] " + ($scopedRoleItems -join ", "))
+        }
+        return ($warningParts -join " / ")
+    }
 
-        return "Requiring MFA but " + ($mfaSummaryParts -join "; ")
+    # Summarize which warning checks ran for a policy, including those that found nothing.
+    function Get-CapWarningChecksSummary {
+        param(
+            [Parameter(Mandatory=$true)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Issues,
+            [Parameter(Mandatory=$false)][string[]]$Checks
+        )
+
+        $parts = @(foreach ($check in @($Checks)) {
+            if ([string]::IsNullOrWhiteSpace($check)) { continue }
+            $result = "no warnings"
+            foreach ($issue in $Issues.Values) {
+                if ($issue.Checks.Contains($check)) {
+                    $result = "warnings"
+                    break
+                }
+            }
+            "${check}: $result"
+        })
+
+        return ($parts -join "; ")
     }
 
     # Function to look up GUIDs in hashtables
@@ -2512,20 +2692,17 @@ function Invoke-CheckCaps {
     $capUncoveredExportFailed = 0
     $capUncoveredExportFailedLongPath = 0
 
+    # Which warning checks ran for each policy. Shown in the policy details only, so it stays out of the exported rows.
+    $CapWarningChecksById = @{}
+
     #region Processing Loop
     #Main processing of the results
     foreach ($policy in $AllPolicies) {
         $ProgressCounter ++
         $PolicyIntents = [System.Collections.Generic.List[string]]::new()
-        $PolicyWarningParts = [System.Collections.Generic.List[string]]::new()
-        $MfaCommonIssues = [System.Collections.Generic.List[string]]::new()
-        $MfaSpecificIssues = [System.Collections.Generic.List[string]]::new()
-        $PhishingCommonIssues = [System.Collections.Generic.List[string]]::new()
-        $PhishingSpecificIssues = [System.Collections.Generic.List[string]]::new()
-        $HasMfaWarningContext = $false
-        $HasPhishingWarningContext = $false
+        $PolicyWarningIssues = [ordered]@{}
+        $PolicyWarningChecks = [System.Collections.Generic.List[string]]::new()
         $WarningPolicy = ""
-        $ErrorMessages = @()
         $additionalConditionTypes = 0
 
         # Display status based on the objects numbers (slightly improves performance)
@@ -3063,12 +3240,9 @@ function Invoke-CheckCaps {
                 $ExcludedGuestUsersEffective++
             }
         }
-        $ExcludedUsersWarningMessage = "has $ExcludedUsersEffective effectively excluded users"
         $ExcludedUsersEffectiveForCap002 = [Math]::Max(($ExcludedUsersEffective - $ExcludedGuestUsersEffective), 0)
-        $ExcludedUsersWarningMessageForCap002 = "has $ExcludedUsersEffectiveForCap002 effectively excluded users"
         $ExcludedRolesCount = @($policy.Conditions.Users.ExcludeRoles).Count
-        $ExcludedNonUserTargets = $ExcludedRolesCount + $ExcludedExternalUsersCount
-        
+
         #Count condition types for policy complexity checks
         $SignInRiskCount = $policy.Conditions.SignInRiskLevels.count
         $UserRiskCount = $policy.Conditions.UserRiskLevels.count
@@ -3086,196 +3260,88 @@ function Invoke-CheckCaps {
         $HasClientApps = ($ClientAppTypesCount -gt 0)
         $HasAuthFlows = ($AuthFlowCount -gt 0)
 
-        $ConditionTypeCount = 0
-        if ($HasDeviceFilter) { $ConditionTypeCount++ }
-        if ($HasPlatforms) { $ConditionTypeCount++ }
-        if ($HasSignInRisk) { $ConditionTypeCount++ }
-        if ($HasUserRisk) { $ConditionTypeCount++ }
-        if ($HasNetworkLocations) { $ConditionTypeCount++ }
-        if ($HasClientApps) { $ConditionTypeCount++ }
-        if ($HasAuthFlows) { $ConditionTypeCount++ }
+        $ConditionTypeNames = [System.Collections.Generic.List[string]]::new()
+        if ($HasDeviceFilter) { $ConditionTypeNames.Add('device filter') }
+        if ($HasPlatforms) { $ConditionTypeNames.Add('platform') }
+        if ($HasSignInRisk) { $ConditionTypeNames.Add('sign-in risk') }
+        if ($HasUserRisk) { $ConditionTypeNames.Add('user risk') }
+        if ($HasNetworkLocations) { $ConditionTypeNames.Add('location') }
+        if ($HasClientApps) { $ConditionTypeNames.Add('client apps') }
+        if ($HasAuthFlows) { $ConditionTypeNames.Add('auth flow') }
+        $ConditionTypeCount = $ConditionTypeNames.Count
 
         if ($ConditionTypeCount -gt 1) {
             Write-Log -Level Debug -Message "Condition types for '$($policy.DisplayName)': total=$ConditionTypeCount (DeviceFilter=$HasDeviceFilter, Platforms=$HasPlatforms, SignInRisk=$HasSignInRisk, UserRisk=$HasUserRisk, NetworkLocations=$HasNetworkLocations, ClientApps=$HasClientApps, AuthFlows=$HasAuthFlows)"
+        }
+
+        $WarningTargetingFacts = [pscustomobject]@{
+            NotEnabled            = ($policy.State -ne "enabled")
+            State                 = if ([string]::IsNullOrWhiteSpace("$($policy.State)")) { "not enabled" } else { "$($policy.State)" }
+            NotAllResources       = ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All")
+            NotAllUsers           = ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All")
+            HasMissingRoles       = ($unmatchedRoleCounts.Count -ne 0)
+            MissingRolesWarning   = $MissingRolesWarning
+            ExcludedUsers         = $ExcludedUsersEffective
+            ExcludedNonGuestUsers = $ExcludedUsersEffectiveForCap002
+            ExcludedRoles         = $ExcludedRolesCount
+            ExcludedExternalTypes = $ExcludedExternalUsersCount
         }
 
         #Check policy for DeviceCodeFlow
         if ($policy.Conditions.AuthenticationFlows.TransferMethods -match "deviceCodeFlow") {
             $PolicyIntents.Add('BlockDeviceCodeFlow')
             $PolicyDeviceCodeFlow = $true
-            $DeviceCodeFlowWarnings = 0
-            $ErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $DeviceCodeFlowWarnings++
-            }
+            $PolicyWarningChecks.Add('Device code')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Device code' -Facts $WarningTargetingFacts
             if ($policy.GrantControls.BuiltInControls -notcontains "block") {
-                $ErrorMessages += "is not Grant: Block"
-                $DeviceCodeFlowWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $ErrorMessages += "is not targeting all resources"
-                $DeviceCodeFlowWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $DeviceCodeFlowWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $DeviceCodeFlowWarnings++            
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessage
-                $DeviceCodeFlowWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $ErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $DeviceCodeFlowWarnings++
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Grant' -Key 'NotBlock' -Text 'not Block' -Check 'Device code'
             }
             $additionalConditionTypes = $ConditionTypeCount - 1 # DeviceCode Flow is a condition by itself
-            if ($additionalConditionTypes -gt 0) {
-                $ErrorMessages += "has ($additionalConditionTypes) additional condition types"
-                $DeviceCodeFlowWarnings++
-            }
-            if ($DeviceCodeFlowWarnings -ge 1) {
-                $warningMessage = "Targeting Device Code flow but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Device code' -ConditionNames $ConditionTypeNames -IntrinsicNames @('auth flow')
         }
 
         #Check policy for blocking legacy authentication
         if ($policy.Conditions.ClientAppTypes -contains "exchangeActiveSync" -and $policy.Conditions.ClientAppTypes -contains "other" -and -not ($policy.Conditions.ClientAppTypes -contains "browser") -and -not ($policy.Conditions.ClientAppTypes -contains "mobileAppsAndDesktopClients")) {
             $PolicyIntents.Add('BlockLegacyAuthentication')
             $PolicyLegacyAuth = $true
-            $LegacyAuthWarnings = 0
-            $ErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $LegacyAuthWarnings++
-            }
+            $PolicyWarningChecks.Add('Legacy auth')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Legacy auth' -Facts $WarningTargetingFacts
             if ($policy.GrantControls.BuiltInControls -notcontains "block") {
-                $ErrorMessages += "is not Grant: Block"
-                $LegacyAuthWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $ErrorMessages += "is not targeting all resources"
-                $LegacyAuthWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $LegacyAuthWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $LegacyAuthWarnings++           
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessage
-                $LegacyAuthWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $ErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $LegacyAuthWarnings++
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Grant' -Key 'NotBlock' -Text 'not Block' -Check 'Legacy auth'
             }
             $additionalConditionTypes = $ConditionTypeCount - 1 # ClientAppTypes are a condition by themself
-            if ($additionalConditionTypes -gt 0) {
-                $ErrorMessages += "has ($additionalConditionTypes) additional condition types"
-                $LegacyAuthWarnings++
-            }
-        
-            if ($LegacyAuthWarnings -ge 1) {
-                $warningMessage = "Targeting Legacy Auth but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Legacy auth' -ConditionNames $ConditionTypeNames -IntrinsicNames @('client apps')
         }
 
         #Check policy for managing SignInRisk
         if ($policy.Conditions.SignInRiskLevels.count -ge 1 -and $policy.Conditions.UserRiskLevels.count -eq 0) {
             $PolicyIntents.Add('ManageSignInRisk')
             $PolicyRiskySignIn = $true
-            $SignInRiskWarnings = 0
-            $ErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $SignInRiskWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $ErrorMessages += "is not targeting all resources"
-                $SignInRiskWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $SignInRiskWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $SignInRiskWarnings++            
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessage
-                $SignInRiskWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $ErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $SignInRiskWarnings++
+            $PolicyWarningChecks.Add('Sign-in risk')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Sign-in risk' -Facts $WarningTargetingFacts
+            # Same rule as the CAP-007/008 soft check: a Block grant has nothing to reauthenticate.
+            if ($policy.GrantControls.BuiltInControls -notcontains "block" -and $SignInFrequencyInterval -ne "EveryTime") {
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Session' -Key 'SignInFrequency' -Text 'sign-in frequency not Every time' -Check 'Sign-in risk'
             }
             $additionalConditionTypes = $ConditionTypeCount - 1 # SignInRiskLevels is condition by itself
-            if ($additionalConditionTypes -gt 0) {
-                $ErrorMessages += "has additional ($additionalConditionTypes) condition types"
-                $SignInRiskWarnings++
-            }
-        
-            if ($SignInRiskWarnings -ge 1) {
-                $warningMessage = "Targeting risky sign-ins but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Sign-in risk' -ConditionNames $ConditionTypeNames -IntrinsicNames @('sign-in risk')
         }
 
         #Check policy for managing UserRisk
         if ($policy.Conditions.UserRiskLevels.count -ge 1 -and $policy.Conditions.SignInRiskLevels.count -eq 0) {
             $PolicyIntents.Add('ManageUserRisk')
             $PolicyUserRisk = $true
-            $UserRiskWarnings = 0
-            $ErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $UserRiskWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $ErrorMessages += "is not targeting all resources"
-                $UserRiskWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $UserRiskWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $UserRiskWarnings++          
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessage
-                $UserRiskWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $ErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $UserRiskWarnings++
+            $PolicyWarningChecks.Add('User risk')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'User risk' -Facts $WarningTargetingFacts
+            if ($policy.GrantControls.BuiltInControls -notcontains "block" -and $SignInFrequencyInterval -ne "EveryTime") {
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Session' -Key 'SignInFrequency' -Text 'sign-in frequency not Every time' -Check 'User risk'
             }
             $additionalConditionTypes = $ConditionTypeCount - 1 # UserRiskLevels is condition by itself
-            if ($additionalConditionTypes -gt 0) {
-                $ErrorMessages += "has additional ($additionalConditionTypes) condition types"
-                $UserRiskWarnings++
-            }
-        
-            if ($UserRiskWarnings -ge 1) {
-                $warningMessage = "Targeting user risk but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'User risk' -ConditionNames $ConditionTypeNames -IntrinsicNames @('user risk')
         }
 
         #Check for the common case where user risk and sign-in risk are managed in the same policy
@@ -3284,120 +3350,32 @@ function Invoke-CheckCaps {
             $PolicyIntents.Add('ManageUserRisk')
             $PolicyUserRisk = $true
             $PolicyRiskySignIn = $true
-            $CombinedRiskWarnings = 0
-            $ErrorMessages = @()
-            $ErrorMessages += "includes both user risk and sign-in risk in the same policy"
+            $PolicyWarningChecks.Add('Sign-in and user risk')
 
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $CombinedRiskWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $ErrorMessages += "is not targeting all resources"
-                $CombinedRiskWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $CombinedRiskWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $CombinedRiskWarnings++         
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessage
-                $CombinedRiskWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $ErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $CombinedRiskWarnings++
-            }
+            Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Design' -Key 'CombinedRisk' -Text 'sign-in and user risk in one policy' -Check 'Sign-in and user risk'
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Sign-in and user risk' -Facts $WarningTargetingFacts
             $additionalConditionTypes = $ConditionTypeCount - 2 # UserRiskLevels and SignInRiskLevels are conditions by themself
-            if ($additionalConditionTypes -gt 0) {
-                $ErrorMessages += "has additional ($additionalConditionTypes) condition types"
-                $CombinedRiskWarnings++
-            }
-
-            if ($ErrorMessages.Count -ge 1) {
-                $warningMessage = "Targeting risks but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Sign-in and user risk' -ConditionNames $ConditionTypeNames -IntrinsicNames @('sign-in risk', 'user risk')
         }
 
         #Check policy for registering security infos
         if ($policy.Conditions.Applications.IncludeUserActions -contains "urn:user:registersecurityinfo") {
             $PolicyIntents.Add('ProtectSecurityInfoRegistration')
             $PolicyRegSecInfo = $true
-            $RegisterSecInfosWarnings = 0
-            $ErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $RegisterSecInfosWarnings++
-            }
-            if ($ExcludedUsersEffectiveForCap002 -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessageForCap002
-                $RegisterSecInfosWarnings++
-            }
-            if ($ExcludedRolesCount -gt 0) {
-                $ErrorMessages += "has $ExcludedRolesCount excluded roles"
-                $RegisterSecInfosWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $RegisterSecInfosWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $RegisterSecInfosWarnings++          
-            }
-            if ($ConditionTypeCount -gt 2) {
-                $ErrorMessages += "has multiple ($ConditionTypeCount) condition types"
-                $RegisterSecInfosWarnings++
-            }
-        
-            if ($RegisterSecInfosWarnings -ge 1) {
-                $warningMessage = "Targeting registration of security infos but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            $PolicyWarningChecks.Add('Security-info registration')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Security-info registration' -Facts $WarningTargetingFacts -SkipResources -UseNonGuestCount -SkipExternalTypes
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Security-info registration' -ConditionNames $ConditionTypeNames -Allowed 2
         }
-  
+
         #Check policy for joining or registering devices
         if ($policy.Conditions.Applications.IncludeUserActions -contains "urn:user:registerdevice") {
             $PolicyIntents.Add('ProtectDeviceRegistration')
             $PolicyRegDevices = $true
-            $RegisterDevicesInfosWarnings = 0
-            $ErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $ErrorMessages += "is not enabled"
-                $RegisterDevicesInfosWarnings++
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $ErrorMessages += $ExcludedUsersWarningMessage
-                $RegisterDevicesInfosWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $ErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $RegisterDevicesInfosWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $ErrorMessages += "is not targeting all users"
-                $RegisterDevicesInfosWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $ErrorMessages += $MissingRolesWarning
-                $RegisterDevicesInfosWarnings++              
-            }
-            if ($ConditionTypeCount -gt 1) {
-                $ErrorMessages += "has multiple ($ConditionTypeCount) condition types"
-                $RegisterDevicesInfosWarnings++
-            }
-        
-            if ($RegisterDevicesInfosWarnings -ge 1) {
-                $warningMessage = "Targeting joining or registering devices but " + ($ErrorMessages -join ", ")
-                Add-UniqueStringItems -Target $PolicyWarningParts -Items @($warningMessage)
-            }
+            $PolicyWarningChecks.Add('Device registration')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Device registration' -Facts $WarningTargetingFacts -SkipResources
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Device registration' -ConditionNames $ConditionTypeNames -Allowed 1
         }
 
         # Derive auth-strength semantics from the inline policy payload so the resulting CAP row
@@ -3422,48 +3400,11 @@ function Invoke-CheckCaps {
             if ($GrantAssuranceEvaluation.MfaEquivalentEnforced) {
                 $PolicyMfaUser = $true
             }
-            $UserMfaWarnings = 0
-            $CommonErrorMessages = @()
-            $SpecificErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $CommonErrorMessages += "is not enabled"
-                $UserMfaWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $CommonErrorMessages += "is not targeting all resources"
-                $UserMfaWarnings++
-            }
-            if ($null -eq $IncludedUserCount -or $IncludedUserCount -ne "All") {
-                $CommonErrorMessages += "is not targeting all users"
-                $UserMfaWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $CommonErrorMessages += $MissingRolesWarning
-                $UserMfaWarnings++
-            }
-            if ($ExcludedUsersEffective -ge 3) {
-                $CommonErrorMessages += $ExcludedUsersWarningMessage
-                $UserMfaWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $CommonErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $UserMfaWarnings++
-            }
-            if ($ConditionTypeCount -gt 0) {
-                $CommonErrorMessages += "has ($ConditionTypeCount) condition types"
-                $UserMfaWarnings++
-            }
-            if (-not [string]::IsNullOrWhiteSpace($GrantAssuranceEvaluation.MfaWarning)) {
-                $SpecificErrorMessages += $GrantAssuranceEvaluation.MfaWarning
-                $UserMfaWarnings++
-            }
-        
-            if ($UserMfaWarnings -ge 1) {
-                $HasMfaWarningContext = $true
-                Add-UniqueStringItems -Target $MfaCommonIssues -Items $CommonErrorMessages
-                Add-UniqueStringItems -Target $MfaSpecificIssues -Items $SpecificErrorMessages
-            }
+            $PolicyWarningChecks.Add('MFA')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'MFA' -Facts $WarningTargetingFacts
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'MFA' -ConditionNames $ConditionTypeNames
+            Add-CapGrantIssues -Issues $PolicyWarningIssues -Check 'MFA' -Evaluation $GrantAssuranceEvaluation
         }
 
         #Check policy with Authentication strengths for enforcing phishing-resistant MFA
@@ -3473,72 +3414,33 @@ function Invoke-CheckCaps {
             if ($GrantAssuranceEvaluation.PhishingResistantEnforced) {
                 $PolicyAuthStrength = $true
             }
-            $AuthStrengthWarnings = 0
-            $CommonErrorMessages = @()
-            $SpecificErrorMessages = @()
-        
-            if ($policy.State -ne "enabled") {
-                $CommonErrorMessages += "is not enabled"
-                $AuthStrengthWarnings++
-            }
-            if ($null -eq $IncludedResourcesCount -or $IncludedResourcesCount -ne "All") {
-                $CommonErrorMessages += "is not targeting all resources"
-                $AuthStrengthWarnings++
-            }
+            $PolicyWarningChecks.Add('Phishing-resistant')
+
+            Add-CapTargetingIssues -Issues $PolicyWarningIssues -Check 'Phishing-resistant' -Facts $WarningTargetingFacts -SkipAllUsers
             if ($NormalizedIncludeUsers -notcontains "All") {
-                $CommonErrorMessages += "Privileged-account coverage is unverified for selected users, groups, or roles."
-                $AuthStrengthWarnings++
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Scope' -Key 'PrivilegedCoverage' -Text 'privileged-account coverage unverified' -Check 'Phishing-resistant'
             }
-            if ($ExcludedUsersEffective -ge 3) {
-                $CommonErrorMessages += $ExcludedUsersWarningMessage
-                $AuthStrengthWarnings++
-            }
-            if ($ExcludedNonUserTargets -gt 0) {
-                $CommonErrorMessages += "has $ExcludedNonUserTargets excluded roles or external user types"
-                $AuthStrengthWarnings++
-            }
-            if ($unmatchedRoleCounts.Count -ne 0) {
-                $CommonErrorMessages += $MissingRolesWarning
-                $AuthStrengthWarnings++              
-            }
-            if ($ConditionTypeCount -gt 0) {
-                $CommonErrorMessages += "has ($ConditionTypeCount) condition types"
-                $AuthStrengthWarnings++
-            }
-            if (-not $AuthStrengthResolved) {
-                $SpecificErrorMessages += "references authentication strength without enough inline detail to validate it"
-                $AuthStrengthWarnings++
-            } elseif (-not $AuthStrengthPhishingResistantOnly) {
-                $SpecificErrorMessages += "authentication strength is not phishing-resistant only"
-                $AuthStrengthWarnings++
-            }
-            if (-not [string]::IsNullOrWhiteSpace($GrantAssuranceEvaluation.PhishingResistantWarning)) {
-                $SpecificErrorMessages += $GrantAssuranceEvaluation.PhishingResistantWarning
-                $AuthStrengthWarnings++
-            }
-        
-            if ($AuthStrengthWarnings -ge 1) {
-                $HasPhishingWarningContext = $true
-                Add-UniqueStringItems -Target $PhishingCommonIssues -Items $CommonErrorMessages
-                Add-UniqueStringItems -Target $PhishingSpecificIssues -Items $SpecificErrorMessages
+            Add-CapConditionIssues -Issues $PolicyWarningIssues -Check 'Phishing-resistant' -ConditionNames $ConditionTypeNames
+            Add-CapGrantIssues -Issues $PolicyWarningIssues -Check 'Phishing-resistant' -Evaluation $GrantAssuranceEvaluation
+            if ($AuthStrengthResolved -and -not $AuthStrengthPhishingResistantOnly) {
+                # Without a method list the strength cannot be shown to allow weaker methods, only that it is unverified.
+                $strengthText = if ([string]::IsNullOrWhiteSpace($AuthStrengthAllowedCombinations)) { 'strength not verified as phishing-resistant only' } else { 'strength is not phishing-resistant only' }
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Grant' -Key 'StrengthNotPhishingResistant' -Text $strengthText -Check 'Phishing-resistant'
             }
         }
 
         #General Policy checks
-        
+
         #Check if the role includes roles but scope assignment exist for the role
-        if ($ScopedRolesCount -gt 0) {
-            Add-UniqueStringItems -Target $PolicyWarningParts -Items @($ScopedRolesWarning)
+        if (@($includedRoleIds | Where-Object { $_ }).Count -gt 0) {
+            $PolicyWarningChecks.Add('Scoped roles')
+            if ($ScopedRolesCount -gt 0) {
+                Add-CapWarningIssue -Issues $PolicyWarningIssues -Category 'Scope' -Key 'ScopedRoles' -Text $ScopedRolesWarning -Check 'Scoped roles'
+            }
         }
 
-        $combinedAssuranceWarning = Get-CapCombinedAssuranceWarning -MfaCommonIssues @($MfaCommonIssues) -MfaIssues @($MfaSpecificIssues) -PhishingCommonIssues @($PhishingCommonIssues) -PhishingIssues @($PhishingSpecificIssues) -HasMfaContext $HasMfaWarningContext -HasPhishingContext $HasPhishingWarningContext
-        if ($HasMfaWarningContext -or $HasPhishingWarningContext) {
-            Write-Log -Level Debug -Message "CAP assurance warning context for '$($policy.DisplayName)' [$($policy.Id)]: MfaContext=$HasMfaWarningContext MfaCommon=$($MfaCommonIssues.Count) MfaSpecific=$($MfaSpecificIssues.Count) PhishingContext=$HasPhishingWarningContext PhishingCommon=$($PhishingCommonIssues.Count) PhishingSpecific=$($PhishingSpecificIssues.Count) Combined='$combinedAssuranceWarning'"
-        }
-        if (-not [string]::IsNullOrWhiteSpace($combinedAssuranceWarning)) {
-            Add-UniqueStringItems -Target $PolicyWarningParts -Items @($combinedAssuranceWarning)
-        }
-        $WarningPolicy = (Get-DeduplicatedWarningItems -Items @($PolicyWarningParts)) -join " / "
+        $WarningPolicy = Format-CapPolicyWarning -Issues $PolicyWarningIssues -Checks $PolicyWarningChecks
+        $CapWarningChecksById["$($policy.Id)"] = Get-CapWarningChecksSummary -Issues $PolicyWarningIssues -Checks $PolicyWarningChecks
         $TargetType = Get-CapTargetType -Policy $policy
         $riskIntent = Get-CapRiskIntent -Policy $policy -TargetType $TargetType
         if (-not [string]::IsNullOrWhiteSpace($riskIntent)) {
@@ -3568,6 +3470,20 @@ function Invoke-CheckCaps {
         $deviceIntent = Get-CapDeviceIntent -Policy $policy -ExistingIntent $PolicyIntents.ToArray()
         if (-not [string]::IsNullOrWhiteSpace($deviceIntent)) {
             $PolicyIntents.Add($deviceIntent)
+        }
+
+        if ($PolicyIntents.Count -eq 0) {
+            $appProtectionIntent = Get-CapAppProtectionIntent -Policy $policy -TargetType $TargetType
+            if (-not [string]::IsNullOrWhiteSpace($appProtectionIntent)) {
+                $PolicyIntents.Add($appProtectionIntent)
+            }
+        }
+
+        if ($PolicyIntents.Count -eq 0) {
+            $sessionIntent = Get-CapSessionIntent -Policy $policy -TargetType $TargetType
+            if (-not [string]::IsNullOrWhiteSpace($sessionIntent)) {
+                $PolicyIntents.Add($sessionIntent)
+            }
         }
 
         # Baselines count every restriction, even when another intent treats a condition as intrinsic.
@@ -3820,7 +3736,8 @@ $MissingPolicies
         if ($matchingWarnings -ne "") {
             $ReportingCapInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $matchingWarnings
         }
-       
+        $ReportingCapInfo | Add-Member -NotePropertyName "Warning checks" -NotePropertyValue $CapWarningChecksById["$($item.Id)"]
+
         [void]$DetailTxtBuilder.AppendLine(($ReportingCapInfo | Format-List | Out-String))
 
 
