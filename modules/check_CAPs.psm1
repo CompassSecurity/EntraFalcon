@@ -3736,7 +3736,6 @@ $MissingPolicies
         if ($matchingWarnings -ne "") {
             $ReportingCapInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $matchingWarnings
         }
-        $ReportingCapInfo | Add-Member -NotePropertyName "Warning checks" -NotePropertyValue $CapWarningChecksById["$($item.Id)"]
 
         [void]$DetailTxtBuilder.AppendLine(($ReportingCapInfo | Format-List | Out-String))
 
