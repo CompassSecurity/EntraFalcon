@@ -187,7 +187,7 @@ function Get-ManagedIdentityResourceAssociationIndex {
     if ($eligibleCount -ge $associationLookupLimit) {
         Write-Host "[i] EntraFalcon collection safeguard: skipping $eligibleCount eligible user-assigned identities (limit: fewer than $associationLookupLimit; $userAssignedCount identified in total)."
     } elseif ($eligibleCount -gt 0) {
-        Write-Host "[*] Collect associated resources for $eligibleCount of $userAssignedCount identified user-assigned managed identities (at most one request per 1.1 seconds)."
+        Write-Host "[*] Collect associated resources for $eligibleCount of $userAssignedCount user-assigned managed identities (one request per 1.1 seconds)."
     } elseif ($userAssignedCount -gt 0) {
         Write-Host "[i] Skipping associated resource collection: no eligible user-assigned managed identities ($userAssignedCount identified in total)."
     }
@@ -239,6 +239,28 @@ function Get-ManagedIdentityResourceAssociationIndex {
     return $results
 }
 
+function ConvertTo-ManagedIdentityUtcDisplayDate {
+    param([object]$Value)
+
+    if ($Value -is [datetime]) {
+        $date = $Value
+        if ($date.Kind -eq [DateTimeKind]::Unspecified) {
+            $date = [datetime]::SpecifyKind($date, [DateTimeKind]::Utc)
+        }
+        $utcDate = $date.ToUniversalTime()
+    } elseif ($Value -is [datetimeoffset]) {
+        $utcDate = $Value.UtcDateTime
+    } else {
+        $date = [datetimeoffset]::MinValue
+        if (-not [datetimeoffset]::TryParse([string]$Value, [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$date)) {
+            return '?'
+        }
+        $utcDate = $date.UtcDateTime
+    }
+    return $utcDate.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Invoke-CheckManagedIdentities {
 
     ############################## Parameter section ########################
@@ -256,7 +278,8 @@ function Invoke-CheckManagedIdentities {
         [Parameter(Mandatory=$false)][hashtable]$CatalogRbacPrincipalIndex = @{},
         [Parameter(Mandatory=$false)][bool]$CatalogRbacAssessmentAvailable = $false,
         [Parameter(Mandatory=$false)][switch]$Csv = $false,
-        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false
+        [Parameter(Mandatory=$false)][switch]$ExportDataJson = $false,
+        [Parameter(Mandatory=$false)][hashtable]$ServicePrincipalSignInActivityLookup = @{}
     )
 
     ############################## Script section ########################
@@ -294,7 +317,7 @@ function Invoke-CheckManagedIdentities {
     $SPLikelihoodScore = @{
         "Base"          	        = 1
         "AdditionalResource"         = 1
-        "FederatedCredential"        = 2
+        "FederatedCredential"        = 1
         "Maximum"                    = 5
     }
 
@@ -403,6 +426,22 @@ function Invoke-CheckManagedIdentities {
     #Loop through each Managed Identity and get additional info and store it in a custom object
     foreach ($item in $ManagedIdentities) {
         $ProgressCounter++
+        $LastSignIn = '?'
+        $LastSignInDays = '?'
+        if ($global:GLOBALSpSignInActivityAvailable -ne $false -and
+            -not [string]::IsNullOrWhiteSpace([string]$item.AppId) -and
+            $ServicePrincipalSignInActivityLookup.ContainsKey([string]$item.AppId)) {
+            $activity = $ServicePrincipalSignInActivityLookup[[string]$item.AppId]
+            $clientDate = [datetime]::MinValue
+            $clientDays = 0
+            if ([datetime]::TryParseExact([string]$activity.lastSignInAppAsClient, "yyyy-MM-dd HH:mm:ss 'UTC'",
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$clientDate) -and
+                [int]::TryParse([string]$activity.lastSignInAppAsClientDays, [ref]$clientDays) -and $clientDays -ge 0) {
+                $LastSignIn = $activity.lastSignInAppAsClient
+                $LastSignInDays = $clientDays
+            }
+        }
         $ImpactScore = $SPImpactScore["Base"]
         $LikelihoodScore = $SPLikelihoodScore["Base"] 
         $warnings = @()
@@ -1045,6 +1084,8 @@ function Invoke-CheckManagedIdentities {
             AssociatedResourcesDetails = $ResourceAssociation.AssociatedResourcesDetails
             CreationDate = $item.createdDateTime
             CreationInDays = $CreationInDays
+            LastSignIn = $LastSignIn
+            LastSignInDays = $LastSignInDays
             FederatedCreds = $FederatedCredsCount
             FederatedCredsDetails = $FederatedCredsDetails
             AzureRolesDirect = $AzureRolesDirect
@@ -1081,7 +1122,7 @@ function Invoke-CheckManagedIdentities {
     $SortedManagedIdentitiesByRisk = $AllServicePrincipal | Sort-Object Risk -Descending
 
     #Define output of the main table
-    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     
     #Define the managed identities to be displayed in detail
     $details = $SortedManagedIdentitiesByRisk
@@ -1111,7 +1152,8 @@ function Invoke-CheckManagedIdentities {
             "App Name" = $($item.DisplayName)
             "App Client-ID" = $($item.AppId)
             "App Object-ID" = $($item.Id)
-            "CreationDate" = $($item.CreationDate)
+            "CreationDate" = ConvertTo-ManagedIdentityUtcDisplayDate -Value $item.CreationDate
+            "Last sign-in" = $item.LastSignIn
             "IdentityType" = $($item.IdentityType)
             "Object Path" = $($item.MiPath)
             "RiskScore" = $($item.Risk)
@@ -1126,7 +1168,7 @@ function Invoke-CheckManagedIdentities {
         })
 
         #Build dynamic TXT report property list
-        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","IdentityType","Object Path","RiskScore")
+        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","Last sign-in","IdentityType","Object Path","RiskScore")
 
         if ($item.Warnings -ne '') {
             $ReportingMIInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $item.Warnings
@@ -1444,7 +1486,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Writing report files..."
     write-host
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1541,9 +1583,9 @@ $headerHtml = @"
 
         #Write TXT and CSV files
         $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $tableOutput | format-table DisplayName,IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $tableOutput | format-table DisplayName,IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $tableOutput | select-object DisplayName,IdentityType,CreationInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+            $tableOutput | select-object DisplayName,IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
         }
         $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append

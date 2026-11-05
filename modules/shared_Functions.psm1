@@ -1826,7 +1826,7 @@ $global:GLOBALJavaScript_Table = @'
                 laptop: {
                     maxWidth: 1600,
                     columns: [
-                        "DisplayName", "IdentityType", "AssociatedResources", "GroupMembership", "GroupOwnership",
+                        "DisplayName", "IdentityType", "LastSignInDays", "AssociatedResources", "GroupMembership", "GroupOwnership",
                         "AppOwnership", "BlueprintOwn", "SpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxLevel",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiMisc",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -1835,7 +1835,7 @@ $global:GLOBALJavaScript_Table = @'
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "DisplayName", "AssociatedResources", "GroupMembership", "GroupOwnership",
+                        "DisplayName", "LastSignInDays", "AssociatedResources", "GroupMembership", "GroupOwnership",
                         "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxLevel",
                         "ApiDangerous", "ApiHigh", "ApiMedium",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -2077,6 +2077,9 @@ $global:GLOBALJavaScript_Table = @'
 
         function getColumnTooltip(column) {
             const currentManifest = window.__reportManifest;
+            if (column === "LastSignInDays" && currentManifest && currentManifest.currentReportKey === "MI") {
+                return "Days since last observed sign-in activity.";
+            }
             if (column === "Enabled" && currentManifest && currentManifest.currentReportKey === "EA") {
                 return "Whether the SP is effectively enabled, considering this tenant, the home tenant, and Microsoft disablement.";
             }
