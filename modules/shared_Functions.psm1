@@ -564,7 +564,7 @@ $global:GLOBALJavaScript_Table = @'
                         ApiDangerous: "or_>0",
                         ApiHigh: "or_>0",
                         ApiMedium: "or_>0",
-                        AppOwn: "or_>0",
+                        AppOwnership: "or_>0",
                         BlueprintOwn: "or_>0",
                         SpOwn: "or_>0",
                         EntraMaxTier: "or_Tier-0||Tier-1",
@@ -609,6 +609,39 @@ $global:GLOBALJavaScript_Table = @'
                     },
                     columns: ["DisplayName", "IdentityType", "GroupMembership", "GroupOwnership", "AzureRoles", "AzureMaxLevel", "Impact", "Likelihood", "Risk", "Warnings"],
                     sort: { column: "AzureMaxImpact", direction: "desc" }
+                },
+                {
+                    id: "PVM-005",
+                    group: "Lifecycle",
+                    description: "Managed identities marked inactive by the 180-day activity assessment",
+                    label: "Inactive Managed Identities",
+                    filters: {
+                        Inactive: "=true"
+                    },
+                    columns: ["DisplayName", "IdentityType", "Inactive", "CreationInDays", "LastSignInDays", "FederatedCreds", "AssociatedResources", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "ApiDangerous", "ApiHigh", "ApiMedium", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVM-006",
+                    group: "Configuration",
+                    description: "Managed identities with federated identity credentials",
+                    label: "Federated Managed Identities",
+                    filters: {
+                        FederatedCreds: ">0"
+                    },
+                    columns: ["DisplayName", "IdentityType", "Inactive", "LastSignInDays", "FederatedCreds", "AssociatedResources", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "ApiDangerous", "ApiHigh", "ApiMedium", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
+                },
+                {
+                    id: "PVM-007",
+                    group: "Configuration",
+                    description: "Managed identities associated with more than one Azure resource",
+                    label: "Multiple Associated Resources",
+                    filters: {
+                        AssociatedResources: ">1"
+                    },
+                    columns: ["DisplayName", "IdentityType", "Inactive", "LastSignInDays", "FederatedCreds", "AssociatedResources", "EntraRoles", "EntraMaxTier", "AzureRoles", "AzureMaxLevel", "ApiDangerous", "ApiHigh", "ApiMedium", "Impact", "Likelihood", "Risk", "Warnings"],
+                    sort: { column: "Risk", direction: "desc" }
                 }
             ],
             "Access Packages": [
