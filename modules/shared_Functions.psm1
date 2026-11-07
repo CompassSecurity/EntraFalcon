@@ -1826,7 +1826,7 @@ $global:GLOBALJavaScript_Table = @'
                 laptop: {
                     maxWidth: 1600,
                     columns: [
-                        "DisplayName", "IdentityType", "LastSignInDays", "AssociatedResources", "GroupMembership", "GroupOwnership",
+                        "DisplayName", "IdentityType", "Inactive", "LastSignInDays", "AssociatedResources", "GroupMembership", "GroupOwnership",
                         "AppOwnership", "BlueprintOwn", "SpOwn", "CatalogRBAC", "EntraMaxTier", "AzureMaxLevel",
                         "ApiDangerous", "ApiHigh", "ApiMedium", "ApiMisc",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -1835,7 +1835,7 @@ $global:GLOBALJavaScript_Table = @'
                 compact: {
                     maxWidth: 1200,
                     columns: [
-                        "DisplayName", "LastSignInDays", "AssociatedResources", "GroupMembership", "GroupOwnership",
+                        "DisplayName", "Inactive", "LastSignInDays", "AssociatedResources", "GroupMembership", "GroupOwnership",
                         "AppOwnership", "BlueprintOwn", "SpOwn", "EntraMaxTier", "AzureMaxLevel",
                         "ApiDangerous", "ApiHigh", "ApiMedium",
                         "Impact", "Likelihood", "Risk", "Warnings"
@@ -2079,6 +2079,9 @@ $global:GLOBALJavaScript_Table = @'
             const currentManifest = window.__reportManifest;
             if (column === "LastSignInDays" && currentManifest && currentManifest.currentReportKey === "MI") {
                 return "Days since last observed sign-in activity.";
+            }
+            if (column === "Inactive" && currentManifest && currentManifest.currentReportKey === "MI") {
+                return "No observed client sign-in for 180+ days; uses creation age when no activity was returned.";
             }
             if (column === "Enabled" && currentManifest && currentManifest.currentReportKey === "EA") {
                 return "Whether the SP is effectively enabled, considering this tenant, the home tenant, and Microsoft disablement.";
@@ -8351,6 +8354,7 @@ function Get-ServicePrincipalSignInActivityLookup {
 
             lastSignInAppAsClient = $lastSignInAppAsClientInfo.Display
             lastSignInAppAsClientDays = $lastSignInAppAsClientInfo.Days
+            lastSignInAppAsClientState = $lastSignInAppAsClientInfo.State
 
             lastSignInAppAsResource = $lastSignInAppAsResourceInfo.Display
             lastSignInAppAsResourceDays = $lastSignInAppAsResourceInfo.Days
@@ -8607,7 +8611,10 @@ function AuthenticationMSGraph {
 function AuthenticationAzurePSNative {
    
     #Get tokens for Azure ARM API
-    invoke-EntraFalconAuth -Action Auth -Purpose Azure @GLOBALAuthMethods
+    if (-not (invoke-EntraFalconAuth -Action Auth -Purpose Azure @GLOBALAuthMethods)) {
+        Write-Host "[!] Authentication failed (ARM API)"
+        return $false
+    }
     if (AuthCheckAzPSnative) {
         $result = $true
     } else {

@@ -3,6 +3,53 @@
    Enumerate Managed Identities (including: API Permission, Source Tenant, Groups, Roles).
 #>
 
+$script:ManagedIdentityFederationGuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+$script:ManagedIdentityFederationRegexOptions = [Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [Text.RegularExpressions.RegexOptions]::CultureInvariant
+$script:ManagedIdentityFederationIssuerPatterns = @(
+    '\Ahttps://login\.microsoftonline\.com/(?<tid>{0})/v2\.0/?\z',
+    '\Ahttps://sts\.windows\.net/(?<tid>{0})/?\z',
+    '\Ahttps://[a-z0-9-]+\.oic\.prod-aks\.azure\.com/(?<tid>{0})/{0}/?\z',
+    '\Ahttps://[a-z0-9-]+\.oic\.prod-arc\.azure\.com/(?<tid>{0})/{0}/?\z'
+) | ForEach-Object {
+    [regex]::new(($_ -f $script:ManagedIdentityFederationGuidPattern), $script:ManagedIdentityFederationRegexOptions)
+}
+
+function Get-ManagedIdentityFederationTrust {
+    param([string]$Issuer, [string]$TenantId)
+
+    $trust = [pscustomobject]@{ TenantBoundary='Unknown'; IssuerTenantId=$null }
+    $issuerUri = $null
+    if (-not [uri]::TryCreate($Issuer, [UriKind]::Absolute, [ref]$issuerUri) -or
+        $issuerUri.Scheme -ne 'https' -or [string]::IsNullOrWhiteSpace($issuerUri.Host)) {
+        return $trust
+    }
+
+    # Match the original issuer: URI path normalization differs between supported runtimes.
+    foreach ($pattern in $script:ManagedIdentityFederationIssuerPatterns) {
+        $issuerMatch = $pattern.Match($Issuer)
+        if (-not $issuerMatch.Success) { continue }
+        $sourceTenant = [guid]::Empty
+        $assessedTenant = [guid]::Empty
+        if ([guid]::TryParse($issuerMatch.Groups['tid'].Value, [ref]$sourceTenant)) {
+            $trust.IssuerTenantId = $sourceTenant.ToString('D')
+            if ([guid]::TryParse($TenantId, [ref]$assessedTenant)) {
+                $trust.TenantBoundary = if ($sourceTenant -eq $assessedTenant) { 'SameTenant' } else { 'OutsideTenant' }
+            }
+        }
+        return $trust
+    }
+
+    $issuerHost = $issuerUri.Host.ToLowerInvariant()
+    $unresolvedAzureHosts = @('login.microsoftonline.com', 'sts.windows.net', 'oidc.prod-aks.azure.com',
+        'vstoken.dev.azure.com', 'app.vstoken.visualstudio.com')
+    if ($issuerHost -notin $unresolvedAzureHosts -and
+        -not $issuerHost.EndsWith('.oic.prod-aks.azure.com', [StringComparison]::OrdinalIgnoreCase) -and
+        -not $issuerHost.EndsWith('.oic.prod-arc.azure.com', [StringComparison]::OrdinalIgnoreCase)) {
+        $trust.TenantBoundary = 'OutsideTenant'
+    }
+    return $trust
+}
+
 function ConvertTo-ManagedIdentityResourceRecord {
     param([string]$ResourceId, [string]$Name, [string]$SubscriptionName)
 
@@ -119,7 +166,7 @@ function Invoke-ManagedIdentityAssociationRequest {
             } -DisablePagination -MaxRetries 2 -Silent -UserAgent $GlobalAuditSummary.UserAgent.Name -ErrorAction Stop
             return
         } catch {
-            $authenticationError = ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::AuthenticationError -or $_.Exception.Message -match '\b401\b')
+            $authenticationError = ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::AuthenticationError)
             if (-not $authenticationError) { throw }
             if ($renewed) {
                 $State.Unavailable = $true
@@ -302,22 +349,19 @@ function Invoke-CheckManagedIdentities {
     $AllObjectDetailsHTML = [System.Collections.ArrayList]::new()
     $SPImpactScore = @{
         "Base"                     = 1
-        "CAPGroupOwner"             = 100
-        "InheritedHighValue"        = 200
         "APIDangerous"              = 800
         "APIHigh"                   = 400
         "APIMedium"                 = 100
         "APILow"                    = 50
         "ApiMisc"                   = 20
 	    "GroupMember"               = 5
-	    "GroupOwner"                = 5
-        "AppRole"                   = 2
     }
 
     $SPLikelihoodScore = @{
         "Base"          	        = 1
         "AdditionalResource"         = 1
         "FederatedCredential"        = 1
+        "OutsideTenantFederation"    = 1
         "Maximum"                    = 5
     }
 
@@ -348,7 +392,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Get Managed Identities"
     $QueryParameters = @{
         '$filter' = "ServicePrincipalType eq 'ManagedIdentity'"
-        '$select' = "Id,DisplayName,AppId,AppRoles,servicePrincipalType,createdDateTime,PasswordCredentials,KeyCredentials,AlternativeNames"
+        '$select' = "Id,DisplayName,AppId,servicePrincipalType,createdDateTime,PasswordCredentials,KeyCredentials,AlternativeNames"
         '$top' = $ApiTop
     }
     # A partial list cannot be told apart from a complete one, so fail instead of reporting an
@@ -424,22 +468,31 @@ function Invoke-CheckManagedIdentities {
     
     #region Processing Loop
     #Loop through each Managed Identity and get additional info and store it in a custom object
+    $signInLookupAvailable = ($PSBoundParameters.ContainsKey('ServicePrincipalSignInActivityLookup') -and $global:GLOBALSpSignInActivityAvailable -eq $true)
     foreach ($item in $ManagedIdentities) {
         $ProgressCounter++
         $LastSignIn = '?'
         $LastSignInDays = '?'
-        if ($global:GLOBALSpSignInActivityAvailable -ne $false -and
-            -not [string]::IsNullOrWhiteSpace([string]$item.AppId) -and
-            $ServicePrincipalSignInActivityLookup.ContainsKey([string]$item.AppId)) {
-            $activity = $ServicePrincipalSignInActivityLookup[[string]$item.AppId]
-            $clientDate = [datetime]::MinValue
-            $clientDays = 0
-            if ([datetime]::TryParseExact([string]$activity.lastSignInAppAsClient, "yyyy-MM-dd HH:mm:ss 'UTC'",
-                    [Globalization.CultureInfo]::InvariantCulture,
-                    [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$clientDate) -and
-                [int]::TryParse([string]$activity.lastSignInAppAsClientDays, [ref]$clientDays) -and $clientDays -ge 0) {
-                $LastSignIn = $activity.lastSignInAppAsClient
-                $LastSignInDays = $clientDays
+        if ($signInLookupAvailable -and -not [string]::IsNullOrWhiteSpace([string]$item.AppId)) {
+            if (-not $ServicePrincipalSignInActivityLookup.ContainsKey([string]$item.AppId)) {
+                $LastSignIn = '-'
+                $LastSignInDays = '-'
+            } else {
+                $activity = $ServicePrincipalSignInActivityLookup[[string]$item.AppId]
+                if ($activity.lastSignInAppAsClientState -eq 'Missing') {
+                    $LastSignIn = '-'
+                    $LastSignInDays = '-'
+                } elseif ($activity.lastSignInAppAsClientState -eq 'Valid') {
+                    $clientDate = [datetime]::MinValue
+                    $clientDays = 0
+                    if ([datetime]::TryParseExact([string]$activity.lastSignInAppAsClient, "yyyy-MM-dd HH:mm:ss 'UTC'",
+                            [Globalization.CultureInfo]::InvariantCulture,
+                            [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$clientDate) -and
+                        [int]::TryParse([string]$activity.lastSignInAppAsClientDays, [ref]$clientDays) -and $clientDays -ge 0) {
+                        $LastSignIn = $activity.lastSignInAppAsClient
+                        $LastSignInDays = $clientDays
+                    }
+                }
             }
         }
         $ImpactScore = $SPImpactScore["Base"]
@@ -460,9 +513,12 @@ function Invoke-CheckManagedIdentities {
         $FederatedCredsDetails = @(
             if ($FederatedCredsRaw.ContainsKey($miIdKey)) {
                 foreach ($credential in $FederatedCredsRaw[$miIdKey]) {
+                    $trust = Get-ManagedIdentityFederationTrust -Issuer $credential.issuer -TenantId ([string]$CurrentTenant.Id)
                     [pscustomobject]@{
                         Id          = $credential.id
                         Name        = $credential.name
+                        TenantBoundary = $trust.TenantBoundary
+                        IssuerTenantId = $trust.IssuerTenantId
                         Issuer      = $credential.issuer
                         Subject     = $credential.subject
                         Audiences   = @($credential.audiences)
@@ -997,6 +1053,10 @@ function Invoke-CheckManagedIdentities {
         $federatedCredentialCount = @($FederatedCredsDetails | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Id) } | ForEach-Object { $_.Id } | Sort-Object -Unique).Count
         $LikelihoodScore += [math]::Max(0, $associatedResourceCount - 1) * $SPLikelihoodScore["AdditionalResource"]
         $LikelihoodScore += $federatedCredentialCount * $SPLikelihoodScore["FederatedCredential"]
+        if (@($FederatedCredsDetails | Where-Object TenantBoundary -eq 'OutsideTenant').Count -gt 0) {
+            $LikelihoodScore += $SPLikelihoodScore["OutsideTenantFederation"]
+            $Warnings += "External federation configured."
+        }
         $LikelihoodScore = [math]::Min($SPLikelihoodScore["Maximum"], $LikelihoodScore)
 
         # Calculate days since creation
@@ -1008,6 +1068,9 @@ function Invoke-CheckManagedIdentities {
         } else {
             "-"
         }
+
+        $Inactive = Test-EntraFalconServicePrincipalInactive -SignInData @{ lastSignInDays = $LastSignInDays } `
+            -CreationInDays $CreationInDays -ActivityAvailable ($LastSignInDays -ne '?')
 
         # Build the warning parts dynamically
         [string[]]$severities = @()
@@ -1084,6 +1147,7 @@ function Invoke-CheckManagedIdentities {
             AssociatedResourcesDetails = $ResourceAssociation.AssociatedResourcesDetails
             CreationDate = $item.createdDateTime
             CreationInDays = $CreationInDays
+            Inactive = $Inactive
             LastSignIn = $LastSignIn
             LastSignInDays = $LastSignInDays
             FederatedCreds = $FederatedCredsCount
@@ -1122,7 +1186,7 @@ function Invoke-CheckManagedIdentities {
     $SortedManagedIdentitiesByRisk = $AllServicePrincipal | Sort-Object Risk -Descending
 
     #Define output of the main table
-    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $tableOutput = $SortedManagedIdentitiesByRisk | select-object DisplayName,DisplayNameLink,IdentityType,Inactive,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AppCredentials,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     
     #Define the managed identities to be displayed in detail
     $details = $SortedManagedIdentitiesByRisk
@@ -1149,11 +1213,12 @@ function Invoke-CheckManagedIdentities {
 
         ############### HEADER
         $ReportingMIInfo = [pscustomobject]@{
-            "App Name" = $($item.DisplayName)
-            "App Client-ID" = $($item.AppId)
-            "App Object-ID" = $($item.Id)
+            "Identity name" = $($item.DisplayName)
+            "Client ID" = $($item.AppId)
+            "Object ID" = $($item.Id)
             "CreationDate" = ConvertTo-ManagedIdentityUtcDisplayDate -Value $item.CreationDate
             "Last sign-in" = $item.LastSignIn
+            "Inactive" = $item.Inactive
             "IdentityType" = $($item.IdentityType)
             "Object Path" = $($item.MiPath)
             "RiskScore" = $($item.Risk)
@@ -1168,7 +1233,7 @@ function Invoke-CheckManagedIdentities {
         })
 
         #Build dynamic TXT report property list
-        $TxtReportProps = @("App Name","App Client-ID","App Object-ID","CreationDate","Last sign-in","IdentityType","Object Path","RiskScore")
+        $TxtReportProps = @("Identity name","Client ID","Object ID","CreationDate","Last sign-in","Inactive","IdentityType","Object Path","RiskScore")
 
         if ($item.Warnings -ne '') {
             $ReportingMIInfo | Add-Member -NotePropertyName Warnings -NotePropertyValue $item.Warnings
@@ -1410,6 +1475,11 @@ function Invoke-CheckManagedIdentities {
             foreach ($credential in $item.FederatedCredsDetails) {
                 [pscustomobject]@{
                     Name        = $credential.Name
+                    'Federation boundary' = switch ($credential.TenantBoundary) {
+                        'SameTenant' { 'This tenant' }
+                        'OutsideTenant' { 'External' }
+                        default { 'Unknown' }
+                    }
                     Issuer      = $credential.Issuer
                     Subject     = $credential.Subject
                     Audiences   = $credential.Audiences -join ', '
@@ -1430,7 +1500,7 @@ function Invoke-CheckManagedIdentities {
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
             [void]$DetailTxtBuilder.AppendLine("Federated Identity Credentials`n")
             [void]$DetailTxtBuilder.AppendLine("================================================================================================`n")
-            [void]$DetailTxtBuilder.AppendLine(($ReportingFederatedCredsTxt | Format-List -Property Name,Issuer,Subject,Audiences,Description | Out-String -Width 512))
+            [void]$DetailTxtBuilder.AppendLine(($ReportingFederatedCredsTxt | Format-List -Property Name,'Federation boundary',Issuer,Subject,Audiences,Description | Out-String -Width 512))
         }
 
         if (($item.CatalogRbacDetails | Measure-Object).Count -ge 1) {
@@ -1486,7 +1556,7 @@ function Invoke-CheckManagedIdentities {
     write-host "[*] Writing report files..."
     write-host
 
-    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
+    $mainTable = $tableOutput | select-object -Property @{Name = "DisplayName"; Expression = { $_.DisplayNameLink}},IdentityType,Inactive,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings
     $mainTableJson  = $mainTable | ConvertTo-Json -Depth 5 -Compress
 
     $mainTableHTML = $GLOBALMainTableDetailsHEAD + "`n" + $mainTableJson + "`n" + '</script>'
@@ -1583,9 +1653,9 @@ $headerHtml = @"
 
         #Write TXT and CSV files
         $headerTXT | Out-File -Width 512 -FilePath "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
-        $tableOutput | format-table DisplayName,IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
+        $tableOutput | format-table DisplayName,IdentityType,Inactive,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Out-File -Width 512 "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         if ($Csv) {
-            $tableOutput | select-object DisplayName,IdentityType,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
+            $tableOutput | select-object DisplayName,IdentityType,Inactive,CreationInDays,LastSignInDays,FederatedCreds,AssociatedResources,GroupMembership,GroupOwnership,AppOwnership,BlueprintOwn,SpOwn,EntraRoles,EntraMaxTier,AzureRoles,AzureMaxTier,AzureMaxLevel,AzureMaxImpact,CatalogRBAC,ApiDangerous, ApiHigh, ApiMedium, ApiLow, ApiMisc,Impact,Likelihood,Risk,Warnings | Export-Csv -Path "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).csv" -NoTypeInformation -Encoding UTF8
         }
         $DetailOutputTxt | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
         $AppendixHeaderTXT | Out-File "$outputFolder\$($Title)_$($StartTimestamp)_$($CurrentTenant.FileSafeDisplayName).txt" -Append
