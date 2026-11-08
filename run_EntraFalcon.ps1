@@ -194,32 +194,43 @@ Param (
 )
 
 #Constants
-$EntraFalconVersion = "V20261014_PRE"
+$EntraFalconVersion = "V20261108"
 
-# Import shared functions
-$ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-Import-Module (Join-Path $ScriptRoot 'modules\EntraTokenAid.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\Send-ApiRequest.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\shared_Functions.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_Groups.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_EnterpriseApps.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_AppRegistrations.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_Users.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_ManagedIdentities.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_Roles.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_CAPs.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_AccessPackages.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_Catalogs.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphBatchRequest.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphRequest.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\export_Summary.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_PIM.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_PIMGroups.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_Tenant.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentityBlueprints.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentityBlueprintsPrincipals.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentities.psm1') -Force
-Import-Module (Join-Path $ScriptRoot 'modules\check_AgentsFinalize.psm1') -Force
+# Pasted code uses functions already loaded in the session.
+$ScriptRoot = if ($PSScriptRoot) {
+    $PSScriptRoot
+} elseif ($MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    $null
+}
+
+if ($ScriptRoot) {
+    Import-Module (Join-Path $ScriptRoot 'modules\EntraTokenAid.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\Send-ApiRequest.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\shared_Functions.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_Groups.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_EnterpriseApps.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_AppRegistrations.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_Users.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_ManagedIdentities.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_Roles.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_CAPs.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_AccessPackages.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_Catalogs.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphBatchRequest.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\Send-GraphRequest.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\export_Summary.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_PIM.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_PIMGroups.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_Tenant.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentityBlueprints.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentityBlueprintsPrincipals.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_AgentIdentities.psm1') -Force
+    Import-Module (Join-Path $ScriptRoot 'modules\check_AgentsFinalize.psm1') -Force
+} else {
+    $ScriptRoot = (Get-Location).Path
+}
 
 if ($AuthFlow -ne "BroCiToken" -and -not [string]::IsNullOrWhiteSpace($BroCiToken)) {
     Write-Error "Invalid parameter combination: -BroCiToken can only be used with -AuthFlow BroCiToken." -ErrorAction Stop
@@ -522,7 +533,7 @@ $AppRoleReferenceCache = @{}
 $EnterpriseApps = Invoke-CheckEnterpriseApps -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -AllUsersBasicHT $AllUsersBasicHT -AgentObjectBasics $AgentObjectBasics -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup -AppRoleReferenceCacheOut ([ref]$AppRoleReferenceCache) -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable $CatalogRbacAssessmentComplete @optionalParamsET @optionalParamsOutput
 
 write-host "`n********************************** [3/18] Enumerating Managed Identities **********************************"
-$ManagedIdentities = Invoke-CheckManagedIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AgentObjectBasics $AgentObjectBasics -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -ApiTop $ApiTop -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable $CatalogRbacAssessmentComplete @optionalParamsOutput
+$ManagedIdentities = Invoke-CheckManagedIdentities -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -AzureIAMAssignments $AzureIAMAssignments -AgentObjectBasics $AgentObjectBasics -AppRoleReferenceCache $AppRoleReferenceCache -TenantRoleAssignments $TenantRoleAssignments -AllGroupsDetails $AllGroupsDetails -OutputFolder $OutputFolder -ApiTop $ApiTop -ServicePrincipalSignInActivityLookup $ServicePrincipalSignInActivityLookup -CatalogRbacPrincipalIndex $CatalogRbacPrincipalIndex -CatalogRbacAssessmentAvailable $CatalogRbacAssessmentComplete @optionalParamsOutput
 
 write-host "`n********************************** [4/18] Enumerating App Registrations **********************************"
 $AppRegistrations = Invoke-CheckAppRegistrations -CurrentTenant $CurrentTenant -StartTimestamp $StartTimestamp -EnterpriseApps $EnterpriseApps -AllGroupsDetails $AllGroupsDetails -AgentObjectBasics $AgentObjectBasics -TenantRoleAssignments $TenantRoleAssignments -OutputFolder $OutputFolder @optionalParamsOutput
