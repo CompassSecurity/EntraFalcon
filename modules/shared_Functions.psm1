@@ -14125,10 +14125,7 @@ function invoke-EntraFalconAuth {
     }
 
     $InvokeIntuneRbacBroCiRefresh = {
-        $refreshToken = $null
-        if ($GLOBALBrociAccessToken -and $null -ne $GLOBALBrociAccessToken.PSObject.Properties['refresh_token']) {
-            $refreshToken = $GLOBALBrociAccessToken.refresh_token
-        }
+        $refreshToken = $GLOBALBrociAccessToken.refresh_token
         if ([string]::IsNullOrWhiteSpace([string]$refreshToken)) {
             throw "BroCi refresh token is not available for Intune RBAC authentication."
         }
